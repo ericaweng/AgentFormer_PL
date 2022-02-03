@@ -2,6 +2,8 @@ from data.nuscenes_pred_split import get_nuscenes_pred_split
 import os, random, numpy as np, copy
 
 from .preprocessor import preprocess
+from .preprocessor_sdd import SDDPreprocess
+from .stanford_drone_split import get_stanford_drone_split
 from .ethucy_split import get_ethucy_split
 from utils.utils import print_log
 
@@ -25,10 +27,13 @@ class data_generator(object):
             data_root = parser.data_root_ethucy            
             seq_train, seq_val, seq_test = get_ethucy_split(parser.dataset)
             self.init_frame = 0
+        elif parser.dataset == 'trajnet_sdd':
+            data_root = parser.data_root_trajnet_sdd
+            seq_train, seq_val, seq_test = get_stanford_drone_split()
         else:
             raise ValueError('Unknown dataset!')
 
-        process_func = preprocess
+        process_func = SDDPreprocess if 'sdd' in parser.dataset else preprocess
         self.data_root = data_root
 
         print_log("\n-------------------------- loading %s data --------------------------" % split, log=log)
