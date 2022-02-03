@@ -11,7 +11,7 @@ data_root_trajnet_sdd: datasets/trajnet_split
 
 # ------------------- Feature Extractor -------------------------
 
-frame_skip: 12
+frame_skip: 1
 past_frames: 8
 future_frames: 12
 min_past_frames: 8

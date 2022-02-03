@@ -3,6 +3,7 @@ import numpy as np
 import argparse
 from data.nuscenes_pred_split import get_nuscenes_pred_split
 from data.ethucy_split import get_ethucy_split
+from data.stanford_drone_split import get_stanford_drone_split
 from utils.utils import print_log, AverageMeter, isfile, print_log, AverageMeter, isfile, isfolder, find_unique_common_from_lists, load_list_from_folder, load_txt_file
 
 
@@ -52,15 +53,31 @@ if __name__ == '__main__':
     dataset = args.dataset.lower()
     results_dir = args.results_dir
     
+    resize = 1.0
     if dataset == 'nuscenes_pred':   # nuscenes
         data_root = f'datasets/nuscenes_pred'
         gt_dir = f'{data_root}/label/{args.data}'
         seq_train, seq_val, seq_test = get_nuscenes_pred_split(data_root)
         seq_eval = globals()[f'seq_{args.data}']
-    else:                            # ETH/UCY
+    elif dataset == 'trajnet_sdd':
+        data_root = 'datasets/trajnet_split'
+        # data_root = 'datasets/stanford_drone_all'
+        gt_dir = f'{data_root}/{args.data}'
+        seq_train, seq_val, seq_test = get_stanford_drone_split()
+        seq_eval = globals()[f'seq_{args.data}']
+        # resize = 0.25
+        indices = [0, 1, 2, 3]
+    elif dataset == 'sdd':
+        data_root = 'datasets/stanford_drone_all'
+        gt_dir = f'{data_root}/{args.data}'
+        seq_train, seq_val, seq_test = get_stanford_drone_split()
+        seq_eval = globals()[f'seq_{args.data}']
+        indices = [0, 1, 2, 3]
+    else:  # ETH/UCY
         gt_dir = f'datasets/eth_ucy/{args.dataset}'
         seq_train, seq_val, seq_test = get_ethucy_split(args.dataset)
         seq_eval = globals()[f'seq_{args.data}']
+        indices = [0, 1, 13, 15]
 
     if args.log_file is None:
         log_file = os.path.join(results_dir, 'log_eval.txt')
@@ -84,7 +101,8 @@ if __name__ == '__main__':
         gt_data, _ = load_txt_file(os.path.join(gt_dir, seq_name+'.txt'))
         gt_raw = []
         for line_data in gt_data:
-            line_data = np.array([line_data.split(' ')])[:, [0, 1, 13, 15]][0].astype('float32')
+            line_data = np.array([line_data.split(' ')])[:, indices][0].astype('float32')
+            line_data[2:4] = line_data[2:4] * resize
             if line_data[1] == -1: continue
             gt_raw.append(line_data)
         gt_raw = np.stack(gt_raw)

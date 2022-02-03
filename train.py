@@ -34,6 +34,7 @@ def train(epoch):
     train_loss_meter = {x: AverageMeter() for x in cfg.loss_cfg.keys()}
     train_loss_meter['total_loss'] = AverageMeter()
     last_generator_index = 0
+    seq, frame = None, None
     while not generator.is_epoch_end():
         data = generator()
         if data is not None:
@@ -113,6 +114,7 @@ if __name__ == '__main__':
             scheduler.load_state_dict(model_cp['scheduler_dict'])
 
     """ start training """
+    print("Start Training")
     model.set_device(device)
     model.train()
     for i in range(args.start_epoch, cfg.num_epochs):

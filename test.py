@@ -20,10 +20,15 @@ def get_model_prediction(data, sample_k):
     sample_motion_3D = sample_motion_3D.transpose(0, 1).contiguous()
     return recon_motion_3D, sample_motion_3D
 
-def save_prediction(pred, data, suffix, save_dir):
+def save_prediction(pred, data, suffix, save_dir, scale=1.0):
     pred_num = 0
     pred_arr = []
     fut_data, seq_name, frame, valid_id, pred_mask = data['fut_data'], data['seq'], data['frame'], data['valid_id'], data['pred_mask']
+    if 'sdd' in cfg.dataset:
+        indices = [0, 1, 2, 3]
+    else:
+        # frame, ID, x, z (remove y which is the height)
+        indices = [0, 1, 13, 15]
 
     for i in range(len(valid_id)):    # number of agents
         identity = valid_id[i]
@@ -38,14 +43,20 @@ def save_prediction(pred, data, suffix, save_dir):
             else:
                 data = most_recent_data.copy()
                 data[0] = frame + j + 1
-            data[[13, 15]] = pred[i, j].cpu().numpy()   # [13, 15] corresponds to 2D pos
+            
+            if 'sdd' in cfg.dataset:
+                data[[2, 3]] = pred[i, j].cpu().numpy(
+                ) / scale  # [13, 15] corresponds to 2D pos
+            else:
+                data[[
+                    13, 15
+                ]] = pred[i, j].cpu().numpy()  # [13, 15] corresponds to 2D pos
             most_recent_data = data.copy()
             pred_arr.append(data)
         pred_num += 1
 
     if len(pred_arr) > 0:
         pred_arr = np.vstack(pred_arr)
-        indices = [0, 1, 13, 15]            # frame, ID, x, z (remove y which is the height)
         pred_arr = pred_arr[:, indices]
         # save results
         fname = f'{save_dir}/{seq_name}/frame_{int(frame):06d}{suffix}.txt'

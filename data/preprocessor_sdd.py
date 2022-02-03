@@ -28,7 +28,11 @@ class SDDPreprocess(object):
         delimiter = ' '
 
         self.gt = np.genfromtxt(label_path, delimiter=delimiter, dtype=str)
-        frames = self.gt[:, 0].astype(np.float32).astype(np.int)
+        assert np.all(self.gt[:, 0].astype(np.int) % 12) == 0
+        self.gt = self.gt.astype('float32')
+        self.gt[:, 0] = np.round(self.gt[:, 0] / 12.0)
+
+        frames = self.gt[:, 0].astype(np.int)
         fr_start, fr_end = frames.min(), frames.max()
         self.init_frame = fr_start
         self.num_fr = fr_end + 1 - fr_start
@@ -38,7 +42,6 @@ class SDDPreprocess(object):
         else:
             self.geom_scene_map = None
 
-        self.gt = self.gt.astype('float32')
         self.xind, self.zind = 2, 3
 
     def GetID(self, data):
