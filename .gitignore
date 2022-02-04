@@ -1,3 +1,5 @@
 /datasets
+/results
+script*.sh
 *.pyc
 *.code-workspace
