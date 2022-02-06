@@ -79,11 +79,16 @@ class SDDPreprocess(object):
                 valid_id.append(idx)
         return valid_id
 
-    def get_pred_mask(self, cur_data, valid_id):
-        pred_mask = np.zeros(len(valid_id), dtype=np.int)
-        for i, idx in enumerate(valid_id):
-            pred_mask[i] = cur_data[cur_data[:, 1] == idx].squeeze()[-1]
-        return pred_mask
+    def get_pred_mask(self, valid_id, pre_data, fut_data):
+        pred_mask = []
+        for idx in valid_id:
+            exist_pre = [(False if isinstance(data, list) else (idx in data[:, 1])) for data in pre_data[:self.past_frames]]
+            exist_fut = [(False if isinstance(data, list) else (idx in data[:, 1])) for data in fut_data[:self.future_frames]]
+            if np.all(exist_pre) and np.all(exist_fut):
+                pred_mask.append(1)
+            else:
+                pred_mask.append(-1)
+        return np.array(pred_mask)
 
     def get_heading(self, cur_data, valid_id):
         heading = np.zeros(len(valid_id))
@@ -155,12 +160,8 @@ class SDDPreprocess(object):
         if len(pre_data[0]) == 0 or len(fut_data[0]) == 0 or len(valid_id) == 0:
             return None
 
-        if self.dataset == 'nuscenes_pred':
-            pred_mask = self.get_pred_mask(pre_data[0], valid_id)
-            heading = self.get_heading(pre_data[0], valid_id)
-        else:
-            pred_mask = None
-            heading = None
+        pred_mask = self.get_pred_mask(valid_id, pre_data, fut_data)
+        heading = None
 
         pre_motion_3D, pre_motion_mask = self.PreMotion(pre_data, valid_id)
         fut_motion_3D, fut_motion_mask = self.FutureMotion(fut_data, valid_id)

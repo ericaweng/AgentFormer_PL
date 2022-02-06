@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import argparse
+import pandas as pd
+from filelock import FileLock
 from data.nuscenes_pred_split import get_nuscenes_pred_split
 from data.ethucy_split import get_ethucy_split
 from data.stanford_drone_split import get_stanford_drone_split
@@ -40,12 +42,38 @@ def align_gt(pred, gt):
     pred_new = pred[:, index_list2, 2:]
     return pred_new, gt_new
 
+def write_metrics_to_csv(stats_meter, csv_file, label, results_dir, epoch, data):
+    lock = FileLock(f'{csv_file}.lock')
+    with lock:
+        df = pd.read_csv(csv_file)
+        if not ((df['label'] == label) & (df['epoch'] == epoch)).any():
+            df = df.append({'label': label, 'epoch': epoch}, ignore_index=True)
+        index = (df['label'] == label) & (df['epoch'] == epoch)
+        df.loc[index, 'results_dir'] = results_dir
+        for metric, meter in stats_meter.items():
+            mname = ('' if data != 'train' else 'train_') + metric
+            if mname not in df.columns:
+                if data != 'train':
+                    ind = 0
+                    for i, col in enumerate(df.columns):
+                        if 'train' in col:
+                            ind = i
+                            break
+                else:
+                    ind = len(df.columns)-1
+                df.insert(ind, mname, 0)
+            df.loc[index, mname] = meter.avg
+        df.to_csv(csv_file, index=False, float_format='%f')
+
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default='nuscenes_pred')
     parser.add_argument('--results_dir', default=None)
+    parser.add_argument('--label', default='')
+    parser.add_argument('--epoch', type=int, default=-1)
+    parser.add_argument('--sample_num', type=int, default=5)
     parser.add_argument('--data', default='test')
     parser.add_argument('--log_file', default=None)
     args = parser.parse_args()
@@ -59,6 +87,7 @@ if __name__ == '__main__':
         gt_dir = f'{data_root}/label/{args.data}'
         seq_train, seq_val, seq_test = get_nuscenes_pred_split(data_root)
         seq_eval = globals()[f'seq_{args.data}']
+        csv_file = f'metrics/metrics_nup{args.sample_num}.csv'
     elif dataset == 'trajnet_sdd':
         data_root = 'datasets/trajnet_split'
         # data_root = 'datasets/stanford_drone_all'
@@ -67,17 +96,20 @@ if __name__ == '__main__':
         seq_eval = globals()[f'seq_{args.data}']
         # resize = 0.25
         indices = [0, 1, 2, 3]
+        csv_file = f'metrics/metrics_trajnet_sdd.csv'
     elif dataset == 'sdd':
         data_root = 'datasets/stanford_drone_all'
         gt_dir = f'{data_root}/{args.data}'
         seq_train, seq_val, seq_test = get_stanford_drone_split()
         seq_eval = globals()[f'seq_{args.data}']
         indices = [0, 1, 2, 3]
+        csv_file = f'metrics/metrics_sdd.csv'
     else:  # ETH/UCY
         gt_dir = f'datasets/eth_ucy/{args.dataset}'
         seq_train, seq_val, seq_test = get_ethucy_split(args.dataset)
         seq_eval = globals()[f'seq_{args.data}']
         indices = [0, 1, 13, 15]
+        csv_file = f'metrics/metrics_{args.dataset}12.csv'
 
     if args.log_file is None:
         log_file = os.path.join(results_dir, 'log_eval.txt')
@@ -106,6 +138,7 @@ if __name__ == '__main__':
             if line_data[1] == -1: continue
             gt_raw.append(line_data)
         gt_raw = np.stack(gt_raw)
+        gt_raw[:, 0] = np.round(gt_raw.astype(np.float)[:, 0] / 12.0)
 
         data_filelist, _ = load_list_from_folder(os.path.join(results_dir, seq_name))    
             
@@ -156,3 +189,5 @@ if __name__ == '__main__':
         print_log(f'{meter.count} {name}: {meter.avg:.4f}', log_file)
     print_log('-' * 67, log_file)
     log_file.close()
+
+    write_metrics_to_csv(stats_meter, csv_file, args.label, results_dir, args.epoch, args.data)

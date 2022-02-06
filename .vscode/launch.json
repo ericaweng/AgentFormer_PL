@@ -20,5 +20,14 @@
             "args" : ["--cfg", "trajnet_sdd_pre", "--gpu", "0", "--tmp"],
             // "justMyCode": false,
         },
+        {
+            "name": "test",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test.py",
+            "console": "integratedTerminal",
+            "args" : ["--cfg", "trajnet_sdd_pre", "--gpu", "1", "--epoch", "50", "--cached"],
+            // "justMyCode": false,
+        },
     ]
 }

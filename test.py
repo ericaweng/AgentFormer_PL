@@ -70,6 +70,8 @@ def test_model(generator, save_dir, cfg):
         data = generator()
         if data is None:
             continue
+        if 'pred_mask' in data and np.all(data['pred_mask'] == -1):
+            continue
         seq_name, frame = data['seq'], data['frame']
         frame = int(frame)
         sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))  
@@ -108,11 +110,15 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--cached', action='store_true', default=False)
     parser.add_argument('--cleanup', action='store_true', default=False)
+    parser.add_argument('--all_epochs', action='store_true', default=False)
     args = parser.parse_args()
 
     """ setup """
     cfg = Config(args.cfg)
-    if args.epochs is None:
+    
+    if args.all_epochs:
+        epochs = range(cfg.model_save_freq, cfg.num_epochs + 1, cfg.model_save_freq)
+    elif args.epochs is None:
         epochs = [cfg.get_last_epoch()]
     else:
         epochs = [int(x) for x in args.epochs.split(',')]
@@ -148,7 +154,7 @@ if __name__ == '__main__':
                 test_model(generator, save_dir, cfg)
 
             log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
-            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --data {split} --log {log_file}"
+            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --label {args.cfg} --epoch {epoch} --sample_num {cfg.sample_k} --data {split} --log {log_file}"
             subprocess.run(cmd.split(' '))
 
             # remove eval folder to save disk space
