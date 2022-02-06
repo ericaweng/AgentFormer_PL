@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 import time
+import subprocess
 import numpy as np
 import torch
 from torch import optim
@@ -69,6 +70,7 @@ if __name__ == '__main__':
     parser.add_argument('--cfg', default='k10_res')
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--tmp', action='store_true', default=False)
+    parser.add_argument('--eval_when_train', action='store_true', default=False)
     parser.add_argument('--gpu', type=int, default=0)
     args = parser.parse_args()
 
@@ -125,3 +127,14 @@ if __name__ == '__main__':
             model_cp = {'model_dict': model.state_dict(), 'opt_dict': optimizer.state_dict(), 'scheduler_dict': scheduler.state_dict(), 'epoch': i + 1}
             torch.save(model_cp, cp_path)
 
+            if args.eval_when_train:
+                cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {i + 1}"
+                subprocess.run(cmd.split(' '))
+
+    """ testing """
+    if not args.eval_when_train:
+        del model
+        torch.cuda.empty_cache()
+        test_epochs = ','.join([str(x) for x in range(cfg.model_save_freq, cfg.num_epochs + 1, cfg.model_save_freq)])
+        cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {test_epochs}"
+        subprocess.run(cmd.split(' '))
