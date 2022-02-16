@@ -468,8 +468,10 @@ class AgentFormer(nn.Module):
             'sn_out_heading': cfg.get('sn_out_heading', False),
             'vel_heading': cfg.get('vel_heading', False),
             'learn_prior': cfg.get('learn_prior', False),
-            'use_map': cfg.get('use_map', False)
+            'use_map': cfg.get('use_map', False),
+            'use_sfm': cfg.get('use_sfm', False)
         }
+        self.use_sfm = self.ctx['use_sfm']
         self.use_map = self.ctx['use_map']
         self.rand_rot_scene = cfg.get('rand_rot_scene', False)
         self.discrete_rot = cfg.get('discrete_rot', False)
@@ -581,6 +583,9 @@ class AgentFormer(nn.Module):
         else:
             mask = torch.zeros([cur_motion.shape[0], cur_motion.shape[0]]).to(device)
         self.data['agent_mask'] = mask
+
+        # social force features
+        
 
     def step_annealer(self):
         for anl in self.param_annealers:
