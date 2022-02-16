@@ -34,6 +34,9 @@ pos_concat: true
 rand_rot_scene: true
 scene_orig_all_past: true
 use_sfm: true
+sfm_params:
+  sigma_d: 1.0
+  beta: 1.2
 
 context_encoder:
   nlayer: 2

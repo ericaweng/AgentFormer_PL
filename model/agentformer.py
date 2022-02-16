@@ -3,6 +3,7 @@ import numpy as np
 from torch import nn
 from torch.nn import functional as F
 from collections import defaultdict
+
 from .common.mlp import MLP
 from .agentformer_loss import loss_func
 from .common.dist import *
@@ -10,6 +11,7 @@ from .agentformer_lib import AgentFormerEncoderLayer, AgentFormerDecoderLayer, A
 from .map_encoder import MapEncoder
 from utils.torch import *
 from utils.utils import initialize_weights
+from model.sfm import *
 
 
 def generate_ar_mask(sz, agent_num, agent_mask):
@@ -471,6 +473,8 @@ class AgentFormer(nn.Module):
             'use_map': cfg.get('use_map', False),
             'use_sfm': cfg.get('use_sfm', False)
         }
+        self.past_frames = self.ctx['past_frames']
+        self.future_frames = self.ctx['future_frames']
         self.use_sfm = self.ctx['use_sfm']
         self.use_map = self.ctx['use_map']
         self.rand_rot_scene = cfg.get('rand_rot_scene', False)
@@ -585,7 +589,29 @@ class AgentFormer(nn.Module):
         self.data['agent_mask'] = mask
 
         # social force features
+        if self.use_sfm:
+            # past
+            sf_feat = []
+            for i in range(self.past_frames):
+                pos = self.data['pre_motion'][i]
+                vel = self.data['pre_vel'][max(0, i - 1)]
+                state = torch.cat([pos, vel], dim=-1)
+                grad = compute_grad_feature(state, self.cfg.sfm_params)
+                sf_feat.append(grad)
+            sf_feat = torch.stack(sf_feat)
+            self.data['pre_sf_feat'] = sf_feat
+            # future
+            sf_feat = []
+            for i in range(self.future_frames):
+                pos = self.data['fut_motion'][i]
+                vel = self.data['fut_vel'][i]
+                state = torch.cat([pos, vel], dim=-1)
+                grad = compute_grad_feature(state, self.cfg.sfm_params)
+                sf_feat.append(grad)
+            sf_feat = torch.stack(sf_feat)
+            self.data['fut_sf_feat'] = sf_feat
         
+
 
     def step_annealer(self):
         for anl in self.param_annealers:
