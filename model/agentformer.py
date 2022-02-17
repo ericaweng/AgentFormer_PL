@@ -121,6 +121,8 @@ class ContextEncoder(nn.Module):
         in_dim = self.motion_dim * len(self.input_type)
         if 'map' in self.input_type:
             in_dim += ctx['map_enc_dim'] - self.motion_dim
+        if 'sf_feat' in self.input_type:
+            in_dim += 4 - self.motion_dim
         self.input_fc = nn.Linear(in_dim, self.model_dim)
 
         encoder_layers = AgentFormerEncoderLayer(ctx['tf_cfg'], self.model_dim, self.nhead, self.ff_dim, self.dropout)
@@ -149,6 +151,8 @@ class ContextEncoder(nn.Module):
             elif key == 'map':
                 map_enc = data['map_enc'].unsqueeze(0).repeat((data['pre_motion'].shape[0], 1, 1))
                 traj_in.append(map_enc)
+            elif key == 'sf_feat':
+                traj_in.append(data['pre_sf_feat'])
             else:
                 raise ValueError('unknown input_type!')
         traj_in = torch.cat(traj_in, dim=-1)
@@ -193,6 +197,8 @@ class FutureEncoder(nn.Module):
         in_dim = forecast_dim * len(self.input_type)
         if 'map' in self.input_type:
             in_dim += ctx['map_enc_dim'] - forecast_dim
+        if 'sf_feat' in self.input_type:
+            in_dim += 4 - forecast_dim
         self.input_fc = nn.Linear(in_dim, self.model_dim)
 
         decoder_layers = AgentFormerDecoderLayer(ctx['tf_cfg'], self.model_dim, self.nhead, self.ff_dim, self.dropout)
@@ -228,6 +234,8 @@ class FutureEncoder(nn.Module):
             elif key == 'map':
                 map_enc = data['map_enc'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
                 traj_in.append(map_enc)
+            elif key == 'sf_feat':
+                traj_in.append(data['fut_sf_feat'])
             else:
                 raise ValueError('unknown input_type!')
         traj_in = torch.cat(traj_in, dim=-1)
@@ -283,10 +291,14 @@ class FutureDecoder(nn.Module):
         self.pos_offset = cfg.get('pos_offset', False)
         self.agent_enc_shuffle = ctx['agent_enc_shuffle']
         self.learn_prior = ctx['learn_prior']
+        self.use_sfm = ctx['use_sfm']
+        self.sfm_params = ctx['sfm_params']
         # networks
         in_dim = forecast_dim + len(self.input_type) * forecast_dim + self.nz
         if 'map' in self.input_type:
             in_dim += ctx['map_enc_dim'] - forecast_dim
+        if self.use_sfm:
+            in_dim += 4
         self.input_fc = nn.Linear(in_dim, self.model_dim)
 
         decoder_layers = AgentFormerDecoderLayer(ctx['tf_cfg'], self.model_dim, self.nhead, self.ff_dim, self.dropout)
@@ -327,6 +339,9 @@ class FutureDecoder(nn.Module):
                 in_arr.append(map_enc)
             else:
                 raise ValueError('wrong decode input type!')
+        if self.use_sfm:
+            sf_feat = data['pre_sf_feat'][-1].unsqueeze(1).repeat((1, sample_num, 1))
+            in_arr.append(sf_feat)
         dec_in_z = torch.cat(in_arr, dim=-1)
 
         mem_agent_mask = data['agent_mask'].clone()
@@ -368,6 +383,15 @@ class FutureDecoder(nn.Module):
                     in_arr.append(map_enc)
                 else:
                     raise ValueError('wrong decoder input type!')
+            if self.use_sfm:
+                assert self.pred_type == 'scene_norm'
+                pos = out_in + data['scene_orig']
+                tmp_pos = pre_motion_scene_norm[-1].view(-1, sample_num, self.forecast_dim) if i == 0 else last_pos
+                vel = pos - tmp_pos
+                state = torch.cat([pos, vel], dim=-1)
+                sf_feat = compute_grad_feature(state, self.sfm_params)
+                in_arr.append(sf_feat)
+                last_pos = pos
             out_in_z = torch.cat(in_arr, dim=-1)
             dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
 
@@ -471,7 +495,8 @@ class AgentFormer(nn.Module):
             'vel_heading': cfg.get('vel_heading', False),
             'learn_prior': cfg.get('learn_prior', False),
             'use_map': cfg.get('use_map', False),
-            'use_sfm': cfg.get('use_sfm', False)
+            'use_sfm': cfg.get('use_sfm', False),
+            'sfm_params': cfg.get('sfm_params', dict())
         }
         self.past_frames = self.ctx['past_frames']
         self.future_frames = self.ctx['future_frames']
@@ -607,6 +632,8 @@ class AgentFormer(nn.Module):
                 vel = self.data['fut_vel'][i]
                 state = torch.cat([pos, vel], dim=-1)
                 grad = compute_grad_feature(state, self.cfg.sfm_params)
+                if torch.any(torch.isnan(grad)):
+                    print('NaN:', torch.where(torch.isnan(grad)))
                 sf_feat.append(grad)
             sf_feat = torch.stack(sf_feat)
             self.data['fut_sf_feat'] = sf_feat

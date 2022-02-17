@@ -1,11 +1,11 @@
 import torch
 from torch.nn import functional as F
 
-EPS = 1.e-10
+EPS = 1.e-6
 
 
 def pdiff(x):
-    return x[:, None, :] - x[None, :, :]
+    return x[:, None, ...] - x[None, :, ...]
 
 
 def _compute_collision_w(p_ij, v_ij, params):
