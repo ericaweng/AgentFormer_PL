@@ -12,6 +12,7 @@ from .map_encoder import MapEncoder
 from utils.torch import *
 from utils.utils import initialize_weights
 from model.sfm import *
+from model.running_norm import RunningNorm
 
 
 def generate_ar_mask(sz, agent_num, agent_mask):
@@ -117,12 +118,18 @@ class ContextEncoder(nn.Module):
         self.pooling = cfg.get('pooling', 'mean')
         self.agent_enc_shuffle = ctx['agent_enc_shuffle']
         self.vel_heading = ctx['vel_heading']
+        self.input_norm_type = cfg.get('input_norm_type', None)
         ctx['context_dim'] = self.model_dim
         in_dim = self.motion_dim * len(self.input_type)
         if 'map' in self.input_type:
             in_dim += ctx['map_enc_dim'] - self.motion_dim
         if 'sf_feat' in self.input_type:
             in_dim += 4 - self.motion_dim
+
+        if self.input_norm_type == 'running_norm':
+            self.input_norm = RunningNorm(in_dim)
+        else:
+            self.input_norm = None
         self.input_fc = nn.Linear(in_dim, self.model_dim)
 
         encoder_layers = AgentFormerEncoderLayer(ctx['tf_cfg'], self.model_dim, self.nhead, self.ff_dim, self.dropout)
@@ -155,8 +162,12 @@ class ContextEncoder(nn.Module):
                 traj_in.append(data['pre_sf_feat'])
             else:
                 raise ValueError('unknown input_type!')
+        
         traj_in = torch.cat(traj_in, dim=-1)
-        tf_in = self.input_fc(traj_in.view(-1, traj_in.shape[-1])).view(-1, 1, self.model_dim)
+        traj_in = traj_in.view(-1, traj_in.shape[-1])
+        if self.input_norm is not None:
+            traj_in = self.input_norm(traj_in)
+        tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
         tf_in_pos = self.pos_encoder(tf_in, num_a=data['agent_num'], agent_enc_shuffle=agent_enc_shuffle)
         
@@ -193,12 +204,18 @@ class FutureEncoder(nn.Module):
         self.pooling = cfg.get('pooling', 'mean')
         self.agent_enc_shuffle = ctx['agent_enc_shuffle']
         self.vel_heading = ctx['vel_heading']
+        self.input_norm_type = cfg.get('input_norm_type', None)
         # networks
         in_dim = forecast_dim * len(self.input_type)
         if 'map' in self.input_type:
             in_dim += ctx['map_enc_dim'] - forecast_dim
         if 'sf_feat' in self.input_type:
             in_dim += 4 - forecast_dim
+
+        if self.input_norm_type == 'running_norm':
+            self.input_norm = RunningNorm(in_dim)
+        else:
+            self.input_norm = None
         self.input_fc = nn.Linear(in_dim, self.model_dim)
 
         decoder_layers = AgentFormerDecoderLayer(ctx['tf_cfg'], self.model_dim, self.nhead, self.ff_dim, self.dropout)
@@ -239,7 +256,11 @@ class FutureEncoder(nn.Module):
             else:
                 raise ValueError('unknown input_type!')
         traj_in = torch.cat(traj_in, dim=-1)
-        tf_in = self.input_fc(traj_in.view(-1, traj_in.shape[-1])).view(-1, 1, self.model_dim)
+        batch_size = traj_in.shape[0]
+        traj_in = traj_in.view(-1, traj_in.shape[-1])
+        if self.input_norm is not None:
+            traj_in = self.input_norm(traj_in)
+        tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
         tf_in_pos = self.pos_encoder(tf_in, num_a=data['agent_num'], agent_enc_shuffle=agent_enc_shuffle)
 
@@ -249,7 +270,7 @@ class FutureEncoder(nn.Module):
         tgt_mask = generate_mask(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask).to(tf_in.device)
         
         tf_out, _ = self.tf_decoder(tf_in_pos, data['context_enc'], memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'])
-        tf_out = tf_out.view(traj_in.shape[0], -1, self.model_dim)
+        tf_out = tf_out.view(batch_size, -1, self.model_dim)
 
         if self.pooling == 'mean':
             h = torch.mean(tf_out, dim=0)
@@ -293,12 +314,18 @@ class FutureDecoder(nn.Module):
         self.learn_prior = ctx['learn_prior']
         self.use_sfm = ctx['use_sfm']
         self.sfm_params = ctx['sfm_params']
+        self.input_norm_type = cfg.get('input_norm_type', None)
         # networks
         in_dim = forecast_dim + len(self.input_type) * forecast_dim + self.nz
         if 'map' in self.input_type:
             in_dim += ctx['map_enc_dim'] - forecast_dim
         if self.use_sfm:
             in_dim += 4
+
+        if self.input_norm_type == 'running_norm':
+            self.input_norm = RunningNorm(in_dim)
+        else:
+            self.input_norm = None
         self.input_fc = nn.Linear(in_dim, self.model_dim)
 
         decoder_layers = AgentFormerDecoderLayer(ctx['tf_cfg'], self.model_dim, self.nhead, self.ff_dim, self.dropout)
@@ -348,7 +375,10 @@ class FutureDecoder(nn.Module):
         tgt_agent_mask = data['agent_mask'].clone()
 
         for i in range(self.future_frames):
-            tf_in = self.input_fc(dec_in_z.view(-1, dec_in_z.shape[-1])).view(dec_in_z.shape[0], -1, self.model_dim)
+            traj_in = dec_in_z.view(-1, dec_in_z.shape[-1])
+            if self.input_norm is not None:
+                traj_in = self.input_norm(traj_in)
+            tf_in = self.input_fc(traj_in).view(dec_in_z.shape[0], -1, self.model_dim)
             agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
             tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle, t_offset=self.past_frames-1 if self.pos_offset else 0)
             # tf_in_pos = tf_in
