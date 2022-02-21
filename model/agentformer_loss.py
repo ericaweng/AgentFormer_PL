@@ -1,3 +1,5 @@
+import torch
+from .sfm import collision_term
 
 
 def compute_motion_mse(data, cfg):
@@ -36,8 +38,44 @@ def compute_sample_loss(data, cfg):
     return loss, loss_unweighted
 
 
+def compute_recon_sfm(data, cfg):
+    sfm_params = cfg.get('sfm_params', data['cfg'].sfm_params)
+    pred = data['train_dec_motion']
+    pre_motion_orig = data['pre_motion'].transpose(0, 1)
+    vel_pred = pred - torch.cat([pre_motion_orig[:, [-1]], pred[:, :-1]], dim=1)
+    loss_unweighted = 0
+    for i in range(pred.shape[1]):
+        pos = pred[:, i]
+        vel = vel_pred[:, i]
+        col = collision_term(pos, vel, sfm_params)
+        loss_unweighted += col
+    loss_unweighted /= pred.shape[0]
+    loss = loss_unweighted * cfg['weight']
+    return loss, loss_unweighted
+
+
+def compute_sample_sfm(data, cfg):
+    sfm_params = cfg.get('sfm_params', data['cfg'].sfm_params)
+    pred = data['infer_dec_motion']
+    sample_num = pred.shape[1]
+    pred = pred.view(-1, *pred.shape[2:])
+    pre_motion_orig = data['pre_motion'].transpose(0, 1).repeat_interleave(sample_num, dim=0)
+    vel_pred = pred - torch.cat([pre_motion_orig[:, [-1]], pred[:, :-1]], dim=1)
+    loss_unweighted = 0
+    for i in range(pred.shape[1]):
+        pos = pred[:, i]
+        vel = vel_pred[:, i]
+        col = collision_term(pos, vel, sfm_params)
+        loss_unweighted += col
+    loss_unweighted /= pred.shape[0]
+    loss = loss_unweighted * cfg['weight']
+    return loss, loss_unweighted
+
+
 loss_func = {
     'mse': compute_motion_mse,
     'kld': compute_z_kld,
-    'sample': compute_sample_loss
+    'sample': compute_sample_loss,
+    'recon_sfm': compute_recon_sfm,
+    'sample_sfm': compute_sample_sfm
 }

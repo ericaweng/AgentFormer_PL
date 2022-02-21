@@ -33,6 +33,106 @@ def compute_FDE(pred_arr, gt_arr):
     return fde
 
 
+def _collision(path1,
+               path2,
+               n_predictions=12,
+               person_radius=0.1,
+               inter_parts=2):
+    """Check if there is collision or not.
+    Source: https://github.com/vita-epfl/trajnetplusplusbaselines/blob/master/evaluator/eval_utils.py#L22
+    """
+
+    def getinsidepoints(p1, p2, parts=2):
+        """return: equally distanced points between starting and ending "control" points"""
+
+        return np.array(
+            (np.linspace(p1[0], p2[0],
+                         parts + 1), np.linspace(p1[1], p2[1], parts + 1)))
+
+    for i in range(len(path1) - 1):
+        p1, p2 = [path1[i][0], path1[i][1]], [path1[i + 1][0], path1[i + 1][1]]
+        p3, p4 = [path2[i][0], path2[i][1]], [path2[i + 1][0], path2[i + 1][1]]
+        # Check current point
+        if np.min(np.linalg.norm(np.array(p1) - np.array(p3)),
+                  axis=0) <= 2 * person_radius:
+            return True
+
+        # Compute inbetween points
+        if np.min(np.linalg.norm(getinsidepoints(p1, p2, inter_parts) - getinsidepoints(p3, p4, inter_parts), axis=0)) \
+           <= 2 * person_radius:
+            return True
+
+    return False
+
+
+def compute_CR(pred_arr,
+               gt_arr,
+               pred=False,
+               gt=False,
+               aggregation='max',
+               **kwargs):
+    """Compute collision rate.
+    Input:
+        - pred_arr: (np.array) (n_pedestrian, n_samples, timesteps, 4)
+        - gt_arr: (np.array) (n_pedestrian, timesteps, 4)
+    Return:
+        Collision rates
+    """
+    # Collision rate is calculated per sample
+    # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
+    pred_arr = np.array(pred_arr).transpose(1, 0, 2, 3)
+    gt_arr = np.array(gt_arr)
+
+    n_samples, n_ped, _, _ = pred_arr.shape
+
+    # For each pedestrian, store 1 if they had collision. Else 0.
+    n_ped_with_col_pred = np.zeros((n_samples, 1))
+    n_ped_with_col_gt = np.zeros((n_samples, 1))
+
+    # If only 1 ped, there will be no collision. Else, check if each pedestrian
+    # has a collision with other agents.
+    if n_ped > 1:
+        for sample_idx, sample in enumerate(pred_arr):
+            n_ped_with_col_pred_per_sample = np.zeros((sample.shape[0], 1))
+            n_ped_with_col_gt_per_sample = np.zeros((sample.shape[0], 1))
+            for pred_idx, pred_sample in enumerate(sample):
+                others = np.concatenate(
+                    (sample[:pred_idx], sample[pred_idx + 1:]))
+                for other_idx, other_sample in enumerate(others):
+                    if pred and _collision(pred_sample, other_sample):
+                        n_ped_with_col_pred_per_sample[pred_idx] = 1
+                    if gt and _collision(pred_sample, gt_arr[pred_idx]):
+                        n_ped_with_col_gt_per_sample[pred_idx] = 1
+
+            if pred:
+                n_ped_with_col_pred[
+                    sample_idx] += n_ped_with_col_pred_per_sample.sum()
+            elif gt:
+                n_ped_with_col_gt[
+                    sample_idx] += n_ped_with_col_gt_per_sample.sum()
+
+    if aggregation == 'mean':
+        cr_pred = n_ped_with_col_pred.mean()
+        cr_gt = n_ped_with_col_gt.mean()
+    elif aggregation == 'min':
+        cr_pred = n_ped_with_col_pred.min()
+        cr_gt = n_ped_with_col_gt.min()
+    elif aggregation == 'max':
+        cr_pred = n_ped_with_col_pred.max()
+        cr_gt = n_ped_with_col_gt.max()
+    else:
+        raise NotImplementedError()
+
+    # Multiply by 100 to make it percentage
+    cr_pred *= 100
+    cr_gt *= 100
+
+    if pred:
+        return cr_pred / n_ped
+    elif gt:
+        return cr_gt / n_ped
+
+
 def align_gt(pred, gt):
     frame_from_data = pred[0, :, 0].astype('int64').tolist()
     frame_from_gt = gt[:, 0].astype('int64').tolist()
@@ -121,7 +221,9 @@ if __name__ == '__main__':
 
     stats_func = {
         'ADE': compute_ADE,
-        'FDE': compute_FDE
+        'FDE': compute_FDE,
+        'CR_pred': compute_CR,
+        'CR_gt': compute_CR,
     }
 
     stats_meter = {x: AverageMeter() for x in stats_func.keys()}
@@ -138,7 +240,8 @@ if __name__ == '__main__':
             if line_data[1] == -1: continue
             gt_raw.append(line_data)
         gt_raw = np.stack(gt_raw)
-        gt_raw[:, 0] = np.round(gt_raw.astype(np.float)[:, 0] / 12.0)
+        if dataset == 'trajnet_sdd':
+            gt_raw[:, 0] = np.round(gt_raw.astype(np.float)[:, 0] / 12.0)
 
         data_filelist, _ = load_list_from_folder(os.path.join(results_dir, seq_name))    
             
@@ -178,7 +281,13 @@ if __name__ == '__main__':
             """compute stats"""
             for stats_name, meter in stats_meter.items():
                 func = stats_func[stats_name]
-                value = func(agent_traj, gt_traj)
+                stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj}
+                if stats_name == 'CR_pred':
+                    stats_func_args['pred'] = True
+                elif stats_name == 'CR_gt':
+                    stats_func_args['gt'] = True
+                
+                value = func(**stats_func_args)
                 meter.update(value, n=len(agent_traj))
 
             stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])

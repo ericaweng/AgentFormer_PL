@@ -17,7 +17,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/train.py",
             "console": "integratedTerminal",
-            "args" : ["--cfg", "eth_agentformer_sfm_pre", "--gpu", "3", "--tmp"],
+            "args" : ["--cfg", "eth_agentformer_sfm_loss_pre", "--gpu", "1", "--tmp"],
             // "justMyCode": false,
         },
         {
@@ -26,7 +26,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/test.py",
             "console": "integratedTerminal",
-            "args" : ["--cfg", "trajnet_sdd_pre", "--gpu", "1", "--epoch", "50", "--cached"],
+            "args" : ["--cfg", "eth_agentformer_sfm_pre", "--gpu", "3", "--epoch", "30", "--cached"],
             // "justMyCode": false,
         },
     ]

@@ -543,6 +543,7 @@ class AgentFormer(nn.Module):
             in_data = data
 
         self.data = defaultdict(lambda: None)
+        self.data['cfg'] = self.cfg
         self.data['batch_size'] = len(in_data['pre_motion_3D'])
         self.data['agent_num'] = len(in_data['pre_motion_3D'])
         self.data['pre_motion'] = torch.stack(in_data['pre_motion_3D'], dim=0).to(device).transpose(0, 1).contiguous()

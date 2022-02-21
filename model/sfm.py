@@ -19,14 +19,20 @@ def _compute_collision_w(p_ij, v_ij, params):
 
 def collision_term(p_i, v_i, params):
     sigma_d = params['sigma_d']
+    use_w = params.get('use_w', True)
+    loss_reduce = params.get('loss_reduce', 'sum')
     ind = torch.triu_indices(p_i.shape[0], p_i.shape[0], offset=1)
     p_ij = pdiff(p_i)[ind[0], ind[1]]
     v_ij = pdiff(v_i)[ind[0], ind[1]]
     # diff = p_ij.norm(dim=-1)[ind[0], ind[1]] - F.pdist(p_i)
-    w = _compute_collision_w(p_ij, v_ij, params)
+    if use_w:
+        w = _compute_collision_w(p_ij, v_ij, params)
+    else:
+        w = 1.0
     energy = torch.exp(-0.5 * p_ij.norm(dim=-1)**2 / sigma_d**2)
     col = w * energy
-    return col.sum()
+    loss = col.sum() if loss_reduce == 'sum' else col.mean()
+    return loss
 
 
 def compute_grad_feature(state, params):
