@@ -18,6 +18,9 @@ def _compute_collision_w(p_ij, v_ij, params):
 
 
 def collision_term(p_i, v_i, params):
+    if p_i.shape[0] == 1:
+        return torch.tensor(1.0).to(p_i.device)
+    
     sigma_d = params['sigma_d']
     use_w = params.get('use_w', True)
     loss_reduce = params.get('loss_reduce', 'sum')
@@ -40,5 +43,8 @@ def compute_grad_feature(state, params):
         state.requires_grad_(True)
         p_i, v_i = state[..., :2], state[..., 2:]
         col = collision_term(p_i, v_i, params)
-        grad = torch.autograd.grad(col, state)[0]
+        if col.requires_grad:
+            grad = torch.autograd.grad(col, state)[0]
+        else:
+            grad = torch.zeros_like(state)
     return grad

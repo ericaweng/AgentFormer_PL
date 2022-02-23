@@ -49,7 +49,7 @@ def compute_recon_sfm(data, cfg):
         vel = vel_pred[:, i]
         col = collision_term(pos, vel, sfm_params)
         loss_unweighted += col
-    loss_unweighted /= pred.shape[0]
+    loss_unweighted /= pred.shape[1]
     loss = loss_unweighted * cfg['weight']
     return loss, loss_unweighted
 
@@ -58,16 +58,15 @@ def compute_sample_sfm(data, cfg):
     sfm_params = cfg.get('sfm_params', data['cfg'].sfm_params)
     pred = data['infer_dec_motion']
     sample_num = pred.shape[1]
-    pred = pred.view(-1, *pred.shape[2:])
-    pre_motion_orig = data['pre_motion'].transpose(0, 1).repeat_interleave(sample_num, dim=0)
-    vel_pred = pred - torch.cat([pre_motion_orig[:, [-1]], pred[:, :-1]], dim=1)
+    pre_motion_orig = data['pre_motion'].transpose(0, 1).unsqueeze(1).repeat((1, sample_num, 1, 1))
+    vel_pred = pred - torch.cat([pre_motion_orig[:, :, [-1]], pred[:, :, :-1]], dim=2)
     loss_unweighted = 0
-    for i in range(pred.shape[1]):
-        pos = pred[:, i]
-        vel = vel_pred[:, i]
+    for i in range(pred.shape[2]):
+        pos = pred[:, :, i]
+        vel = vel_pred[:, :, i]
         col = collision_term(pos, vel, sfm_params)
         loss_unweighted += col
-    loss_unweighted /= pred.shape[0]
+    loss_unweighted /= pred.shape[2]
     loss = loss_unweighted * cfg['weight']
     return loss, loss_unweighted
 
