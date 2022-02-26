@@ -6,6 +6,7 @@ from utils.config import Config
 from .common.mlp import MLP
 from .common.dist import *
 from . import model_lib
+from .sfm import collision_term
 
 
 def compute_z_kld(data, cfg):
@@ -44,10 +45,28 @@ def recon_loss(data, cfg):
     return loss, loss_unweighted
 
 
+def compute_sample_sfm(data, cfg):
+    sfm_params = cfg.get('sfm_params', data['cfg'].sfm_params)
+    pred = data['infer_dec_motion']
+    sample_num = pred.shape[1]
+    pre_motion_orig = data['pre_motion'].transpose(0, 1).unsqueeze(1).repeat((1, sample_num, 1, 1))
+    vel_pred = pred - torch.cat([pre_motion_orig[:, :, [-1]], pred[:, :, :-1]], dim=2)
+    loss_unweighted = 0
+    for i in range(pred.shape[2]):
+        pos = pred[:, :, i]
+        vel = vel_pred[:, :, i]
+        col = collision_term(pos, vel, sfm_params)
+        loss_unweighted += col
+    loss_unweighted /= pred.shape[2]
+    loss = loss_unweighted * cfg['weight']
+    return loss, loss_unweighted
+
+
 loss_func = {
     'kld': compute_z_kld,
     'diverse': diversity_loss,
     'recon': recon_loss,
+    'sample_sfm': compute_sample_sfm
 }
 
 
