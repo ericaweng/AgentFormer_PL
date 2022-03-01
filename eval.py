@@ -7,6 +7,9 @@ from data.nuscenes_pred_split import get_nuscenes_pred_split
 from data.ethucy_split import get_ethucy_split
 from data.stanford_drone_split import get_stanford_drone_split
 from utils.utils import print_log, AverageMeter, isfile, print_log, AverageMeter, isfile, isfolder, find_unique_common_from_lists, load_list_from_folder, load_txt_file
+import multiprocessing
+from multiprocessing import Pool
+from functools import partial
 
 
 """ Metrics """
@@ -65,61 +68,68 @@ def _collision(path1,
     return False
 
 
+def check_collision_per_sample(sample_idx, sample, gt_arr):
+    """Check if each pedestrian has a collision"""
+    n_ped_with_col_pred = np.zeros(sample.shape[0])
+    n_ped_with_col_gt = np.zeros(sample.shape[0])
+    for pred_idx, pred_sample in enumerate(sample):
+        others = np.concatenate((sample[:pred_idx], sample[pred_idx + 1:]))
+        for other_idx, other_sample in enumerate(others):
+            # Get the GT of neighboring sample
+            if other_idx >= pred_idx:
+                other_gt_samples = gt_arr[other_idx + 1]
+            else:
+                other_gt_samples = gt_arr[other_idx]
+            if _collision(pred_sample, other_sample):
+                n_ped_with_col_pred[pred_idx] = 1
+            if _collision(pred_sample, other_gt_samples):
+                n_ped_with_col_gt[pred_idx] = 1
+
+    return sample_idx, n_ped_with_col_pred, n_ped_with_col_gt
+
+
 def compute_CR(pred_arr,
                gt_arr,
                pred=False,
                gt=False,
                aggregation='max',
                **kwargs):
-    """Compute collision rate.
+    """Compute collision rate and collision-free likelihood.
     Input:
         - pred_arr: (np.array) (n_pedestrian, n_samples, timesteps, 4)
         - gt_arr: (np.array) (n_pedestrian, timesteps, 4)
     Return:
         Collision rates
     """
-    # Collision rate is calculated per sample
     # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
     pred_arr = np.array(pred_arr).transpose(1, 0, 2, 3)
     gt_arr = np.array(gt_arr)
 
-    n_samples, n_ped, _, _ = pred_arr.shape
+    n_sample, n_ped, _, _ = pred_arr.shape
 
-    # For each pedestrian, store 1 if they had collision. Else 0.
-    n_ped_with_col_pred = np.zeros((n_samples, 1))
-    n_ped_with_col_gt = np.zeros((n_samples, 1))
+    col_pred = np.zeros((n_sample))  # cr_pred
+    col_gt = np.zeros((n_sample))  # cr_gt
 
-    # If only 1 ped, there will be no collision. Else, check if each pedestrian
-    # has a collision with other agents.
     if n_ped > 1:
-        for sample_idx, sample in enumerate(pred_arr):
-            n_ped_with_col_pred_per_sample = np.zeros((sample.shape[0], 1))
-            n_ped_with_col_gt_per_sample = np.zeros((sample.shape[0], 1))
-            for pred_idx, pred_sample in enumerate(sample):
-                others = np.concatenate(
-                    (sample[:pred_idx], sample[pred_idx + 1:]))
-                for other_idx, other_sample in enumerate(others):
-                    if pred and _collision(pred_sample, other_sample):
-                        n_ped_with_col_pred_per_sample[pred_idx] = 1
-                    if gt and _collision(pred_sample, gt_arr[pred_idx]):
-                        n_ped_with_col_gt_per_sample[pred_idx] = 1
-
+        with Pool(processes=multiprocessing.cpu_count() - 1) as pool:
+            r = pool.starmap(
+                partial(check_collision_per_sample, gt_arr=gt_arr),
+                enumerate(pred_arr))
+        for sample_idx, n_ped_with_col_pred, n_ped_with_col_gt in r:
             if pred:
-                n_ped_with_col_pred[
-                    sample_idx] += n_ped_with_col_pred_per_sample.sum()
+                col_pred[sample_idx] += (n_ped_with_col_pred.sum())
             elif gt:
-                n_ped_with_col_gt[
-                    sample_idx] += n_ped_with_col_gt_per_sample.sum()
+                col_gt[sample_idx] += (n_ped_with_col_gt.sum())
 
     if aggregation == 'mean':
-        cr_pred = n_ped_with_col_pred.mean()
-        cr_gt = n_ped_with_col_gt.mean()
+        cr_pred = col_pred.mean(axis=0)
+        cr_gt = col_gt.mean(axis=0)
     elif aggregation == 'min':
-        cr_pred = n_ped_with_col_pred.min()
-        cr_gt = n_ped_with_col_gt.min()
+        cr_pred = col_pred.min(axis=0)
+        cr_gt = col_gt.min(axis=0)
     elif aggregation == 'max':
-        cr_pred = n_ped_with_col_pred.max()
-        cr_gt = n_ped_with_col_gt.max()
+        cr_pred = col_pred.max(axis=0)
+        cr_gt = col_gt.max(axis=0)
     else:
         raise NotImplementedError()
 

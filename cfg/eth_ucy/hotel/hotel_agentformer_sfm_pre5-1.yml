@@ -3,7 +3,7 @@
 description                  : AgentFormer (Before DLow)
 results_root_dir             : results
 seed                         : 1
-dataset                      : zara1
+dataset                      : hotel
 data_root_ethucy             : datasets/eth_ucy
 data_root_nuscenes_pred      : datasets/nuscenes_pred
 
@@ -14,7 +14,7 @@ future_frames                : 12
 min_past_frames              : 8
 min_future_frames            : 12
 
-traj_scale                   : 1
+traj_scale                   : 2
 motion_dim                   : 2
 forecast_dim                 : 2
 
@@ -46,10 +46,12 @@ context_encoder:
 
 future_decoder:
   nlayer: 2
+  out_mlp_dim: [512, 256]
   input_norm_type: running_norm
 
 future_encoder:
   nlayer: 2
+  out_mlp_dim: [512, 256]
   input_norm_type: running_norm
 
 # ------------------- VAE-------------------------

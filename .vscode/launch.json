@@ -26,7 +26,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/test.py",
             "console": "integratedTerminal",
-            "args" : ["--cfg", "eth_agentformer_sfm_pre", "--gpu", "3", "--epoch", "30", "--cached"],
+            "args" : ["--cfg", "eth_agentformer_sfm_pre5", "--gpu", "3", "--epoch", "100", "--cached"],
             // "justMyCode": false,
         },
     ]
