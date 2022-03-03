@@ -10,6 +10,7 @@ from utils.utils import print_log, AverageMeter, isfile, print_log, AverageMeter
 import multiprocessing
 from multiprocessing import Pool
 from functools import partial
+from scipy.spatial.distance import pdist, squareform, cdist
 
 
 """ Metrics """
@@ -36,56 +37,83 @@ def compute_FDE(pred_arr, gt_arr):
     return fde
 
 
-def _collision(path1,
-               path2,
-               n_predictions=12,
-               person_radius=0.1,
-               inter_parts=2):
-    """Check if there is collision or not.
-    Source: https://github.com/vita-epfl/trajnetplusplusbaselines/blob/master/evaluator/eval_utils.py#L22
+def _lineseg_dist(a, b):
     """
+    https://stackoverflow.com/questions/56463412/distance-from-a-point-to-a-line-segment-in-3d-python
+    """
+    # normalized tangent vector
+    d = (b - a) / (np.linalg.norm(b - a, axis=-1, keepdims=True))
 
-    def getinsidepoints(p1, p2, parts=2):
-        """return: equally distanced points between starting and ending "control" points"""
+    # signed parallel distance components
+    s = (a * d).sum(axis=-1)
+    t = (-b * d).sum(axis=-1)
 
-        return np.array(
-            (np.linspace(p1[0], p2[0],
-                         parts + 1), np.linspace(p1[1], p2[1], parts + 1)))
+    # clamped parallel distance
+    h = np.maximum.reduce([s, t, np.zeros_like(t)], axis=0)
 
-    for i in range(len(path1) - 1):
-        p1, p2 = [path1[i][0], path1[i][1]], [path1[i + 1][0], path1[i + 1][1]]
-        p3, p4 = [path2[i][0], path2[i][1]], [path2[i + 1][0], path2[i + 1][1]]
-        # Check current point
-        if np.min(np.linalg.norm(np.array(p1) - np.array(p3)),
-                  axis=0) <= 2 * person_radius:
-            return True
+    # perpendicular distance component
+    c = np.cross(-a, d, axis=-1)
 
-        # Compute inbetween points
-        if np.min(np.linalg.norm(getinsidepoints(p1, p2, inter_parts) - getinsidepoints(p3, p4, inter_parts), axis=0)) \
-           <= 2 * person_radius:
-            return True
-
-    return False
+    return np.hypot(h, np.abs(c))
 
 
-def check_collision_per_sample(sample_idx, sample, gt_arr):
-    """Check if each pedestrian has a collision"""
-    n_ped_with_col_pred = np.zeros(sample.shape[0])
-    n_ped_with_col_gt = np.zeros(sample.shape[0])
-    for pred_idx, pred_sample in enumerate(sample):
-        others = np.concatenate((sample[:pred_idx], sample[pred_idx + 1:]))
-        for other_idx, other_sample in enumerate(others):
-            # Get the GT of neighboring sample
-            if other_idx >= pred_idx:
-                other_gt_samples = gt_arr[other_idx + 1]
-            else:
-                other_gt_samples = gt_arr[other_idx]
-            if _collision(pred_sample, other_sample):
-                n_ped_with_col_pred[pred_idx] = 1
-            if _collision(pred_sample, other_gt_samples):
-                n_ped_with_col_gt[pred_idx] = 1
+def _get_diffs_pred(traj):
+    """Same order of ped pairs as pdist.
+    Input:
+        - traj: (ts, n_ped, 2)"""
+    num_peds = traj.shape[1]
+    return np.concatenate([
+        np.tile(traj[:, ped_i:ped_i + 1],
+                (1, num_peds - ped_i - 1, 1)) - traj[:, ped_i + 1:]
+        for ped_i in range(num_peds)
+    ],
+                          axis=1)
 
-    return sample_idx, n_ped_with_col_pred, n_ped_with_col_gt
+
+def _get_diffs_gt(traj, gt_traj):
+    """same order of ped pairs as pdist"""
+    num_peds = traj.shape[1]
+    return np.stack([
+        np.tile(traj[:, ped_i:ped_i + 1], (1, num_peds, 1)) - gt_traj
+        for ped_i in range(num_peds)
+    ],
+                    axis=1)
+
+
+def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
+    """sample: (num_peds, ts, 2) and same for gt_arr"""
+
+    sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
+    gt_arr = gt_arr.transpose(1, 0, 2)
+    ts, num_peds, _ = sample.shape
+    num_ped_pairs = (num_peds * (num_peds - 1)) // 2
+
+    # pred
+    # Get collision for timestep=0
+    collision_0_pred = pdist(sample[0]) < ped_radius
+    # Get difference between each pair. (ts, n_ped_pairs, 2)
+    ped_pair_diffs_pred = _get_diffs_pred(sample)
+    pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
+    exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
+    collision_t_pred = _lineseg_dist(pxy, exy).reshape(
+        ts - 1, num_ped_pairs) < ped_radius * 2
+    collision_mat_pred = squareform(
+        np.any(collision_t_pred, axis=0) | collision_0_pred)
+    n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
+    # gt
+    collision_0_gt = cdist(sample[0], gt_arr[0]) < ped_radius
+    np.fill_diagonal(collision_0_gt, False)
+    ped_pair_diffs_gt = _get_diffs_gt(sample, gt_arr)
+    pxy_gt = ped_pair_diffs_gt[:-1].reshape(-1, 2)
+    exy_gt = ped_pair_diffs_gt[1:].reshape(-1, 2)
+    collision_t_gt = _lineseg_dist(pxy_gt, exy_gt).reshape(
+        ts - 1, num_peds, num_peds) < ped_radius * 2
+    for ped_mat in collision_t_gt:
+        np.fill_diagonal(ped_mat, False)
+    collision_mat_gt = np.any(collision_t_gt, axis=0) | collision_0_gt
+    n_ped_with_col_gt_per_sample = np.any(collision_mat_gt, axis=0)
+
+    return sample_idx, n_ped_with_col_pred_per_sample, n_ped_with_col_gt_per_sample
 
 
 def compute_CR(pred_arr,
