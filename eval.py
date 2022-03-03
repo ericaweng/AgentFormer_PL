@@ -171,6 +171,58 @@ def compute_CR(pred_arr,
         return cr_gt / n_ped
 
 
+def check_collision_per_sample_no_gt(sample_idx, sample, ped_radius=0.1):
+    """sample: (num_peds, ts, 2)"""
+
+    sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
+    ts, num_peds, _ = sample.shape
+    num_ped_pairs = (num_peds * (num_peds - 1)) // 2
+
+    # pred
+    # Get collision for timestep=0
+    collision_0_pred = pdist(sample[0]) < ped_radius
+    # Get difference between each pair. (ts, n_ped_pairs, 2)
+    ped_pair_diffs_pred = _get_diffs_pred(sample)
+    pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
+    exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
+    collision_t_pred = _lineseg_dist(pxy, exy).reshape(
+        ts - 1, num_ped_pairs) < ped_radius * 2
+    collision_mat_pred = squareform(
+        np.any(collision_t_pred, axis=0) | collision_0_pred)
+    n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
+
+    return sample_idx, n_ped_with_col_pred_per_sample
+    
+
+def compute_ACFL(pred_arr, gt_arr, aggregation='mean', **kwargs):
+    """Compute average collision-free likelihood.
+    Input:
+        - pred_arr: (np.array) (n_pedestrian, n_samples, timesteps, 4)
+    Return:
+        Collision rates
+    """
+    # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
+    pred_arr = np.array(pred_arr).transpose(1, 0, 2, 3)
+
+    n_sample, n_ped, _, _ = pred_arr.shape
+
+    col_pred = np.zeros((n_sample))  # cr_pred
+
+    if n_ped > 1:
+        with Pool(processes=multiprocessing.cpu_count() - 1) as pool:
+            r = pool.starmap(partial(check_collision_per_sample_no_gt),
+                             enumerate(pred_arr))
+        for sample_idx, n_ped_with_col_pred in r:
+            col_pred[sample_idx] += (n_ped_with_col_pred.sum())
+
+    cr_pred = col_pred.mean(axis=0)
+
+    # Multiply by 100 to make it percentage
+    cr_pred *= 100
+
+    return 100. - (cr_pred / n_ped)
+
+
 def align_gt(pred, gt):
     frame_from_data = pred[0, :, 0].astype('int64').tolist()
     frame_from_gt = gt[:, 0].astype('int64').tolist()
@@ -262,6 +314,7 @@ if __name__ == '__main__':
         'FDE': compute_FDE,
         'CR_pred': compute_CR,
         'CR_gt': compute_CR,
+        'ACFL': compute_ACFL
     }
 
     stats_meter = {x: AverageMeter() for x in stats_func.keys()}
