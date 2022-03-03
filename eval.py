@@ -42,7 +42,7 @@ def _lineseg_dist(a, b):
     https://stackoverflow.com/questions/56463412/distance-from-a-point-to-a-line-segment-in-3d-python
     """
     # normalized tangent vector
-    d = (b - a) / (np.linalg.norm(b - a, axis=-1, keepdims=True))
+    d = (b - a) / (np.linalg.norm(b - a, axis=-1, keepdims=True) + 1e-8)
 
     # signed parallel distance components
     s = (a * d).sum(axis=-1)
