@@ -314,6 +314,8 @@ if __name__ == '__main__':
         'FDE': compute_FDE,
         'CR_pred': compute_CR,
         'CR_gt': compute_CR,
+        'CR_pred_mean': compute_CR,
+        'CR_gt_mean': compute_CR,
         'ACFL': compute_ACFL
     }
 
@@ -377,6 +379,12 @@ if __name__ == '__main__':
                     stats_func_args['pred'] = True
                 elif stats_name == 'CR_gt':
                     stats_func_args['gt'] = True
+                elif stats_name == 'CR_pred_mean':
+                    stats_func_args['pred'] = True
+                    stats_func_args['aggregation'] = 'mean'
+                elif stats_name == 'CR_gt_mean':
+                    stats_func_args['gt'] = True
+                    stats_func_args['aggregation'] = 'mean'
                 
                 value = func(**stats_func_args)
                 meter.update(value, n=len(agent_traj))
