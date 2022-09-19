@@ -1,6 +1,0 @@
-/datasets
-/results
-/metrics
-script*.sh
-*.pyc
-*.code-workspace

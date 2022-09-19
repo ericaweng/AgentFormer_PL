@@ -2,8 +2,10 @@ import numpy as np
 import argparse
 import os
 import sys
-import subprocess
 import shutil
+import subprocess
+import multiprocessing
+from functools import partial
 
 sys.path.append(os.getcwd())
 from data.dataloader import data_generator
@@ -11,6 +13,7 @@ from utils.torch import *
 from utils.config import Config
 from model.model_lib import model_dict
 from utils.utils import prepare_seed, print_log, mkdir_if_missing
+from eval import check_collision_per_sample_no_gt
 
 
 def get_model_prediction(data, sample_k):
@@ -66,6 +69,8 @@ def save_prediction(pred, data, suffix, save_dir, scale=1.0):
 
 def test_model(generator, save_dir, cfg):
     total_num_pred = 0
+    failures = 0
+    num_samples_needed = []  # number of samples needed before we reached 20
     while not generator.is_epoch_end():
         data = generator()
         if data is None:
@@ -78,9 +83,40 @@ def test_model(generator, save_dir, cfg):
         sys.stdout.flush()
 
         gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * cfg.traj_scale
-        with torch.no_grad():
-            recon_motion_3D, sample_motion_3D = get_model_prediction(data, cfg.sample_k)
-        recon_motion_3D, sample_motion_3D = recon_motion_3D * cfg.traj_scale, sample_motion_3D * cfg.traj_scale
+        not_colliding_samples = torch.empty(0).to(device)
+        num_tries = 0
+        while not_colliding_samples.shape[0] < cfg.sample_k:
+            with torch.no_grad():
+                num_samples = cfg.sample_k if num_tries == 0 else 10
+                recon_motion_3D, sample_motion_3D = get_model_prediction(data, num_samples)
+                num_tries += 1
+            recon_motion_3D, sample_motion_3D = recon_motion_3D * cfg.traj_scale, sample_motion_3D * cfg.traj_scale
+            # comput number of colliding samples
+            if args.collisions_ok:
+                break
+
+            pred_arr = sample_motion_3D.cpu().numpy()
+            if pred_arr.shape[0] > 1:
+                # multiprocessing.set_start_method('spawn')
+                with multiprocessing.Pool(processes=multiprocessing.cpu_count() - 1, ) as pool:
+                    mask = pool.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
+                # mask = pool.starmap(partial(check_collision_per_sample_no_gt), enumerate(pred_arr))
+                maskk = np.where(~np.any(np.array(list(zip(*mask))[1]).astype(np.bool), axis=-1))[0]
+                if maskk.shape[0] == 0:
+                    MAX_NUM_TRIES = 10
+                    if num_tries > MAX_NUM_TRIES:
+                        print(f"num_tries greater than {MAX_NUM_TRIES}")
+                        failures += 1
+                        break
+                    continue
+                non_collide_idx = torch.LongTensor(maskk)
+                assert torch.max(non_collide_idx) < sample_motion_3D.shape[0]
+                assert 0 <= torch.max(non_collide_idx)
+                sample_motion_3D = torch.index_select(sample_motion_3D, 0, non_collide_idx.to(device))
+            not_colliding_samples = torch.cat([not_colliding_samples, sample_motion_3D])
+            sample_motion_3D = not_colliding_samples[:cfg.sample_k]  # select only 20 non-colliding samples
+
+        num_samples_needed.append(20 + 10 * (num_tries - 1))
 
         """save samples"""
         recon_dir = os.path.join(save_dir, 'recon'); mkdir_if_missing(recon_dir)
@@ -101,6 +137,9 @@ def test_model(generator, save_dir, cfg):
         }
         assert total_num_pred == scene_num[generator.split]
 
+    print("avg num_samples:", np.mean(num_samples_needed))
+    print("std num_samples:", np.std(num_samples_needed))
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
@@ -109,19 +148,26 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', default=None)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--cached', action='store_true', default=False)
+    parser.add_argument('--no_collisions', dest='collisions_ok', action='store_false', default=True)
     parser.add_argument('--cleanup', action='store_true', default=False)
     parser.add_argument('--all_epochs', action='store_true', default=False)
     args = parser.parse_args()
 
     """ setup """
     cfg = Config(args.cfg)
-    
+    args.collisions_ok = cfg.get('collisions_ok', True)
+    print("collisions_ok:", args.collisions_ok)
+    # args.no_collisions = cfg.get('no_collisions', False)
+
     if args.all_epochs:
         epochs = range(cfg.model_save_freq, cfg.num_epochs + 1, cfg.model_save_freq)
     elif args.epochs is None:
         epochs = [cfg.get_last_epoch()]
+    elif args.epochs == 'last':
+        epochs = ['last']
     else:
         epochs = [int(x) for x in args.epochs.split(',')]
+    print("epochs:", epochs)
 
     torch.set_default_dtype(torch.float32)
     device = torch.device('cuda', index=args.gpu) if args.gpu >= 0 and torch.cuda.is_available() else torch.device('cpu')
@@ -137,11 +183,16 @@ if __name__ == '__main__':
             model = model_dict[model_id](cfg)
             model.set_device(device)
             model.eval()
-            if epoch > 0:
+            if epoch == 'last':
+                cp_path = cfg.model_path_last
+            elif epoch > 0:
                 cp_path = cfg.model_path % epoch
-                print_log(f'loading model from checkpoint: {cp_path}', log, display=True)
-                model_cp = torch.load(cp_path, map_location='cpu')
-                model.load_state_dict(model_cp['model_dict'], strict=False)
+            else:
+                raise NotImplementedError
+            print_log(f'loading model from checkpoint: {cp_path}', log, display=True)
+            model_cp = torch.load(cp_path, map_location='cpu')
+            print("doing epoch:", model_cp['epoch'])
+            model.load_state_dict(model_cp['model_dict'], strict=False)
 
         """ save results and compute metrics """
         data_splits = [args.data_eval]
@@ -151,8 +202,11 @@ if __name__ == '__main__':
             save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}'; mkdir_if_missing(save_dir)
             eval_dir = f'{save_dir}/samples'
             if not args.cached:
-                test_model(generator, save_dir, cfg)
+                import timeit
+                print("took", timeit.timeit(lambda: test_model(generator, save_dir, cfg), number=1), "sec")
+                # test_model(generator, save_dir, cfg)
 
+            # import ipdb; ipdb.set_trace()
             log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
             cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --label {args.cfg} --epoch {epoch} --sample_num {cfg.sample_k} --data {split} --log {log_file}"
             subprocess.run(cmd.split(' '))

@@ -28,6 +28,7 @@ class Config:
         self.log_dir = '%s/log' % self.cfg_dir
         self.tb_dir = '%s/tb' % self.cfg_dir
         self.model_path = os.path.join(self.model_dir, 'model_%04d.p')
+        self.model_path_last = os.path.join(self.model_dir, 'model_last.p')
         os.makedirs(self.model_dir, exist_ok=True)
         os.makedirs(self.result_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
@@ -65,4 +66,3 @@ class Config:
             return getattr(self, name)
         else:
             return default
-            

@@ -15,7 +15,8 @@ from torch.nn.modules.activation import MultiheadAttention
 from torch.nn.modules.container import ModuleList
 from torch.nn.init import xavier_uniform_
 from torch.nn.modules.dropout import Dropout
-from torch.nn.modules.linear import Linear, _LinearWithBias
+from torch.nn.modules.linear import Linear
+from torch.nn.modules.linear import NonDynamicallyQuantizableLinear as _LinearWithBias  # _LinearWithBias #
 from torch.nn.modules.normalization import LayerNorm
 from torch.nn.init import xavier_uniform_
 from torch.nn.init import constant_
@@ -137,7 +138,8 @@ def agent_aware_attention(query: Tensor,
             if in_proj_weight_self is not None:
                 q_self, k_self = linear(query, in_proj_weight_self, in_proj_bias_self).chunk(2, dim=-1)
 
-        elif torch.equal(key, value):
+        # elif torch.equal(key, value):
+        else:
             # encoder-decoder attention
             # This is inline in_proj function with in_proj_weight and in_proj_bias
             _b = in_proj_bias
@@ -173,8 +175,9 @@ def agent_aware_attention(query: Tensor,
                 _b = in_proj_bias_self[embed_dim:]
                 k_self = linear(key, _w, _b)
 
-        else:
-            raise NotImplementedError
+        # else:
+        #     pass
+            # raise NotImplementedError
 
     else:
         q_proj_weight_non_opt = torch.jit._unwrap_optional(q_proj_weight)

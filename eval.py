@@ -323,6 +323,7 @@ if __name__ == '__main__':
 
     seq_list, num_seq = load_list_from_folder(gt_dir)
     print_log('\n\nnumber of sequences to evaluate is %d' % len(seq_eval), log_file)
+    print_log('number of sequences to evaluate is %d' % num_seq, log_file)
     for seq_name in seq_eval:
         # load GT raw data
         gt_data, _ = load_txt_file(os.path.join(gt_dir, seq_name+'.txt'))
@@ -387,6 +388,8 @@ if __name__ == '__main__':
                     stats_func_args['aggregation'] = 'mean'
                 
                 value = func(**stats_func_args)
+                # if value > 0 and stats_name == 'CR_pred':
+                #     import ipdb; ipdb.set_trace()
                 meter.update(value, n=len(agent_traj))
 
             stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])
@@ -396,6 +399,8 @@ if __name__ == '__main__':
     for name, meter in stats_meter.items():
         print_log(f'{meter.count} {name}: {meter.avg:.4f}', log_file)
     print_log('-' * 67, log_file)
+    for name, meter in stats_meter.items():
+        print(f"{meter.avg:.4f}")
     log_file.close()
 
     write_metrics_to_csv(stats_meter, csv_file, args.label, results_dir, args.epoch, args.data)

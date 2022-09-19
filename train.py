@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch import optim
 from torch.utils.tensorboard import SummaryWriter
+torch.autograd.set_detect_anomaly(True)
 
 sys.path.append(os.getcwd())
 from data.dataloader import data_generator
@@ -67,7 +68,8 @@ def train(epoch):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', default='k10_res')
+    parser.add_argument('--cfg', default='eth_agentformer_sfm_pre8-2')
+    parser.add_argument('--cached', action='store_true', default=False)
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--tmp', action='store_true', default=False)
     parser.add_argument('--eval_when_train', action='store_true', default=False)
@@ -79,8 +81,9 @@ if __name__ == '__main__':
     prepare_seed(cfg.seed)
     torch.set_default_dtype(torch.float32)
     device = torch.device('cuda', index=args.gpu) if torch.cuda.is_available() else torch.device('cpu')
+    torch.cuda.set_device(args.gpu)
     if torch.cuda.is_available(): torch.cuda.set_device(args.gpu)
-    
+
     time_str = get_timestring()
     log = open(os.path.join(cfg.log_dir, 'log.txt'), 'a+')
     print_log("time str: {}".format(time_str), log)
@@ -105,15 +108,23 @@ if __name__ == '__main__':
     else:
         raise ValueError('unknown scheduler type!')
 
-    if args.start_epoch > 0:
-        cp_path = cfg.model_path % args.start_epoch
+    """resume training"""
+    if args.cached or args.start_epoch > 0:
+        if args.start_epoch > 0:
+            cp_path = cfg.model_path % args.start_epoch
+        elif args.cached:
+            cp_path = cfg.model_path_last
+        else:
+            raise NotImplementedError
         print_log(f'loading model from checkpoint: {cp_path}', log)
         model_cp = torch.load(cp_path, map_location='cpu')
-        model.load_state_dict(model_cp['model_dict'])
+        if args.cached:
+            args.start_epoch = model_cp['epoch']
+        model.load_state_dict(model_cp['model_dict'].to(device))
         if 'opt_dict' in model_cp:
-            optimizer.load_state_dict(model_cp['opt_dict'])
+            optimizer.load_state_dict(model_cp['opt_dict'].to(device))
         if 'scheduler_dict' in model_cp:
-            scheduler.load_state_dict(model_cp['scheduler_dict'])
+            scheduler.load_state_dict(model_cp['scheduler_dict'].to(device))
 
     """ start training """
     print("Start Training")
@@ -121,10 +132,15 @@ if __name__ == '__main__':
     model.train()
     for i in range(args.start_epoch, cfg.num_epochs):
         train(i)
+        """ save last model """
+        model_cp = {'model_dict': model.state_dict(), 'opt_dict': optimizer.state_dict(),
+                    'scheduler_dict': scheduler.state_dict(), 'epoch': i + 1}
+        torch.save(model_cp, cfg.model_path_last)
+
         """ save model """
         if cfg.model_save_freq > 0 and (i + 1) % cfg.model_save_freq == 0:
             cp_path = cfg.model_path % (i + 1)
-            model_cp = {'model_dict': model.state_dict(), 'opt_dict': optimizer.state_dict(), 'scheduler_dict': scheduler.state_dict(), 'epoch': i + 1}
+            # model_cp = {'model_dict': model.state_dict(), 'opt_dict': optimizer.state_dict(), 'scheduler_dict': scheduler.state_dict(), 'epoch': i + 1}
             torch.save(model_cp, cp_path)
 
             if args.eval_when_train:
