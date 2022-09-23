@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import pandas as pd
+# pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
 import seaborn as sns
 import matplotlib.pyplot as plt
 
@@ -15,14 +17,51 @@ label_to_description = {
         "eth_agentformer_sfm_pre2": "sigma_d: 1.0; beta: 1.2; don't use w in energy computation; loss_reduce mean (instead of sum)",
         "eth_agentformer_sfm_pre3": "don't use sfm feature in future encoder; still use it in the past encoder",
         "eth_agentformer_sfm_pre4": "input_norm_type running_norm in all modules",
+        "eth_agentformer_sfm_pre4_dlow": "input_norm_type running_norm in all modules",
         "eth_agentformer_sfm_pre5": "add loss term to pre4, weight 10",
+        "eth_agentformer_sfm_pre5_dlow": "add loss term to pre4, weight 10, dlow",
+        "eth_agentformer_sfm_pre5_dlow1": "add loss term to pre4, weight 10, dlow",
+        "eth_agentformer_sfm_pre5_dlow2": "add loss term to pre4, weight 10, dlow",
+        "eth_agentformer_sfm_pre5_dlow3": "add loss term to pre4, weight 10, dlow",
+        "eth_agentformer_sfm_pre5_dlow4": "add loss term to pre4, weight 10, dlow",
         "eth_agentformer_sfm_pre6": "weight 1",
         "eth_agentformer_sfm_pre7": "weight 3",
         "eth_agentformer_sfm_pre8-2": "weight 10; no feat",
+        "eth_agentformer_sfm_pre8-2_dlow": "weight 10; no feat",
         "eth_agentformer_sfm_pre8-2-1": "weight 5; no feat",
+        "eth_agentformer_sfm_pre8-2-1_dlow": "weight 5; no feat",
 }
 
+def main0():
+    """incomplete function, just to get Ye's SFM feat ETH experiment results"""
+    metrics_dir = "metrics"
+    filename = f'metrics_eth12.csv'
+    metrics_path = os.path.join(metrics_dir, filename)
+    data = pd.read_csv(metrics_path)
+
+    # make new cols
+    sfm_data = data[data['label'].apply(lambda r: 'sfm' in r)]
+    sfm_data = sfm_data[sfm_data['label'].apply(lambda label: label in label_to_description)]
+    sfm_data['description'] = sfm_data['label'].apply(lambda label: label_to_description[label])
+    sfm_data['experiment label'] = sfm_data['label']
+
+    # get min ADE run of each experiment
+    sfm_data = sfm_data[sfm_data.groupby(['label'])['ADE'].transform(min) == sfm_data['ADE']]
+
+    # print data
+    data_to_print = sfm_data[['experiment label','description','ADE','FDE','CR_pred','CR_pred_mean']]
+    print("data_to_print:\n", data_to_print)
+    data_to_print.to_csv('viz/sf_feat_ye.tsv', index=False, sep='\t')
+    # col_names = ['experiment label','description','ADE','FDE','CR_pred']
+    # print("\t".join(col_names))
+    # for row_vals,row_name in zip(data_to_print.to_numpy(),col_names):
+    #     print('\t'.join(map(str,row_vals))) #[col_names]+'\t')
+    import ipdb; ipdb.set_trace()
+    # sfm_data.to_csv(header=None, index=False, sep='\t')
+
+
 def main():
+    """incomplete function, just to get pure ETH AgentFormer (no SFM) results"""
     metrics_dir = "metrics"  # /home/yyuan2/Documents/repo/AgentFormerSDD/
     env_names = ['eth', 'hotel', 'zara1', 'zara2', 'trajnet_sdd', 'univ']
 
@@ -42,6 +81,7 @@ def main():
 
 
 def main1():
+    """plot bar graph results ADE from Ye's SFM feature experiments"""
     metrics_dir = "metrics"  # /home/yyuan2/Documents/repo/AgentFormerSDD/
     env_names = ['eth', 'hotel', 'zara1', 'zara2', 'trajnet_sdd', 'univ']
 
@@ -104,6 +144,7 @@ def main1():
 
 
 def main2():
+    """plot line graph results from Ye's ETH SFM experiments plus my new experiments: ADE vs. weight"""
     metrics_dir = "metrics" #/home/yyuan2/Documents/repo/AgentFormerSDD/
     env_names = ['eth', 'hotel', 'zara1', 'zara2', 'trajnet_sdd', 'univ']
 
@@ -175,5 +216,5 @@ def main2():
 
 
 if __name__ == "__main__":
-    main()
+    main0()
     # main2()
