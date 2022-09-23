@@ -105,7 +105,7 @@ def test_model(generator, save_dir, cfg):
                 if maskk.shape[0] == 0:
                     MAX_NUM_TRIES = 10
                     if num_tries > MAX_NUM_TRIES:
-                        print(f"num_tries greater than {MAX_NUM_TRIES}")
+                        print_log(f"num_tries greater than {MAX_NUM_TRIES}", log)
                         failures += 1
                         break
                     continue
@@ -137,8 +137,8 @@ def test_model(generator, save_dir, cfg):
         }
         assert total_num_pred == scene_num[generator.split]
 
-    print("avg num_samples:", np.mean(num_samples_needed))
-    print("std num_samples:", np.std(num_samples_needed))
+    print_log(f"avg num_samples: {np.mean(num_samples_needed)}", log)
+    print_log(f"std num_samples: {np.std(num_samples_needed)}", log)
 
 if __name__ == '__main__':
 
@@ -191,7 +191,7 @@ if __name__ == '__main__':
                 raise NotImplementedError
             print_log(f'loading model from checkpoint: {cp_path}', log, display=True)
             model_cp = torch.load(cp_path, map_location='cpu')
-            print("doing epoch:", model_cp['epoch'])
+            print_log(f"doing epoch: {model_cp['epoch']}", log)
             model.load_state_dict(model_cp['model_dict'], strict=False)
 
         """ save results and compute metrics """
@@ -203,8 +203,7 @@ if __name__ == '__main__':
             eval_dir = f'{save_dir}/samples'
             if not args.cached:
                 import timeit
-                print("took", timeit.timeit(lambda: test_model(generator, save_dir, cfg), number=1), "sec")
-                # test_model(generator, save_dir, cfg)
+                test_model(generator, save_dir, cfg)
 
             # import ipdb; ipdb.set_trace()
             log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
