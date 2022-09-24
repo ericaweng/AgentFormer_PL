@@ -21,12 +21,26 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
 
 
-def logging(cfg, epoch, total_epoch, iter, total_iter, ep, seq, frame, losses_str, log):
-	print_log('{} | Epo: {:02d}/{:02d}, '
-		'It: {:04d}/{:04d}, '
-		'EP: {:s}, ETA: {:s}, seq {:s}, frame {:05d}, {}'
-        .format(cfg, epoch, total_epoch, iter, total_iter, \
-		convert_secs2time(ep), convert_secs2time(ep / iter * (total_iter * (total_epoch - epoch) - iter)), seq, frame, losses_str), log)
+def optimizer_to(optim, device):
+    for param in optim.state.values():
+        # Not sure there are any global tensors in the state dict
+        if isinstance(param, torch.Tensor):
+            param.data = param.data.to(device)
+            if param._grad is not None:
+                param._grad.data = param._grad.data.to(device)
+        elif isinstance(param, dict):
+            for subparam in param.values():
+                if isinstance(subparam, torch.Tensor):
+                    subparam.data = subparam.data.to(device)
+                    if subparam._grad is not None:
+                        subparam._grad.data = subparam._grad.data.to(device)
+
+
+def logging(cfg, log, epoch, total_epoch, iter, total_iter, ep, seq, frame, losses_str, sfm_hparams=None):
+    eta = convert_secs2time(ep / iter * (total_iter * (total_epoch - epoch) - iter))
+    print_log(f'{cfg} | Epo: {epoch:02d}/{total_epoch:02d} It: {iter:04d}/{total_iter:04d} '
+              f'EP: {convert_secs2time(ep):s}, ETA: {eta:s}, seq {seq:s}, frame {frame:05d}, '
+              f'{losses_str}, {sfm_hparams}', log)
 
 
 def train(epoch):
@@ -53,12 +67,24 @@ def train(epoch):
             for key in loss_unweighted_dict.keys():
                 train_loss_meter[key].update(loss_unweighted_dict[key])
 
+        # print("sfm_learnable_hparams:")
+        # print(model.sfm_learnable_hparams)
+
         if generator.index - last_generator_index > cfg.print_freq:
             ep = time.time() - since_train
             losses_str = ' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in train_loss_meter.items()])
-            logging(args.cfg, epoch, cfg.num_epochs, generator.index, generator.num_total_samples, ep, seq, frame, losses_str, log)
+            if model.sfm_learnable_hparams is not None:
+                learable_hparams_str = ' '.join([f'{k}: {v.item():.4f}' for k, v in model.sfm_learnable_hparams.items()])
+            else:
+                learable_hparams_str = None
+            logging(args.cfg, log, epoch, cfg.num_epochs, generator.index, generator.num_total_samples, ep, seq, frame,
+                    losses_str, learable_hparams_str)
             for name, meter in train_loss_meter.items():
                 tb_logger.add_scalar('model_' + name, meter.avg, tb_ind)
+            # if isinstance(model.sfm_learnable_hparams, dict):
+            if model.sfm_learnable_hparams is not None:
+                for name, param in model.sfm_learnable_hparams.items():
+                    tb_logger.add_scalar('param_' + name, param, tb_ind)
             tb_ind += 1
             last_generator_index = generator.index
 
@@ -120,11 +146,17 @@ if __name__ == '__main__':
         model_cp = torch.load(cp_path, map_location='cpu')
         if args.cached:
             args.start_epoch = model_cp['epoch']
-        model.load_state_dict(model_cp['model_dict'].to(device))
+        model.load_state_dict(model_cp['model_dict'])
         if 'opt_dict' in model_cp:
-            optimizer.load_state_dict(model_cp['opt_dict'].to(device))
+            optimizer.load_state_dict(model_cp['opt_dict'])
+            # optimizer = optimizer.to(device)
+            optimizer_to(optimizer, device)
         if 'scheduler_dict' in model_cp:
-            scheduler.load_state_dict(model_cp['scheduler_dict'].to(device))
+            scheduler.load_state_dict(model_cp['scheduler_dict'])
+            # optimizer_to(scheduler, device)
+            # scheduler = scheduler.to(device)
+        model.set_device(device)
+        print("device:", device)
 
     """ start training """
     print("Start Training")

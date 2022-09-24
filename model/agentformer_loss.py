@@ -38,7 +38,7 @@ def compute_sample_loss(data, cfg):
     return loss, loss_unweighted
 
 
-def compute_recon_sfm(data, cfg):
+def compute_recon_sfm(data, cfg, learnable_hparams=None):
     sfm_params = cfg.get('sfm_params', data['cfg'].sfm_params)
     pred = data['train_dec_motion']
     pre_motion_orig = data['pre_motion'].transpose(0, 1)
@@ -47,14 +47,17 @@ def compute_recon_sfm(data, cfg):
     for i in range(pred.shape[1]):
         pos = pred[:, i]
         vel = vel_pred[:, i]
-        col = collision_term(pos, vel, sfm_params)
+        col = collision_term(pos, vel, sfm_params, learnable_hparams)
         loss_unweighted += col
     loss_unweighted /= pred.shape[1]
-    loss = loss_unweighted * cfg['weight']
+    if sfm_params.get('learnable_hparams', False):
+        loss = loss_unweighted * learnable_hparams['recon_weight'] - cfg['bias']
+    else:
+        loss = loss_unweighted * cfg['weight'] - cfg.get('bias', 0)
     return loss, loss_unweighted
 
 
-def compute_sample_sfm(data, cfg):
+def compute_sample_sfm(data, cfg, learnable_hparams=None):
     sfm_params = cfg.get('sfm_params', data['cfg'].sfm_params)
     pred = data['infer_dec_motion']
     sample_num = pred.shape[1]
@@ -64,10 +67,13 @@ def compute_sample_sfm(data, cfg):
     for i in range(pred.shape[2]):
         pos = pred[:, :, i]
         vel = vel_pred[:, :, i]
-        col = collision_term(pos, vel, sfm_params)
+        col = collision_term(pos, vel, sfm_params, learnable_hparams)
         loss_unweighted += col
     loss_unweighted /= pred.shape[2]
-    loss = loss_unweighted * cfg['weight']
+    if sfm_params.get('learnable_hparams', False):
+        loss = loss_unweighted * learnable_hparams['sample_weight'] - cfg['bias']
+    else:
+        loss = loss_unweighted * cfg['weight'] - cfg.get('bias', 0)
     return loss, loss_unweighted
 
 

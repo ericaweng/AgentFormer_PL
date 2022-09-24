@@ -191,7 +191,8 @@ if __name__ == '__main__':
                 raise NotImplementedError
             print_log(f'loading model from checkpoint: {cp_path}', log, display=True)
             model_cp = torch.load(cp_path, map_location='cpu')
-            print_log(f"doing epoch: {model_cp['epoch']}", log)
+            epoch = model_cp['epoch']
+            print_log(f"doing epoch: {epoch}", log)
             model.load_state_dict(model_cp['model_dict'], strict=False)
 
         """ save results and compute metrics """
@@ -202,7 +203,6 @@ if __name__ == '__main__':
             save_dir = f'{cfg.result_dir}/epoch_{epoch:04d}/{split}'; mkdir_if_missing(save_dir)
             eval_dir = f'{save_dir}/samples'
             if not args.cached:
-                import timeit
                 test_model(generator, save_dir, cfg)
 
             # import ipdb; ipdb.set_trace()

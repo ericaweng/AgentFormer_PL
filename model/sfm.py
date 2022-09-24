@@ -17,11 +17,13 @@ def _compute_collision_w(p_ij, v_ij, params):
     return res
 
 
-def collision_term(p_i, v_i, params):
+def collision_term(p_i, v_i, params, learnable_hparams=None):
     if p_i.shape[0] == 1:
         return torch.tensor(1.0).to(p_i.device)
-    
-    sigma_d = params['sigma_d']
+    if learnable_hparams is not None:
+        sigma_d = learnable_hparams['sigma_d']
+    else:
+        sigma_d = params['sigma_d']
     use_w = params.get('use_w', True)
     loss_reduce = params.get('loss_reduce', 'sum')
     ind = torch.triu_indices(p_i.shape[0], p_i.shape[0], offset=1)
@@ -38,11 +40,11 @@ def collision_term(p_i, v_i, params):
     return loss
 
 
-def compute_grad_feature(state, params):
+def compute_grad_feature(state, params, learnable_hparams=None):
     with torch.enable_grad():
         state.requires_grad_(True)
         p_i, v_i = state[..., :2], state[..., 2:]
-        col = collision_term(p_i, v_i, params)
+        col = collision_term(p_i, v_i, params, learnable_hparams)
         if col.requires_grad:
             grad = torch.autograd.grad(col, state)[0]
         else:

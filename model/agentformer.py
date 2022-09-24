@@ -288,7 +288,7 @@ class FutureEncoder(nn.Module):
 
 """ Future Decoder """
 class FutureDecoder(nn.Module):
-    def __init__(self, cfg, ctx, **kwargs):
+    def __init__(self, cfg, ctx, sfm_learnable_hparams=None, **kwargs):
         super().__init__()
         self.cfg = cfg
         self.ar_detach = ctx['ar_detach']
@@ -327,6 +327,9 @@ class FutureDecoder(nn.Module):
         else:
             self.input_norm = None
         self.input_fc = nn.Linear(in_dim, self.model_dim)
+
+        # sfm learnable hparams
+        self.sfm_learnable_hparams = sfm_learnable_hparams
 
         decoder_layers = AgentFormerDecoderLayer(ctx['tf_cfg'], self.model_dim, self.nhead, self.ff_dim, self.dropout)
         self.tf_decoder = AgentFormerDecoder(decoder_layers, self.nlayer)
@@ -419,7 +422,7 @@ class FutureDecoder(nn.Module):
                 tmp_pos = pre_motion_scene_norm[-1].view(-1, sample_num, self.forecast_dim) if i == 0 else last_pos
                 vel = pos - tmp_pos
                 state = torch.cat([pos, vel], dim=-1)
-                sf_feat = compute_grad_feature(state, self.sfm_params)
+                sf_feat = compute_grad_feature(state, self.sfm_params, self.sfm_learnable_hparams)
                 in_arr.append(sf_feat)
                 last_pos = pos
             out_in_z = torch.cat(in_arr, dim=-1)
@@ -556,8 +559,18 @@ class AgentFormer(nn.Module):
         # models
         self.context_encoder = ContextEncoder(cfg.context_encoder, self.ctx)
         self.future_encoder = FutureEncoder(cfg.future_encoder, self.ctx)
-        self.future_decoder = FutureDecoder(cfg.future_decoder, self.ctx)
-        
+        if self.ctx['sfm_params'].get('learnable_hparams', False):
+            self.recon_weight = nn.Parameter(torch.rand(1) * 10)
+            self.sample_weight = nn.Parameter(torch.rand(1) * 10)
+            self.sigma_d = nn.Parameter(torch.ones(1))
+            self.sfm_learnable_hparams = {'recon_weight': self.recon_weight,
+                                          'sample_weight': self.sample_weight,
+                                          'sigma_d': self.sigma_d}
+            self.future_decoder = FutureDecoder(cfg.future_decoder, self.ctx, self.sfm_learnable_hparams)
+        else:
+            self.future_decoder = FutureDecoder(cfg.future_decoder, self.ctx)
+            self.sfm_learnable_hparams = None
+
     def set_device(self, device):
         self.device = device
         self.to(device)
@@ -652,7 +665,7 @@ class AgentFormer(nn.Module):
                 pos = self.data['pre_motion'][i]
                 vel = self.data['pre_vel'][max(0, i - 1)]
                 state = torch.cat([pos, vel], dim=-1)
-                grad = compute_grad_feature(state, self.cfg.sfm_params)
+                grad = compute_grad_feature(state, self.cfg.sfm_params, self.sfm_learnable_hparams)
                 sf_feat.append(grad)
             sf_feat = torch.stack(sf_feat)
             self.data['pre_sf_feat'] = sf_feat
@@ -662,7 +675,7 @@ class AgentFormer(nn.Module):
                 pos = self.data['fut_motion'][i]
                 vel = self.data['fut_vel'][i]
                 state = torch.cat([pos, vel], dim=-1)
-                grad = compute_grad_feature(state, self.cfg.sfm_params)
+                grad = compute_grad_feature(state, self.cfg.sfm_params, self.sfm_learnable_hparams)
                 if torch.any(torch.isnan(grad)):
                     print('NaN:', torch.where(torch.isnan(grad)))
                 sf_feat.append(grad)
@@ -701,8 +714,12 @@ class AgentFormer(nn.Module):
         loss_dict = {}
         loss_unweighted_dict = {}
         for loss_name in self.loss_names:
-            loss, loss_unweighted = loss_func[loss_name](self.data, self.loss_cfg[loss_name])
-            total_loss += loss
+            if 'sfm' in loss_name:
+                params = [self.data, self.loss_cfg[loss_name], self.sfm_learnable_hparams]
+            else:
+                params = [self.data, self.loss_cfg[loss_name]]
+            loss, loss_unweighted = loss_func[loss_name](*params)
+            total_loss += loss.squeeze()
             loss_dict[loss_name] = loss.item()
             loss_unweighted_dict[loss_name] = loss_unweighted.item()
         return total_loss, loss_dict, loss_unweighted_dict
