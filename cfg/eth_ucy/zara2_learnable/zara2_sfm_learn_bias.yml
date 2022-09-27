@@ -72,10 +72,8 @@ loss_cfg:
     k: 20
   recon_sfm:
     weight: 5
-    bias: 50
   sample_sfm:
     weight: 5
-    bias: 50
 
 
 num_epochs                   : 100

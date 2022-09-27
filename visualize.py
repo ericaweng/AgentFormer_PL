@@ -1,373 +1,219 @@
-import matplotlib.lines as mlines
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+import glob
 import numpy as np
 
+from utils.config import Config
+from utils.utils import mkdir_if_missing
+from eval import *
+from viz_utils import plot_traj_anim
 
-def plot_traj_anim(obs_traj, save_fn, ped_radius=0.1, ped_discomfort_dist=0.5, pred_traj_gt=None, pred_traj_fake=None,
-                   bounds=None, int_cat_abbv=None, interaction_matrix=None, int_cat_vec=None, scene_stats=None,
-                   collision_mats=None, cmap_name='tab10', extend_last_frame=3, scatter_dots=None, show_ped_stats=False,
-                   text_time=None, text_fixed=None, grid_values=None, plot_collisions_all=True, plot_title=None):
-    """
-    obs_traj: shape (8, num_peds, 2) observation input to model, first 8 timesteps of the scene
-    save_fn: file name where to save animation
-    ped_diameter: collision threshold -- pedestrian radius * 2
-    pred_traj_fake: tensor of shape (8 or 12, num_peds, 2), or list of tensors of shape (8 or 12, num_peds, 2)
-                    (must be same shape as pred_traj_gt, the traj predicted by the model)
-    bounds: plotting bonuds, if not specified the min and max bounds of whichever trajectories are present are used
-    pred_traj_gt: shape (8 or 12, num_peds, 2) ground-truth trajectory
-    interaction_matrix: shape (num_peds, num_peds - 1) specifies which pairs belong to the given int_type.
-                        only used for int_types that are pairwise, i.e. "linear" "static" etc. are not relevant.
-                        np.sum(interaction_matrix, axis=-1) produces an "interaction level" for each ped, which
-                        is used to color it in the plot. the more green a ped is, the greater number of peds it
-                        shares that int_type with. the more blue, the fewer.
-    int_type_abbv: used for the title and coloring peds
-    scene_stats: statistics for each ped in the scene to plot
-    collision mats: if already computed, plots when a collision occurs
-    cmap_name: which color map to use for coloring pedestrians
-    extend_last_frame: how many timesteps to extend the last frame so the viewer can better observe the full trajectory
-    scatter_dots: a dict mapping labels to sets of np.ndarray scatter points, or a list of np.ndarray scatter points,
-                 or an np.ndarray set of scatter points, to plot
-    show_ped_stats: (bool) whether to display statistics for each pedestrian on the plot
-    text_time (list): list of strings of len = num_timesteps, of text to plot that changes each timestep
-    grid_values (np.array): colored grid to plot, for debugging purposes
-    plot_collisions_all: if True, and collision_mats is specified, plots obs step and pred step collisions
-                         o/w: plots only pred step fake collisions
-    """
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-    plot_title = f"{plot_title}\n" if plot_title is None else ""
-    ax.set_title(f"{plot_title}{save_fn}\ninteraction_type: {int_cat_abbv}")
-    ax.set_aspect("equal")
-
-    if bounds is None:  # calculate bounds automatically
-        all_traj = obs_traj
-        if pred_traj_gt is not None:
-            all_traj = np.concatenate([all_traj, pred_traj_gt])
-        if pred_traj_fake is not None:
-            if isinstance(pred_traj_fake, np.ndarray):
-                all_traj = np.concatenate([all_traj, pred_traj_fake])
-            elif isinstance(pred_traj_fake, list):
-                all_traj = np.concatenate([all_traj, *pred_traj_fake])
-            else:
-                raise NotImplementedError
-        x_low, x_high = np.min(all_traj[:, :, 0]) - ped_radius, np.max(all_traj[:, :, 0]) + ped_radius
-        y_low, y_high = np.min(all_traj[:, :, 1]) - ped_radius, np.max(all_traj[:, :, 1]) + ped_radius
-    else:  # set bounds as specified
-        x_low, x_high, y_low, y_high = bounds
-    ax.set_xlim(x_low, x_high)
-    ax.set_ylim(y_low, y_high)
-
-    # plotting vars
-    num_peds = obs_traj.shape[1]
-    obs_len = obs_traj.shape[0]
-    if pred_traj_gt is not None:
-        pred_len = pred_traj_gt.shape[0]
-    elif pred_traj_fake is not None:
-        pred_len = pred_traj_fake.shape[0]
+def get_traj_from_file(data_file):
+    # for reconsutrction or deterministic
+    if isfile(data_file):
+        all_traj = np.loadtxt(data_file, delimiter=' ', dtype='float32')  # (frames x agents) x 4
+        all_traj = np.expand_dims(all_traj, axis=0)  # 1 x (frames x agents) x 4
+    # for stochastic with multiple samples
+    elif isfolder(data_file):
+        sample_list, _ = load_list_from_folder(data_file)
+        sample_all = []
+        for sample in sample_list:
+            sample = np.loadtxt(sample, delimiter=' ', dtype='float32')  # (frames x agents) x 4
+            sample_all.append(sample)
+        all_traj = np.stack(sample_all, axis=0)  # samples x (framex x agents) x 4
     else:
-        pred_len = 0
+        assert False, 'error'
+    return all_traj
 
-    # color and style properties
-    delta = .32  # ped stats text offset
-    text_offset_x = 0.2
-    text_offset_y = 0.2
-    obs_alpha = 0.8  # how much alpha to plot obs traj
-    pred_alpha = 0.5  # how much alpha to plot gt traj, if they exist
-    cmap_real = plt.get_cmap(cmap_name, max(10, num_peds))
-    cmap_fake = plt.get_cmap(cmap_name, max(10, num_peds))
 
-    # plot random dots
-    if scatter_dots is not None:
-        cmap = plt.get_cmap('tab10')
-        if isinstance(scatter_dots, list):
-            for i, random_dots_set in enumerate(scatter_dots):
-                ax.scatter(*list(zip(*random_dots_set)), color=cmap(i), s=10)
-        elif isinstance(scatter_dots, np.ndarray):
-            ax.scatter(*list(zip(*scatter_dots)), color='b', s=10)
-        elif isinstance(scatter_dots, dict):
-            for i, (name, random_dots_set) in enumerate(scatter_dots.items()):
-                ax.scatter(*list(zip(*random_dots_set)), color=cmap(i), s=10, label=name)
-            ax.legend()
-        else:
-            raise NotImplementedError("scatter_dots is unrecognized format")
+def align_gt(pred, gt):
+    frame_from_data = pred[0, :, 0].astype('int64').tolist()
+    frame_from_gt = gt[:, 0].astype('int64').tolist()
+    common_frames, index_list1, index_list2 = find_unique_common_from_lists(frame_from_gt, frame_from_data)
+    assert len(common_frames) == len(frame_from_data)
+    gt_new = gt[index_list1, 2:]
+    pred_new = pred[:, index_list2, 2:]
+    obs_len = 8
+    obs_idx = np.arange(min(index_list1) - obs_len, min(index_list1))
+    assert np.all(obs_idx >= 0)
+    obs = gt[obs_idx, 2:]
+    assert obs.shape == (obs_len, 2)
+    return pred_new, gt_new, obs
 
-    # add scene-related stats as descriptive text
-    if show_ped_stats:
-        if scene_stats is not None:
-            values = map(lambda x: f"{x:0.2f}", scene_stats.values())
-            scene_stats_text = f'{" / ".join(map(str, scene_stats.keys()))}\n{" / ".join(values)}'
-            ax.add_artist(plt.text(x_low + 0.1, y_high + .2, scene_stats_text, fontsize=8))
-            # ax.add_artist(plt.text(x_low + 0.1, y_high - .3, 'obs // pred (avg_speed / std_speed / smoothness)', fontsize=8))
 
-    ## text that changes each frame
-    text_over_time = plt.text(14, 6, "", fontsize=10, color='k', weight='bold')
-    ax.add_artist(text_over_time)
+def main(args):
+    cfg = Config(args.cfg)
+    cfg2 = Config(args.cfg2)
+    dataset = cfg.dataset
+    results_dir = cfg.result_dir
+    results_dir2 = cfg2.result_dir
 
-    ## text that stays fixed each frame
-    offset_lower = 0.1
-    if isinstance(text_fixed, str):
-        ax.add_artist(plt.text(x_low + offset_lower, y_low + offset_lower, text_fixed, fontsize=8))
-    elif isinstance(text_fixed, list):
-        text = "\n".join(text_fixed)
-        ax.add_artist(plt.text(x_low + offset_lower, y_low + offset_lower, text, fontsize=8))
-    elif isinstance(text_fixed, dict):
-        text = "\n".join([f'{k}: {v:0.3f}' for k, v in text_fixed.items()])
-        ax.add_artist(plt.text(x_low + offset_lower, y_low + offset_lower, text, fontsize=8))
+    if args.epochs is None:
+        epoch1 = int(sorted(map(str,glob.glob(f'{results_dir}/epoch_*')))[-1][-4:])
+        epoch2 = int(sorted(map(str,glob.glob(f'{results_dir2}/epoch_*')))[-1][-4:])
+        print("epochs:", epoch1, epoch2)
     else:
-        if text_fixed is not None:
-            raise NotImplementedError("text_fixed is unrecognized format")
+        epoch1, epoch2 = map(int, args.epochs.split(','))
 
-    # ped graph elements
-    circles_gt, circles_fake, circles_gt_dd, circles_fake_dd, last_obs_circles, lines_pred_gt, \
-    lines_obs_gt, lines_pred_fake = [], [], [], [], [], [], [], []
+    resize = 1.0
+    if dataset == 'nuscenes_pred':  # nuscenes
+        data_root = f'datasets/nuscenes_pred'
+        gt_dir = f'{data_root}/label/{args.split}'
+        seq_train, seq_val, seq_test = get_nuscenes_pred_split(data_root)
+        seq_eval = locals()[f'seq_{args.split}']
+    elif dataset == 'trajnet_sdd':
+        data_root = 'datasets/trajnet_split'
+        # data_root = 'datasets/stanford_drone_all'
+        gt_dir = f'{data_root}/{args.split}'
+        seq_train, seq_val, seq_test = get_stanford_drone_split()
+        seq_eval = locals()[f'seq_{args.split}']
+        # resize = 0.25
+        indices = [0, 1, 2, 3]
+    elif dataset == 'sdd':
+        data_root = 'datasets/stanford_drone_all'
+        gt_dir = f'{data_root}/{args.split}'
+        seq_train, seq_val, seq_test = get_stanford_drone_split()
+        seq_eval = locals()[f'seq_{args.split}']
+        indices = [0, 1, 2, 3]
+    else:  # ETH/UCY
+        gt_dir = f'datasets/eth_ucy/{cfg.dataset}'
+        seq_train, seq_val, seq_test = get_ethucy_split(cfg.dataset)
+        seq_eval = locals()[f'seq_{args.split}']
+        indices = [0, 1, 13, 15]
 
-    # plot circles to represent peds
-    for ped_i in range(num_peds):
-        if int_cat_vec is not None:
-            if int_cat_vec[ped_i] == 0:
-                color_fake = 'k'
-                color_real = 'k'
-            elif interaction_matrix is not None and len(interaction_matrix) == int_cat_vec.shape:
-                num_peds_w_interaction = np.sum(interaction_matrix[ped_i], axis=-1)
-                color_fake = cmap_fake(num_peds_w_interaction % num_peds)
-                color_real = cmap_real(num_peds_w_interaction % num_peds)
-            else:
-                color_real = cmap_real(ped_i)
-                color_fake = cmap_fake(ped_i)
-        else:
-            color_real = cmap_real(ped_i)
-            color_fake = cmap_fake(ped_i)
+    if args.log_file is None:
+        log_file = os.path.join(results_dir, 'log_eval_viz.txt')
+    else:
+        log_file = args.log_file
+    log_file = open(log_file, 'a+')
+    print_log('loading results from %s' % results_dir, log_file)
+    print_log('loading results from %s' % results_dir2, log_file)
+    print_log('loading GT from %s' % gt_dir, log_file)
 
-        ## obs circles for emphasis
-        # last_obs_circ = plt.Circle(obs_traj[-1, ped_i], radius, fill=True, color=last_obs_color, alpha=1,
-        #                            visible=False, zorder=5)
-        # last_obs_circles.append(ax.add_artist(last_obs_circ))
+    stats_func = {
+            'ADE': compute_ADE,
+            'FDE': compute_FDE,
+            'CR_pred': compute_CR,
+            'CR_gt': compute_CR,
+            'CR_pred_mean': compute_CR,
+            'CR_gt_mean': compute_CR,
+            'ACFL': compute_ACFL
+    }
 
-        ## plot ground-truth obs and pred
-        circles_gt.append(
-                ax.add_artist(plt.Circle(obs_traj[0, ped_i], ped_radius, fill=True, color=color_real, zorder=0)))
-        line_obs_gt = mlines.Line2D(*obs_traj[0:1].T, color=color_real, marker='.', linestyle='-', linewidth=1,
-                                    alpha=obs_alpha, zorder=0)
-        lines_obs_gt.append(ax.add_artist(line_obs_gt))
-        circles_gt_dd.append(ax.add_artist(plt.Circle(obs_traj[0, ped_i], ped_radius + ped_discomfort_dist, fill=True,
-                                                      color=color_fake, alpha=0.1, zorder=-1)))
+    stats_meter = {x: AverageMeter() for x in stats_func.keys()}
 
-        if pred_traj_gt is not None:
-            line_pred_gt = mlines.Line2D(*obs_traj[0:1].T, color=color_real, marker='.', linestyle='-', linewidth=1,
-                                         alpha=pred_alpha, zorder=0, visible=False)
-            lines_pred_gt.append(ax.add_artist(line_pred_gt))
+    seq_list, num_seq = load_list_from_folder(gt_dir)
+    print_log('number of gt sequences to evaluate is %d' % num_seq, log_file)
+    for seq_name in seq_eval:
+        # load GT raw data
+        gt_data, _ = load_txt_file(os.path.join(gt_dir, seq_name + '.txt'))
+        gt_raw = []
+        for line_data in gt_data:
+            line_data = np.array([line_data.split(' ')])[:, indices][0].astype('float32')
+            line_data[2:4] = line_data[2:4] * resize
+            if line_data[1] == -1: continue
+            gt_raw.append(line_data)
+        gt_raw = np.stack(gt_raw)
+        if dataset == 'trajnet_sdd':
+            gt_raw[:, 0] = np.round(gt_raw.astype(np.float)[:, 0] / 12.0)
 
-        if pred_traj_fake is not None:  # plot fake pred trajs
-            if isinstance(pred_traj_fake, np.ndarray):
-                pred_traj_fake = [pred_traj_fake]
-            for ptf_i, ptf in enumerate(pred_traj_fake):
-                circle_fake = plt.Circle(ptf[0, ped_i], ped_radius, fill=True, color=color_fake,
-                                         alpha=len(pred_traj_fake)-ptf_i/len(pred_traj_fake), visible=False, zorder=1)
-                circles_fake.append(ax.add_artist(circle_fake))
-                # circle_fake_dd = plt.Circle(ptf[0, ped_i], ped_radius + ped_discomfort_dist, fill=True,
-                #                             color=color_fake, alpha=0.1, visible=False, zorder=0)
-                # circles_fake_dd.append(ax.add_artist(circle_fake_dd))
-                line_pred_fake = mlines.Line2D(*ptf[0:1].T, color=color_fake, marker='.', linestyle='-',
-                                               alpha=len(pred_traj_fake) - ptf_i / len(pred_traj_fake), zorder=2,
-                                               visible=False)
-                                               # alpha=pred_alpha, zorder=2, visible=False)
-                lines_pred_fake.append(ax.add_artist(line_pred_fake))
+        samples_dir = f'{results_dir}/epoch_{epoch1:04d}/{args.split}/samples'
+        samples_dir2 = f'{results_dir2}/epoch_{epoch2:04d}/{args.split}/samples'
+        data_filelist, _ = load_list_from_folder(os.path.join(samples_dir, seq_name))
+        print_log('number of real sequences 1 to evaluate is %d' % len(data_filelist), log_file)
+        data_filelist2, _ = load_list_from_folder(os.path.join(samples_dir2, seq_name))
+        print_log('number of real sequences 2 to evaluate is %d' % len(data_filelist2), log_file)
 
-    # add interaction category annotations, if specified
-    ped_texts = []
-    for ped_i in range(num_peds):
-        int_text = ax.text(circles_gt[ped_i].center[0] + text_offset_x, circles_gt[ped_i].center[1] - text_offset_y,
-                           str(ped_i), color='black', fontsize=8)
-        ped_texts.append(ax.add_artist(int_text))
+        for data_file, data_file2 in zip(data_filelist, data_filelist2):  # each example e.g., seq_0001 - frame_000009
+            all_traj = get_traj_from_file(data_file)
+            all_traj2 = get_traj_from_file(data_file2)
 
-    # plot collision circles for predictions only
-    if collision_mats is not None:
-        collide_circle_rad = (ped_radius + ped_discomfort_dist) * 2
-        # assert collision_mats.shape == (pred_len, num_peds, num_peds)
-        collision_circles = [ax.add_artist(plt.Circle((0, 0), collide_circle_rad, fill=False, zorder=5, visible=False))
-                             for _ in range(num_peds)]
-        collision_texts = [ax.add_artist(ax.text(0, 0, "", visible=False, fontsize=8)) for _ in range(num_peds)]
-        collision_delay = 3
-        yellow = (.8, .8, 0, .2)
-        collided_delays = np.zeros(num_peds)
+            # convert raw data to our format for evaluation
+            id_list = np.unique(all_traj[:, :, 1])
+            id_list2 = np.unique(all_traj2[:, :, 1])
+            frame_list = np.unique(all_traj[:, :, 0])
+            agent_traj = []
+            agent_traj2 = []
+            gt_traj = []
+            obs_traj = []
+            for idx in id_list:
+                # GT traj
+                gt_idx = gt_raw[gt_raw[:, 1] == idx]  # frames x 4
 
-    # heatmap
-    if grid_values is not None:
-        x, y = np.meshgrid(np.linspace(*bounds[:2], grid_values.shape[1] + 1),
-                           np.linspace(*bounds[2:4], grid_values.shape[2] + 1))
-        # z = grid_values[0].reshape(x.shape[0] - 1, x.shape[1] - 1)
-        z = grid_values[0]
+                # predicted traj
+                ind = np.unique(np.where(all_traj[:, :, 1] == idx)[1].tolist())
+                pred_idx = all_traj[:, ind, :]  # sample x frames x 4
+                # filter data
+                pred_idx, _, _ = align_gt(pred_idx, gt_idx)
+                # same for second model
+                pred_idx2 = all_traj2[:, ind, :]  # sample x frames x 4
+                pred_idx2, gt_idx, obs = align_gt(pred_idx2, gt_idx)
 
-        z_min, z_max = np.min(np.array(z)), np.max(np.array(z))
-        state_mesh = ax.pcolormesh(x, y, z, alpha=.8, vmin=0, vmax=1, zorder=3)
+                # append
+                agent_traj.append(pred_idx)
+                agent_traj2.append(pred_idx2)
+                gt_traj.append(gt_idx)
+                obs_traj.append(obs)
 
-    ## animation update function
-    def update(frame_i):
-        nonlocal x, y
-        # for replicating last scene
-        if frame_i >= obs_len + pred_len:
-            return
+            """compute stats"""
+            frame = int(frame_list[0])
+            stats_str = ''
+            if args.stats:
+                for stats_name, meter in stats_meter.items():
+                    func = stats_func[stats_name]
+                    stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj}
+                    if stats_name == 'CR_pred':
+                        stats_func_args['pred'] = True
+                    elif stats_name == 'CR_gt':
+                        stats_func_args['gt'] = True
+                    elif stats_name == 'CR_pred_mean':
+                        stats_func_args['pred'] = True
+                        stats_func_args['aggregation'] = 'mean'
+                    elif stats_name == 'CR_gt_mean':
+                        stats_func_args['gt'] = True
+                        stats_func_args['aggregation'] = 'mean'
 
-        # energy text
-        if frame_i < obs_len + pred_len - 1 and text_time is not None:
-            energy_time, energy_time_each_ped, dmp, spd, drc, col, atr, grp = text_time[frame_i]
-            energy_text = '\n'.join(f"{text_time[frame_i]:0.3f}")
-            text_over_time.set_text(f"{energy_text}")
+                    value = func(**stats_func_args)
+                    # if value > 0 and stats_name == 'CR_pred':
+                    #     import ipdb; ipdb.set_trace()
+                    meter.update(value, n=len(agent_traj))
 
-        # heatmap
-        if grid_values is not None and frame_i < obs_len + pred_len - 1:
-            nonlocal state_mesh, x, y
-            z = grid_values[frame_i]
-            normed_z = ((z - z_min) / (z_max - z_min)).reshape(x.shape[0] - 1, x.shape[1] - 1)
-            state_mesh.remove()
-            state_mesh = ax.pcolormesh(x, y, normed_z, alpha=.1, vmin=0, vmax=1, zorder=1)
+                stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])
+                print_log(
+                        f'evaluating seq {seq_name:s}, forecasting frame {frame:06d} to {int(frame_list[-1]):06d} {stats_str}',
+                        log_file)
 
-        # move the real and pred (fake) agent
-        if frame_i < obs_len:
-            for ped_i, (circle_gt, circle_gt_dd, line_obs_gt, ped_text) in enumerate(zip(
-                    circles_gt, circles_gt_dd, lines_obs_gt, ped_texts)):
-                circle_gt.center = obs_traj[frame_i, ped_i]
-                circle_gt_dd.center = obs_traj[frame_i, ped_i]
-                line_obs_gt.set_data(*obs_traj[0:frame_i + 1, ped_i].T)
-                # move the pedestrian texts (ped number and relation)
-                if len(ped_texts) > 0:
-                    ped_text.set_position((circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
-
-            # plotting the last observation
-            # if frame_i == obs_len - 1:
-            #     for ped_i, last_obs_circ in enumerate(last_obs_circles):
-            #         last_obs_circ.set_visible(True)
-            #     last_obs_text.set_visible(True)
-        elif frame_i == obs_len:
-            for circle_fake, circle_fake_dd in zip(circles_fake, circles_fake_dd):
-                circle_fake.set_visible(True)
-                circle_fake_dd.set_visible(True)
-            if pred_traj_gt is None:
-                for circle_gt, circle_gt_dd in zip(circles_gt, circles_gt_dd):
-                    # circle_real.set_visible(False)
-                    circle_gt.set_radius(ped_radius * 0.5)
-                    circle_gt.set_alpha(0.3)
-                    circle_gt_dd.set_visible(False)
-            for line_obs_gt in lines_obs_gt:
-                line_obs_gt.set_alpha(0.2)
-            if pred_traj_gt is not None:
-                for line_pred_gt in lines_pred_gt:
-                    line_pred_gt.set_visible(True)
-            if pred_traj_fake is not None:
-                for line_pred_fake in lines_pred_fake:
-                    line_pred_fake.set_visible(True)
-
-            for last_obs_circ in last_obs_circles:
-                last_obs_circ.set_radius(ped_radius * 0.75)
-                last_obs_circ.set_alpha(0.3)
-            # obs_pred_text.set_text('prediction')
-
-        if obs_len <= frame_i < obs_len + pred_len:
-            if pred_traj_gt is not None:
-                # traj_gt = np.concatenate([obs_traj, pred_traj_gt])
-                for ped_i, (circle_gt, line_pred_gt, circle_gt_dd, ped_text) in enumerate(zip(
-                        circles_gt, lines_pred_gt, circles_gt_dd, ped_texts)):
-                    circle_gt.center = pred_traj_gt[frame_i - obs_len, ped_i]
-                    circle_gt_dd.center = pred_traj_gt[frame_i - obs_len, ped_i]
-                    last_obs_pred_gt = np.concatenate(
-                            [obs_traj[-1:, ped_i], pred_traj_gt[0:frame_i + 1 - obs_len, ped_i]])
-                    line_pred_gt.set_data(*last_obs_pred_gt.T)
-                    # move the pedestrian texts (ped number and relation)
-                    if len(ped_texts) > 0:
-                        ped_text.set_position(
-                                (circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
-
-            if pred_traj_fake is not None:
-                for ped_i, (circle_fake, line_pred_fake, circle_fake_dd, ped_text) in enumerate(zip(
-                        circles_fake, lines_pred_fake, circles_fake_dd, ped_texts)):
-                    circle_fake.set_visible(True)
-                    circle_fake.center = pred_traj_fake[frame_i - obs_len, ped_i]
-                    circle_fake_dd.center = pred_traj_fake[frame_i - obs_len, ped_i]
-                    last_obs_pred_fake = np.concatenate(
-                            [obs_traj[-1:, ped_i], pred_traj_fake[0:frame_i + 1 - obs_len, ped_i]])
-                    line_pred_fake.set_data(*last_obs_pred_fake.T)
-                    # move the pedestrian texts (ped number and relation)
-                    if len(ped_texts) > 0:
-                        ped_text.set_position((circle_fake.center[0] + text_offset_x,
-                                               circle_fake.center[1] - text_offset_y))
-
-        # update collision circles (only if we are during pred timesteps)
-        if (plot_collisions_all or obs_len <= frame_i <= obs_len + pred_len) and collision_mats is not None:
-            obs_gt_fake = np.concatenate([obs_traj, pred_traj_fake])
-            for ped_i in range(num_peds):
-                # new frame; decrease the text disappearance delay by 1
-                if collided_delays[ped_i] > 0:
-                    collided_delays[ped_i] -= 1
-                for ped_j in range(ped_i):
-                    if collided_delays[ped_i] > 0:  # still in delay, circle doesn't disappear
-                        break
-                    elif collision_mats[frame_i, ped_i, ped_j]:
-                        ## put the center of the circle in the point between the two ped centers
-                        x = (obs_gt_fake[frame_i][ped_i][0] + obs_gt_fake[frame_i][ped_j][0]) / 2
-                        y = (obs_gt_fake[frame_i][ped_i][1] + obs_gt_fake[frame_i][ped_j][1]) / 2
-                        collision_circles[ped_i].set_center((x, y))
-                        collision_circles[ped_i].set_edgecolor(cmap_fake(ped_i))
-                        collision_circles[ped_i].set_visible(True)
-
-                        ## set "x and y collided" text
-                        # collision_texts[ped_i].set_position((x+radius, y+radius))
-                        # collision_texts[ped_i].set_text(f"{ped_i} and {ped_j} collide")
-                        # collision_texts[ped_i].set_color(cmap_fake(ped_j))
-                        # collision_texts[ped_i].set_visible(True)
-
-                        ## add persistent yellow collision circle
-                        ax.add_artist(plt.Circle((x, y), collide_circle_rad, fc=yellow, zorder=1, ec='none'))
-                        ## unused for now
-                        # ax.add_artist(plt.Circle((x,y), collide_circle_rad, color=cmap_fake(ped_i), alpha=0.2,
-                        #                          zorder=-5))  # persistent ped color collision circl
-                        # ax.add_artist(ax.text(x, y, f"{ped_i} and {ped_j} collide", fontsize=8, zorder=-5, alpha=0.1,
-                        #                       color=cmap_fake(ped_j)))  # persistent text
-                        collided_delays[ped_i] = collision_delay
-                        break
-                    collision_circles[ped_i].set_visible(False)
-                    collision_texts[ped_i].set_visible(False)
-
-    anim = animation.FuncAnimation(fig, update, frames=obs_len + pred_len + extend_last_frame, interval=500)
-    anim.save(save_fn)
-    print(f"saved animation to {save_fn}")
-    plt.close(fig)
-
-
-def peds_pandas_way(data, labels, indices, verbose=False):
-    """change shape of array from individual tracks to grouped by
-    frame number and peds"""
-    ### ALTERNATE data processing OPTION using pandas
-    df = pd.DataFrame(data, columns=labels)
-    # df2 = df.copy()
-
-    # deal with frame_number
-    # https://stackoverflow.com/questions/39534129/change-index-value-in-pandas-dataframe
-    for index in indices:
-        df = df.set_index([index])
-        df.index = pd.Index(pd.Categorical(df.index).codes,
-                            dtype="int",
-                            name=index)
-        df = df.reset_index()
-    df = df.set_index(indices)
-
-    # create an empty array of NaN of the right dimensions
-    shape = tuple(map(len, df.index.levels)) + (len(df.columns), )
-    arr = np.full(shape, np.nan)
-
-    # fill it using Numpy's advanced indexing
-    arr[tuple(df.index.codes)] = df.values
-    if verbose:
-        print("ped_pandas_way final dataset shape:", arr.shape)
-
-    return arr
-
-def main():
-    import ipdb;
-    ipdb.set_trace()
-    obs_traj
-    plot_traj_anim(obs_traj, pred_traj_gt=gt_motion_3D.transpose(0, 1), pred_traj_fake=recon_motion_3D.transpose(0, 1))
+            """plot layered animation"""
+            mkdir_if_missing('viz')
+            anim_save_fn = f'viz/{cfg.id}-vs-{cfg2.id}_seq-{seq_name}_frame-{frame}.mp4'
+            obs_traj = np.stack(obs_traj).transpose(1,0,2)
+            pred_traj1 = np.stack(agent_traj).transpose(1,2,0,3)[:args.num_samples]
+            pred_traj2 = np.stack(agent_traj2).transpose(1,2,0,3)[:args.num_samples]
+            pred_gt_traj = np.stack(gt_traj).transpose(1,0,2)
+            cfg_names = ['sfm' if 'sfm' in cfg_id else
+                                      'pre_nocol' if 'pre' in cfg_id and 'nocol' in cfg_id else
+                                      'dlow_nocol' if 'nocol' in cfg_id else
+                                      'pre' if 'pre' in cfg_id else
+                                      'dlow'
+                                      for cfg_id in [cfg.id, cfg2.id]]
+            plot_traj_anim(obs_traj,
+                           pred_traj_gt=pred_gt_traj,
+                           pred_traj_fake=[pred_traj1, pred_traj2],
+                           save_fn=anim_save_fn,#)
+                           cfg_names=cfg_names)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--num_samples', type=int, default=5)
+    parser.add_argument('--cached', action='store_true', default=False)
+    parser.add_argument('--stats', action='store_true', default=False)
+    parser.add_argument('--cfg', default=None)
+    parser.add_argument('--cfg2', default=None)
+    parser.add_argument('--label', default='')
+    parser.add_argument('--epochs', default=None)
+    parser.add_argument('--split', default='test')
+    parser.add_argument('--log_file', default=None)
+    args = parser.parse_args()
+
+    main(args)

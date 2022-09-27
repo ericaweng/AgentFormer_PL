@@ -37,6 +37,7 @@ sfm_params:
   loss_reduce: mean
   learnable_hparams: true
   use_w: false
+  sigma_d_min: 0.5
 
 context_encoder:
   nlayer: 2
@@ -72,10 +73,8 @@ loss_cfg:
     k: 20
   recon_sfm:
     weight: 5
-    bias: 50
   sample_sfm:
     weight: 5
-    bias: 50
 
 
 num_epochs                   : 100

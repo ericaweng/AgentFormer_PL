@@ -21,7 +21,7 @@ def collision_term(p_i, v_i, params, learnable_hparams=None):
     if p_i.shape[0] == 1:
         return torch.tensor(1.0).to(p_i.device)
     if learnable_hparams is not None:
-        sigma_d = learnable_hparams['sigma_d']
+        sigma_d = torch.abs(learnable_hparams['sigma_d']) + params.get('sigma_d_min', 0)
     else:
         sigma_d = params['sigma_d']
     use_w = params.get('use_w', True)

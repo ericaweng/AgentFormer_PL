@@ -560,9 +560,9 @@ class AgentFormer(nn.Module):
         self.context_encoder = ContextEncoder(cfg.context_encoder, self.ctx)
         self.future_encoder = FutureEncoder(cfg.future_encoder, self.ctx)
         if self.ctx['sfm_params'].get('learnable_hparams', False):
-            self.recon_weight = nn.Parameter(torch.rand(1) * 10)
-            self.sample_weight = nn.Parameter(torch.rand(1) * 10)
-            self.sigma_d = nn.Parameter(torch.ones(1))
+            self.recon_weight = nn.Parameter(torch.ones(1) * 5)#torch.rand(1) * 10)
+            self.sample_weight = nn.Parameter(torch.ones(1) * 5) # torch.rand(1) * 10)
+            self.sigma_d = nn.Parameter(torch.zeros(1))#torch.ones(1))
             self.sfm_learnable_hparams = {'recon_weight': self.recon_weight,
                                           'sample_weight': self.sample_weight,
                                           'sigma_d': self.sigma_d}

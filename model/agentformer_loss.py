@@ -51,9 +51,9 @@ def compute_recon_sfm(data, cfg, learnable_hparams=None):
         loss_unweighted += col
     loss_unweighted /= pred.shape[1]
     if sfm_params.get('learnable_hparams', False):
-        loss = loss_unweighted * learnable_hparams['recon_weight'] - cfg['bias']
+        loss = loss_unweighted * torch.abs(learnable_hparams['recon_weight']) - torch.abs(learnable_hparams['recon_weight']) / 2#** cfg['bias']
     else:
-        loss = loss_unweighted * cfg['weight'] - cfg.get('bias', 0)
+        loss = loss_unweighted * cfg['weight'] #- cfg.get('bias', 0)
     return loss, loss_unweighted
 
 
@@ -71,9 +71,9 @@ def compute_sample_sfm(data, cfg, learnable_hparams=None):
         loss_unweighted += col
     loss_unweighted /= pred.shape[2]
     if sfm_params.get('learnable_hparams', False):
-        loss = loss_unweighted * learnable_hparams['sample_weight'] - cfg['bias']
+        loss = loss_unweighted * torch.abs(learnable_hparams['sample_weight']) - torch.abs(learnable_hparams['sample_weight']) / 2
     else:
-        loss = loss_unweighted * cfg['weight'] - cfg.get('bias', 0)
+        loss = loss_unweighted * cfg['weight'] #- cfg.get('bias', 0)
     return loss, loss_unweighted
 
 
