@@ -8,7 +8,7 @@ from .common.mlp import MLP
 from .agentformer_loss import loss_func
 from .common.dist import *
 from .agentformer_lib import AgentFormerEncoderLayer, AgentFormerDecoderLayer, AgentFormerDecoder, AgentFormerEncoder
-# from .map_encoder import MapEncoder
+from .map_encoder import MapEncoder
 from utils.torch import *
 from utils.utils import initialize_weights
 from model.sfm import *
@@ -529,11 +529,13 @@ class AgentFormer(nn.Module):
             'learn_prior': cfg.get('learn_prior', False),
             'use_map': cfg.get('use_map', False),
             'use_sfm': cfg.get('use_sfm', False),
+            'use_sfm_context': cfg.get('use_sfm_context', False),
             'sfm_params': cfg.get('sfm_params', dict())
         }
         self.past_frames = self.ctx['past_frames']
         self.future_frames = self.ctx['future_frames']
         self.use_sfm = self.ctx['use_sfm']
+        self.use_sfm_context = self.ctx['use_sfm_context']
         self.use_map = self.ctx['use_map']
         self.rand_rot_scene = cfg.get('rand_rot_scene', False)
         self.discrete_rot = cfg.get('discrete_rot', False)
@@ -555,6 +557,11 @@ class AgentFormer(nn.Module):
         if self.use_map:
             self.map_encoder = MapEncoder(cfg.map_encoder)
             self.ctx['map_enc_dim'] = self.map_encoder.out_dim
+
+        # sfm map encoder
+        if self.use_sfm_context:
+            self.sfm_map_encoder = MapEncoder(cfg.sfm_map_encoder)
+            self.ctx['sfm_map_enc_dim'] = self.sfm_map_encoder.out_dim
 
         # models
         self.context_encoder = ContextEncoder(cfg.context_encoder, self.ctx)
@@ -637,6 +644,19 @@ class AgentFormer(nn.Module):
                 rot = -np.array(in_data['heading'])  * (180 / np.pi)
             self.data['agent_maps'] = scene_map.get_cropped_maps(scene_points, patch_size, rot).to(device)
 
+        # sfm context
+        if self.use_sfm_context:
+            scene_map = data['scene_map']
+            scene_points = np.stack(in_data['pre_motion_3D'])[:, -1] * data['traj_scale']
+            patch_size = [50, 10, 50, 90]
+            rot = -np.array(in_data['heading']) * (180 / np.pi)
+            self.data['agent_maps'] = scene_map.get_cropped_maps(scene_points, patch_size, rot).to(device)
+            pos = self.data['pre_motion'][i]
+            vel = self.data['pre_vel'][max(0, i - 1)]
+            state = torch.cat([pos, vel], dim=-1)
+            grad = compute_grad_feature(state, self.cfg.sfm_params, self.sfm_learnable_hparams)
+
+
         # agent shuffling
         if self.training and self.ctx['agent_enc_shuffle']:
             self.data['agent_enc_shuffle'] = torch.randperm(self.ctx['max_agent_len'])[:self.data['agent_num']].to(device)
@@ -658,6 +678,9 @@ class AgentFormer(nn.Module):
         self.data['agent_mask'] = mask
 
         # social force features
+        if self.use_sfm_context:
+            # self.grid = torch.array()
+            pass
         if self.use_sfm:
             # past
             sf_feat = []

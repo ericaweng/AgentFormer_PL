@@ -97,17 +97,19 @@ class SDDPreprocess(object):
         return heading
 
     def load_scene_map(self):
-        map_file = f'{self.data_root}/map_{self.map_version}/{self.seq_name}.png'
-        map_vis_file = f'{self.data_root}/map_{self.map_version}/vis_{self.seq_name}.png'
-        map_meta_file = f'{self.data_root}/map_{self.map_version}/meta_{self.seq_name}.txt'
+        map_file = f'{self.data_root}/annotations/{self.seq_name[:-2]}/video{self.seq_name[-1]}/reference.jpg'
+        # map_vis_file = f'{self.data_root}/map_{self.map_version}/vis_{self.seq_name}.png'
+        # map_meta_file = f'{self.data_root}/map_{self.map_version}/meta_{self.seq_name}.txt'
         self.scene_map = np.transpose(cv2.imread(map_file), (2, 0, 1))
-        self.scene_vis_map = np.transpose(cv2.cvtColor(cv2.imread(map_vis_file), cv2.COLOR_BGR2RGB), (2, 0, 1))
-        self.meta = np.loadtxt(map_meta_file)
-        self.map_origin = self.meta[:2]
-        self.map_scale = scale = self.meta[2]
-        homography = np.array([[scale, 0., 0.], [0., scale, 0.], [0., 0., scale]])
-        self.geom_scene_map = GeometricMap(self.scene_map, homography, self.map_origin)
-        self.scene_vis_map = GeometricMap(self.scene_vis_map, homography, self.map_origin)
+        print("scene_map.shape:", self.scene_map.shape)
+        # self.scene_vis_map = np.transpose(cv2.cvtColor(cv2.imread(map_vis_file), cv2.COLOR_BGR2RGB), (2, 0, 1))
+        # self.meta = np.loadtxt(map_meta_file)
+        # self.map_origin = self.meta[:2]
+        # self.map_scale = scale = self.meta[2]
+        # homography = np.array([[scale, 0., 0.], [0., scale, 0.], [0., 0., scale]])
+        homography = np.eye(3)
+        self.geom_scene_map = GeometricMap(self.scene_map, homography, np.array([0, 0]))
+        # self.scene_vis_map = GeometricMap(self.scene_vis_map, homography, np.array([0, 0]))
 
     def PreMotion(self, DataTuple, valid_id):
         motion = []
