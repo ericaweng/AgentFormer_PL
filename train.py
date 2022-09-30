@@ -5,6 +5,7 @@ import time
 import subprocess
 import numpy as np
 import torch
+import wandb
 from torch import optim
 from torch.utils.tensorboard import SummaryWriter
 torch.autograd.set_detect_anomaly(True)

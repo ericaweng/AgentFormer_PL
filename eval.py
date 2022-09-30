@@ -400,7 +400,9 @@ if __name__ == '__main__':
         print_log(f'{meter.count} {name}: {meter.avg:.4f}', log_file)
     print_log('-' * 67, log_file)
     for name, meter in stats_meter.items():
-        print(f"{meter.avg:.4f}")
+        if 'gt' not in name:
+            print(f"{meter.avg:.4f}")
+    print('epoch:', args.epoch)
     log_file.close()
 
     write_metrics_to_csv(stats_meter, csv_file, args.label, results_dir, args.epoch, args.data)

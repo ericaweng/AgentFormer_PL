@@ -87,7 +87,7 @@ def test_model(generator, save_dir, cfg):
         num_tries = 0
         while not_colliding_samples.shape[0] < cfg.sample_k:
             with torch.no_grad():
-                num_samples = cfg.sample_k if num_tries == 0 else 10
+                num_samples = 40 if num_tries == 0 else 20
                 recon_motion_3D, sample_motion_3D = get_model_prediction(data, num_samples)
                 num_tries += 1
             recon_motion_3D, sample_motion_3D = recon_motion_3D * cfg.traj_scale, sample_motion_3D * cfg.traj_scale
@@ -148,7 +148,6 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', default=None)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--cached', action='store_true', default=False)
-    parser.add_argument('--no_collisions', dest='collisions_ok', action='store_false', default=True)
     parser.add_argument('--cleanup', action='store_true', default=False)
     parser.add_argument('--all_epochs', action='store_true', default=False)
     args = parser.parse_args()
@@ -157,7 +156,6 @@ if __name__ == '__main__':
     cfg = Config(args.cfg)
     args.collisions_ok = cfg.get('collisions_ok', True)
     print("collisions_ok:", args.collisions_ok)
-    # args.no_collisions = cfg.get('no_collisions', False)
 
     if args.all_epochs:
         epochs = range(cfg.model_save_freq, cfg.num_epochs + 1, cfg.model_save_freq)

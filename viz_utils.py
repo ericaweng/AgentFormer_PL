@@ -77,7 +77,7 @@ def plot_traj_anim(obs_traj, save_fn, ped_radius=0.1, ped_discomfort_dist=0.5, p
     text_offset_x = 0.2
     text_offset_y = 0.2
     obs_alpha = 1  # how much alpha to plot obs traj
-    pred_alpha = 0.5  # how much alpha to plot gt traj, if they exist
+    pred_alpha = 0.8  # how much alpha to plot gt traj, if they exist
     # each sample a different marker
     markers_0 = ['o', '*', '^', 's', '1', 'P', 'x', '$\#$', ',', '$\clubsuit$'] #'v', '<', ',', ]
     markers_1 = ['P', 'x', '$\#$', ',', '$\clubsuit$'] #'v', '<', ',', ]
@@ -89,7 +89,7 @@ def plot_traj_anim(obs_traj, save_fn, ped_radius=0.1, ped_discomfort_dist=0.5, p
                   ['#194D33', '#4CAF50'],  # green
                   ['#B71C1C', '#F44336'],  # red
                   ['#4A148C', '#9C27B0'],  # purple
-                  ['#9C27B0', '#795548'],  # brown
+                  ['#312502', '#795548'],  # brown
                   ['#b31658', '#E91E63'],  # pink
                   ['#333333', '#999999'],  # gray
                   ['#F0F4C3', '#AFB42B'],  # olive
@@ -154,11 +154,10 @@ def plot_traj_anim(obs_traj, save_fn, ped_radius=0.1, ped_discomfort_dist=0.5, p
             lpf, cf = [], []
             for model_i, ptf in enumerate(pred_traj_fake):
                 lpf_inner, cf_inner = [], []
-                alpha = 1#0.5#(len(pred_traj_fake) - model_i - 1) * (1 - alpha_min) / len(pred_traj_fake) + alpha_min
-                assert 0 <= alpha <= 1, alpha
+                # alpha = 1#0.5#(len(pred_traj_fake) - model_i - 1) * (1 - alpha_min) / len(pred_traj_fake) + alpha_min
                 for sample_i, p in enumerate(ptf):
                     circle_fake = plt.Circle(ptf[0, ped_i], ped_radius, fill=True, color=color_fake[ped_i][model_i],
-                                             alpha=alpha, visible=False, zorder=1)
+                                             alpha=pred_alpha, visible=False, zorder=1)
                     cf_inner.append(ax.add_artist(circle_fake))
                     label = f"{cfg_names[model_i]} ped {ped_i}" if sample_i == 0 else None
                     marker = locals()[f'markers_{model_i}'][sample_i]
@@ -166,7 +165,7 @@ def plot_traj_anim(obs_traj, save_fn, ped_radius=0.1, ped_discomfort_dist=0.5, p
                     line_pred_fake = mlines.Line2D(*ptf[0:1].T, color=color,
                                                    marker=marker,
                                                    linestyle=linestyles[model_i],
-                                                   alpha=alpha, zorder=2,
+                                                   alpha=pred_alpha, zorder=2,
                                                    visible=False)
                     if label is not None:
                         legend_labels.append(label)
