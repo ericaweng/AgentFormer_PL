@@ -9,12 +9,21 @@ from .utils import recreate_dirs
 
 class Config:
 
-    def __init__(self, cfg_id, tmp=False, create_dirs=False):
+    def __init__(self, cfg_id, tmp=False, create_dirs=False, additional_cfg_vars=None):
         self.id = cfg_id
         cfg_path = 'cfg/**/%s.yml' % cfg_id
         files = glob.glob(cfg_path, recursive=True)
         assert(len(files) == 1)
         self.yml_dict = EasyDict(yaml.safe_load(open(files[0], 'r')))
+        if additional_cfg_vars is not None:
+            self.id = f"{self.id}_weight-{additional_cfg_vars['weight']}_sigma_d-{additional_cfg_vars['sigma_d']}"
+
+        """cfg new vars"""
+        self.yml_dict.sfm_params.sigma_d = additional_cfg_vars['sigma_d']
+        self.yml_dict.loss_cfg.sample_sfm = {}
+        self.yml_dict.loss_cfg.sample_sfm.weight = additional_cfg_vars['weight']
+        self.yml_dict.loss_cfg.recon_sfm = {}
+        self.yml_dict.loss_cfg.recon_sfm.weight = additional_cfg_vars['weight']
 
         # data dir
         self.results_root_dir = os.path.expanduser(self.yml_dict['results_root_dir'])
@@ -22,7 +31,7 @@ class Config:
         cfg_root_dir = '/tmp/agentformer' if tmp else self.results_root_dir
         self.cfg_root_dir = os.path.expanduser(cfg_root_dir)
 
-        self.cfg_dir = '%s/%s' % (self.cfg_root_dir, cfg_id)
+        self.cfg_dir = '%s/%s' % (self.cfg_root_dir, self.id)
         self.model_dir = '%s/models' % self.cfg_dir
         self.result_dir = '%s/results' % self.cfg_dir
         self.log_dir = '%s/log' % self.cfg_dir

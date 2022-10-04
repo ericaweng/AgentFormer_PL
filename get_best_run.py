@@ -5,6 +5,7 @@ import pandas as pd
 pd.set_option('display.max_columns', None)
 import seaborn as sns
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 label_to_sfm_weight = {
         "eth_agentformer_sfm_pre6": 1,
@@ -61,23 +62,55 @@ def main0():
 
 
 def main():
-    """incomplete function, just to get pure ETH AgentFormer (no SFM) results"""
+    """plot AF+SFM hyperparam search results"""
     metrics_dir = "metrics"  # /home/yyuan2/Documents/repo/AgentFormerSDD/
-    env_names = ['eth', 'hotel', 'zara1', 'zara2', 'trajnet_sdd', 'univ']
 
-    metric_filenames = [f'metrics_{env_name}12.csv' for env_name in env_names]
-    for filename in metric_filenames:
-        metrics_path = os.path.join(metrics_dir, filename)
-        # data = np.genfromtxt(metrics_path, delimiter=',', )
-        data = pd.read_csv(metrics_path)
-        data = data[data['label'] == 'eth_agentformer_pre']
-        data['CR_p'] = data['CR_pred'] / 100
-        best_model = data[data['ADE']==data['ADE'].min()]
-        print("data:", data)
+    metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
+    data = pd.read_csv(metrics_path)
+    data = data[data['label'].apply(lambda r: 'zara2_sfm_base' in r)]
+    data['color_val_ADE'] = (data['ADE'] - data['ADE'].min()) / (data['ADE'].max() - data['ADE'].min())
+    data['color_val_FDE'] = (data['FDE'] - data['FDE'].min()) / (data['FDE'].max() - data['FDE'].min())
+    data['color_val_CR_pred'] = (data['CR_pred'] - data['CR_pred'].min()) / (data['CR_pred'].max() - data['CR_pred'].min())
+    data['weight'] = data['label'].apply(lambda r: r.split('_')[-3].split('-')[-1])
+    data['sigma_d'] = data['label'].apply(lambda r: r.split('_')[-1].split('-')[-1])
+    # data['CR_p'] = data['CR_pred'] / 100
+    print("data:", data)
 
-        import ipdb; ipdb.set_trace()
-        # get only sfm runs
-        # sfm_data = data[data['label'].apply(lambda r: 'sfm' in r)]
+    cmap = plt.get_cmap('coolwarm')
+    import ipdb; ipdb.set_trace()
+    fig, (ax, ax2) = plt.subplots(2, 1, figsize=(10, 16))
+    circles = []
+    rad = 1
+    for row in data:
+        circles.append(ax.add_artist(patches.Circle((row['weight'], row['sigma_d']), rad, fill=True, color=cmap(data['color_val_ADE']), zorder=0)))
+        circles.append(ax2.add_artist(patches.Circle((row['weight'], row['sigma_d']), rad, fill=True, color=cmap(data['color_val_CR_pred']), zorder=0)))
+
+    # for p_i, p in enumerate(chart.patches):
+    #     chart.annotate(f"{df['N'][p_i]:.0f} / {df['prop'][p_i]:0.2f}", (p.get_x() + p.get_width() / 2., p.get_height()),
+    #                    ha='center', va='center', fontsize=6, color='black', xytext=(0, 5),
+    #                    textcoords='offset points')
+    # sns.despine(bottom=True, left=True)
+    # chart.set_xticklabels(chart.get_xticklabels(), visible=False)
+    # chart2.set_xticklabels(chart2.get_xticklabels(), visible=False)
+    # fig.legend(chart.containers[0], list(label_to_description.values()),
+    #            loc='upper right', fontsize=9, labelspacing=0.25)  # , ncol=2, labelspacing=0.8)
+
+    # fig.suptitle(f"AF+SFM's SFM vs. ADE and CR", fontsize=16)
+    fig.suptitle(f"SF weight and sigma_d vs. ADE (top), CR (bottom)", fontsize=16)
+    ax.set_xlabel("weight")
+    ax2.set_xlabel("weight")
+    ax.set_ylabel("sigma_d")
+    ax2.set_ylabel("sigma_d")
+    # plt.tight_layout()
+    # plt.subplots_adjust(hspace=0.5)
+    fig_path = f'viz/af_sfm_feat.pdf'
+    plt.savefig(fig_path, bbox_inches='tight')
+    plt.close(fig)
+    print(f"saved figure to {fig_path}")
+    exit()
+
+
+    # import ipdb; ipdb.set_trace()
 
 
 def main1():
@@ -216,5 +249,5 @@ def main2():
 
 
 if __name__ == "__main__":
-    main0()
+    main()
     # main2()

@@ -67,66 +67,49 @@ def save_prediction(pred, data, suffix, save_dir, scale=1.0):
         np.savetxt(fname, pred_arr, fmt="%.3f")
     return pred_num
 
+
+def test_one_sequence(data, traj_scale, sample_k, save_dir):
+    seq_name, frame = data['seq'], data['frame']
+    frame = int(frame)
+    sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))
+    sys.stdout.flush()
+
+    gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
+    with torch.no_grad():
+        recon_motion_3D, sample_motion_3D = get_model_prediction(data, sample_k)
+    recon_motion_3D, sample_motion_3D = recon_motion_3D * traj_scale, sample_motion_3D * traj_scale
+
+    """save samples"""
+    recon_dir = os.path.join(save_dir, 'recon');
+    mkdir_if_missing(recon_dir)
+    sample_dir = os.path.join(save_dir, 'samples');
+    mkdir_if_missing(sample_dir)
+    gt_dir = os.path.join(save_dir, 'gt');
+    mkdir_if_missing(gt_dir)
+    for i in range(sample_motion_3D.shape[0]):
+        save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir)
+    save_prediction(recon_motion_3D, data, '', recon_dir)  # save recon
+    num_pred = save_prediction(gt_motion_3D, data, '', gt_dir)  # save gt
+    return num_pred
+
+
 def test_model(generator, save_dir, cfg):
-    total_num_pred = 0
-    failures = 0
     num_samples_needed = []  # number of samples needed before we reached 20
+    datas = []
     while not generator.is_epoch_end():
         data = generator()
         if data is None:
             continue
         if 'pred_mask' in data and np.all(data['pred_mask'] == -1):
             continue
-        seq_name, frame = data['seq'], data['frame']
-        frame = int(frame)
-        sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))  
-        sys.stdout.flush()
+        datas.append((data, cfg.traj_scale, cfg.sample_k, save_dir))
 
-        gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * cfg.traj_scale
-        not_colliding_samples = torch.empty(0).to(device)
-        num_tries = 0
-        while not_colliding_samples.shape[0] < cfg.sample_k:
-            with torch.no_grad():
-                num_samples = 40 if num_tries == 0 else 20
-                recon_motion_3D, sample_motion_3D = get_model_prediction(data, num_samples)
-                num_tries += 1
-            recon_motion_3D, sample_motion_3D = recon_motion_3D * cfg.traj_scale, sample_motion_3D * cfg.traj_scale
-            # comput number of colliding samples
-            if args.collisions_ok:
-                break
-
-            pred_arr = sample_motion_3D.cpu().numpy()
-            if pred_arr.shape[0] > 1:
-                # multiprocessing.set_start_method('spawn')
-                with multiprocessing.Pool(processes=multiprocessing.cpu_count() - 1, ) as pool:
-                    mask = pool.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
-                # mask = pool.starmap(partial(check_collision_per_sample_no_gt), enumerate(pred_arr))
-                maskk = np.where(~np.any(np.array(list(zip(*mask))[1]).astype(np.bool), axis=-1))[0]
-                if maskk.shape[0] == 0:
-                    MAX_NUM_TRIES = 10
-                    if num_tries > MAX_NUM_TRIES:
-                        print_log(f"num_tries greater than {MAX_NUM_TRIES}", log)
-                        failures += 1
-                        break
-                    continue
-                non_collide_idx = torch.LongTensor(maskk)
-                assert torch.max(non_collide_idx) < sample_motion_3D.shape[0]
-                assert 0 <= torch.max(non_collide_idx)
-                sample_motion_3D = torch.index_select(sample_motion_3D, 0, non_collide_idx.to(device))
-            not_colliding_samples = torch.cat([not_colliding_samples, sample_motion_3D])
-            sample_motion_3D = not_colliding_samples[:cfg.sample_k]  # select only 20 non-colliding samples
-
-        num_samples_needed.append(20 + 10 * (num_tries - 1))
-
-        """save samples"""
-        recon_dir = os.path.join(save_dir, 'recon'); mkdir_if_missing(recon_dir)
-        sample_dir = os.path.join(save_dir, 'samples'); mkdir_if_missing(sample_dir)
-        gt_dir = os.path.join(save_dir, 'gt'); mkdir_if_missing(gt_dir)
-        for i in range(sample_motion_3D.shape[0]):
-            save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir)
-        save_prediction(recon_motion_3D, data, '', recon_dir)        # save recon
-        num_pred = save_prediction(gt_motion_3D, data, '', gt_dir)              # save gt
-        total_num_pred += num_pred
+    total_num_preds = []
+    for data in datas:
+        total_num_preds.append(test_one_sequence(*data))
+    # with multiprocessing.Pool(multiprocessing.cpu_count() - 5) as pool:
+    #     total_num_preds = pool.starmap(test_one_sequence, datas)
+    total_num_pred = sum(total_num_preds)
 
     print_log(f'\n\n total_num_pred: {total_num_pred}', log)
     if cfg.dataset == 'nuscenes_pred':
@@ -150,10 +133,12 @@ if __name__ == '__main__':
     parser.add_argument('--cached', action='store_true', default=False)
     parser.add_argument('--cleanup', action='store_true', default=False)
     parser.add_argument('--all_epochs', action='store_true', default=False)
+    parser.add_argument('--weight', type=float)
+    parser.add_argument('--sigma_d', type=float)
     args = parser.parse_args()
 
     """ setup """
-    cfg = Config(args.cfg)
+    cfg = Config(args.cfg, additional_cfg_vars={'weight': args.weight, 'sigma_d': args.sigma_d})
     args.collisions_ok = cfg.get('collisions_ok', True)
     print("collisions_ok:", args.collisions_ok)
 
@@ -190,8 +175,13 @@ if __name__ == '__main__':
             print_log(f'loading model from checkpoint: {cp_path}', log, display=True)
             model_cp = torch.load(cp_path, map_location='cpu')
             epoch = model_cp['epoch']
-            print_log(f"doing epoch: {epoch}", log)
             model.load_state_dict(model_cp['model_dict'], strict=False)
+        else:
+            if epoch == 'last':
+                import glob
+                epoch = int(str(sorted(glob.glob(os.path.join(cfg.result_dir, 'epoch_*')))[-1][-4:]))
+
+        print_log(f"doing epoch: {epoch}", log)
 
         """ save results and compute metrics """
         data_splits = [args.data_eval]
@@ -205,7 +195,7 @@ if __name__ == '__main__':
 
             # import ipdb; ipdb.set_trace()
             log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
-            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --label {args.cfg} --epoch {epoch} --sample_num {cfg.sample_k} --data {split} --log {log_file}"
+            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --label {cfg.id} --epoch {epoch} --sample_num {cfg.sample_k} --data {split} --log {log_file}"
             subprocess.run(cmd.split(' '))
 
             # remove eval folder to save disk space

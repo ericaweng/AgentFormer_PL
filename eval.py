@@ -6,22 +6,23 @@ from filelock import FileLock
 from data.nuscenes_pred_split import get_nuscenes_pred_split
 from data.ethucy_split import get_ethucy_split
 from data.stanford_drone_split import get_stanford_drone_split
-from utils.utils import print_log, AverageMeter, isfile, print_log, AverageMeter, isfile, isfolder, find_unique_common_from_lists, load_list_from_folder, load_txt_file
+from utils.utils import print_log, AverageMeter, isfile, print_log, AverageMeter, isfile, isfolder, \
+    find_unique_common_from_lists, load_list_from_folder, load_txt_file
 import multiprocessing
 from multiprocessing import Pool
 from functools import partial
 from scipy.spatial.distance import pdist, squareform, cdist
 
-
 """ Metrics """
+
 
 def compute_ADE(pred_arr, gt_arr):
     ade = 0.0
     for pred, gt in zip(pred_arr, gt_arr):
-        diff = pred - np.expand_dims(gt, axis=0)        # samples x frames x 2
-        dist = np.linalg.norm(diff, axis=-1)            # samples x frames
-        dist = dist.mean(axis=-1)                       # samples
-        ade += dist.min(axis=0)                         # (1, )
+        diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
+        dist = np.linalg.norm(diff, axis=-1)  # samples x frames
+        dist = dist.mean(axis=-1)  # samples
+        ade += dist.min(axis=0)  # (1, )
     ade /= len(pred_arr)
     return ade
 
@@ -29,10 +30,10 @@ def compute_ADE(pred_arr, gt_arr):
 def compute_FDE(pred_arr, gt_arr):
     fde = 0.0
     for pred, gt in zip(pred_arr, gt_arr):
-        diff = pred - np.expand_dims(gt, axis=0)        # samples x frames x 2
-        dist = np.linalg.norm(diff, axis=-1)            # samples x frames
-        dist = dist[..., -1]                            # samples 
-        fde += dist.min(axis=0)                         # (1, )
+        diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
+        dist = np.linalg.norm(diff, axis=-1)  # samples x frames
+        dist = dist[..., -1]  # samples
+        fde += dist.min(axis=0)  # (1, )
     fde /= len(pred_arr)
     return fde
 
@@ -63,21 +64,21 @@ def _get_diffs_pred(traj):
         - traj: (ts, n_ped, 2)"""
     num_peds = traj.shape[1]
     return np.concatenate([
-        np.tile(traj[:, ped_i:ped_i + 1],
-                (1, num_peds - ped_i - 1, 1)) - traj[:, ped_i + 1:]
-        for ped_i in range(num_peds)
+            np.tile(traj[:, ped_i:ped_i + 1],
+                    (1, num_peds - ped_i - 1, 1)) - traj[:, ped_i + 1:]
+            for ped_i in range(num_peds)
     ],
-                          axis=1)
+            axis=1)
 
 
 def _get_diffs_gt(traj, gt_traj):
     """same order of ped pairs as pdist"""
     num_peds = traj.shape[1]
     return np.stack([
-        np.tile(traj[:, ped_i:ped_i + 1], (1, num_peds, 1)) - gt_traj
-        for ped_i in range(num_peds)
+            np.tile(traj[:, ped_i:ped_i + 1], (1, num_peds, 1)) - gt_traj
+            for ped_i in range(num_peds)
     ],
-                    axis=1)
+            axis=1)
 
 
 def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
@@ -96,9 +97,9 @@ def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
     pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
     exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
     collision_t_pred = _lineseg_dist(pxy, exy).reshape(
-        ts - 1, num_ped_pairs) < ped_radius * 2
+            ts - 1, num_ped_pairs) < ped_radius * 2
     collision_mat_pred = squareform(
-        np.any(collision_t_pred, axis=0) | collision_0_pred)
+            np.any(collision_t_pred, axis=0) | collision_0_pred)
     n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
     # gt
     collision_0_gt = cdist(sample[0], gt_arr[0]) < ped_radius
@@ -107,7 +108,7 @@ def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
     pxy_gt = ped_pair_diffs_gt[:-1].reshape(-1, 2)
     exy_gt = ped_pair_diffs_gt[1:].reshape(-1, 2)
     collision_t_gt = _lineseg_dist(pxy_gt, exy_gt).reshape(
-        ts - 1, num_peds, num_peds) < ped_radius * 2
+            ts - 1, num_peds, num_peds) < ped_radius * 2
     for ped_mat in collision_t_gt:
         np.fill_diagonal(ped_mat, False)
     collision_mat_gt = np.any(collision_t_gt, axis=0) | collision_0_gt
@@ -139,10 +140,14 @@ def compute_CR(pred_arr,
     col_gt = np.zeros((n_sample))  # cr_gt
 
     if n_ped > 1:
-        with Pool(processes=multiprocessing.cpu_count() - 1) as pool:
-            r = pool.starmap(
-                partial(check_collision_per_sample, gt_arr=gt_arr),
-                enumerate(pred_arr))
+        # with Pool(processes=multiprocessing.cpu_count() - 1) as pool:
+        #     r = pool.starmap(
+        #             partial(check_collision_per_sample, gt_arr=gt_arr),
+        #             enumerate(pred_arr))
+        r = []
+        for i, pa in enumerate(pred_arr):
+            r.append(check_collision_per_sample(i, pa, gt_arr))
+
         for sample_idx, n_ped_with_col_pred, n_ped_with_col_gt in r:
             if pred:
                 col_pred[sample_idx] += (n_ped_with_col_pred.sum())
@@ -186,13 +191,13 @@ def check_collision_per_sample_no_gt(sample_idx, sample, ped_radius=0.1):
     pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
     exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
     collision_t_pred = _lineseg_dist(pxy, exy).reshape(
-        ts - 1, num_ped_pairs) < ped_radius * 2
+            ts - 1, num_ped_pairs) < ped_radius * 2
     collision_mat_pred = squareform(
-        np.any(collision_t_pred, axis=0) | collision_0_pred)
+            np.any(collision_t_pred, axis=0) | collision_0_pred)
     n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
 
     return sample_idx, n_ped_with_col_pred_per_sample
-    
+
 
 def compute_ACFL(pred_arr, gt_arr, aggregation='mean', **kwargs):
     """Compute average collision-free likelihood.
@@ -232,6 +237,7 @@ def align_gt(pred, gt):
     pred_new = pred[:, index_list2, 2:]
     return pred_new, gt_new
 
+
 def write_metrics_to_csv(stats_meter, csv_file, label, results_dir, epoch, data):
     lock = FileLock(f'{csv_file}.lock')
     with lock:
@@ -250,10 +256,73 @@ def write_metrics_to_csv(stats_meter, csv_file, label, results_dir, epoch, data)
                             ind = i
                             break
                 else:
-                    ind = len(df.columns)-1
+                    ind = len(df.columns) - 1
                 df.insert(ind, mname, 0)
             df.loc[index, mname] = meter.avg
         df.to_csv(csv_file, index=False, float_format='%f')
+
+def eval_one_seq(gt_raw, data_file, stats_meter, stats_func):
+    # for reconsutrction or deterministic
+    if isfile(data_file):
+        all_traj = np.loadtxt(data_file, delimiter=' ', dtype='float32')  # (frames x agents) x 4
+        all_traj = np.expand_dims(all_traj, axis=0)  # 1 x (frames x agents) x 4
+    # for stochastic with multiple samples
+    elif isfolder(data_file):
+        sample_list, _ = load_list_from_folder(data_file)
+        sample_all = []
+        for sample in sample_list:
+            sample = np.loadtxt(sample, delimiter=' ', dtype='float32')  # (frames x agents) x 4
+            sample_all.append(sample)
+        all_traj = np.stack(sample_all, axis=0)  # samples x (framex x agents) x 4
+    else:
+        assert False, 'error'
+
+    # convert raw data to our format for evaluation
+    id_list = np.unique(all_traj[:, :, 1])
+    frame_list = np.unique(all_traj[:, :, 0])
+    agent_traj = []
+    gt_traj = []
+    for idx in id_list:
+        # GT traj
+        gt_idx = gt_raw[gt_raw[:, 1] == idx]  # frames x 4
+        # predicted traj
+        ind = np.unique(np.where(all_traj[:, :, 1] == idx)[1].tolist())
+        pred_idx = all_traj[:, ind, :]  # sample x frames x 4
+        # filter data
+        pred_idx, gt_idx = align_gt(pred_idx, gt_idx)
+        # append
+        agent_traj.append(pred_idx)
+        gt_traj.append(gt_idx)
+
+    """compute stats"""
+    values = []
+    agent_traj_nums = []
+    for stats_name in stats_meter:
+        func = stats_func[stats_name]
+        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj}
+        if stats_name == 'CR_pred':
+            stats_func_args['pred'] = True
+        elif stats_name == 'CR_gt':
+            stats_func_args['gt'] = True
+        elif stats_name == 'CR_pred_mean':
+            stats_func_args['pred'] = True
+            stats_func_args['aggregation'] = 'mean'
+        elif stats_name == 'CR_gt_mean':
+            stats_func_args['gt'] = True
+            stats_func_args['aggregation'] = 'mean'
+
+        value = func(**stats_func_args)
+        values.append(value)
+        agent_traj_nums.append(len(agent_traj))
+        # if value > 0 and stats_name == 'CR_pred':
+        #     import ipdb; ipdb.set_trace()
+
+        # stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])
+        print_log(
+                f'evaluating seq {seq_name:s}, forecasting frame {int(frame_list[0]):06d} to {int(frame_list[-1]):06d}',# {stats_str}',
+                log_file)
+
+    return values, agent_traj_nums
 
 
 if __name__ == '__main__':
@@ -270,9 +339,9 @@ if __name__ == '__main__':
 
     dataset = args.dataset.lower()
     results_dir = args.results_dir
-    
+
     resize = 1.0
-    if dataset == 'nuscenes_pred':   # nuscenes
+    if dataset == 'nuscenes_pred':  # nuscenes
         data_root = f'datasets/nuscenes_pred'
         gt_dir = f'{data_root}/label/{args.data}'
         seq_train, seq_val, seq_test = get_nuscenes_pred_split(data_root)
@@ -310,13 +379,13 @@ if __name__ == '__main__':
     print_log('loading GT from %s' % gt_dir, log_file)
 
     stats_func = {
-        'ADE': compute_ADE,
-        'FDE': compute_FDE,
-        'CR_pred': compute_CR,
-        'CR_gt': compute_CR,
-        'CR_pred_mean': compute_CR,
-        'CR_gt_mean': compute_CR,
-        'ACFL': compute_ACFL
+            'ADE': compute_ADE,
+            'FDE': compute_FDE,
+            'CR_pred': compute_CR,
+            # 'CR_gt': compute_CR,
+            'CR_pred_mean': compute_CR,
+            # 'CR_gt_mean': compute_CR,
+            # 'ACFL': compute_ACFL
     }
 
     stats_meter = {x: AverageMeter() for x in stats_func.keys()}
@@ -326,7 +395,7 @@ if __name__ == '__main__':
     print_log('number of sequences to evaluate is %d' % num_seq, log_file)
     for seq_name in seq_eval:
         # load GT raw data
-        gt_data, _ = load_txt_file(os.path.join(gt_dir, seq_name+'.txt'))
+        gt_data, _ = load_txt_file(os.path.join(gt_dir, seq_name + '.txt'))
         gt_raw = []
         for line_data in gt_data:
             line_data = np.array([line_data.split(' ')])[:, indices][0].astype('float32')
@@ -337,63 +406,15 @@ if __name__ == '__main__':
         if dataset == 'trajnet_sdd':
             gt_raw[:, 0] = np.round(gt_raw.astype(np.float)[:, 0] / 12.0)
 
-        data_filelist, _ = load_list_from_folder(os.path.join(results_dir, seq_name))    
-            
-        for data_file in data_filelist:      # each example e.g., seq_0001 - frame_000009
-            # for reconsutrction or deterministic
-            if isfile(data_file):
-                all_traj = np.loadtxt(data_file, delimiter=' ', dtype='float32')        # (frames x agents) x 4
-                all_traj = np.expand_dims(all_traj, axis=0)                             # 1 x (frames x agents) x 4
-            # for stochastic with multiple samples
-            elif isfolder(data_file):
-                sample_list, _ = load_list_from_folder(data_file)
-                sample_all = []
-                for sample in sample_list:
-                    sample = np.loadtxt(sample, delimiter=' ', dtype='float32')        # (frames x agents) x 4
-                    sample_all.append(sample)
-                all_traj = np.stack(sample_all, axis=0)                                # samples x (framex x agents) x 4
-            else:
-                assert False, 'error'
+        data_filelist, _ = load_list_from_folder(os.path.join(results_dir, seq_name))
 
-            # convert raw data to our format for evaluation
-            id_list = np.unique(all_traj[:, :, 1])
-            frame_list = np.unique(all_traj[:, :, 0])
-            agent_traj = []
-            gt_traj = []
-            for idx in id_list:
-                # GT traj
-                gt_idx = gt_raw[gt_raw[:, 1] == idx]                          # frames x 4
-                # predicted traj
-                ind = np.unique(np.where(all_traj[:, :, 1] == idx)[1].tolist())
-                pred_idx = all_traj[:, ind, :]                                # sample x frames x 4
-                # filter data
-                pred_idx, gt_idx = align_gt(pred_idx, gt_idx)
-                # append
-                agent_traj.append(pred_idx)
-                gt_traj.append(gt_idx)
-
-            """compute stats"""
-            for stats_name, meter in stats_meter.items():
-                func = stats_func[stats_name]
-                stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj}
-                if stats_name == 'CR_pred':
-                    stats_func_args['pred'] = True
-                elif stats_name == 'CR_gt':
-                    stats_func_args['gt'] = True
-                elif stats_name == 'CR_pred_mean':
-                    stats_func_args['pred'] = True
-                    stats_func_args['aggregation'] = 'mean'
-                elif stats_name == 'CR_gt_mean':
-                    stats_func_args['gt'] = True
-                    stats_func_args['aggregation'] = 'mean'
-                
-                value = func(**stats_func_args)
-                # if value > 0 and stats_name == 'CR_pred':
-                #     import ipdb; ipdb.set_trace()
-                meter.update(value, n=len(agent_traj))
-
-            stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])
-            print_log(f'evaluating seq {seq_name:s}, forecasting frame {int(frame_list[0]):06d} to {int(frame_list[-1]):06d} {stats_str}', log_file)
+        # for data_file in data_filelist:  # each example e.g., seq_0001 - frame_000009
+        args_list = [(gt_raw, data_file, stats_meter, stats_func) for data_file in data_filelist]
+        with Pool() as pool:
+            all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(eval_one_seq, args_list))
+            for meter, values, agent_traj_num in zip(stats_meter.values(), zip(*all_meters_values), zip(*all_meters_agent_traj_nums)):
+                meter.update((np.sum(np.array(values) * np.array(agent_traj_num)) / np.sum(agent_traj_num)).item(),
+                             n=np.sum(agent_traj_num).item())
 
     print_log('-' * 30 + ' STATS ' + '-' * 30, log_file)
     for name, meter in stats_meter.items():
