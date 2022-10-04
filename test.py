@@ -67,7 +67,7 @@ def save_prediction(pred, data, suffix, save_dir, scale=1.0):
         np.savetxt(fname, pred_arr, fmt="%.3f")
     return pred_num
 
-
+# def run_model()
 def test_one_sequence(data, traj_scale, sample_k, save_dir):
     seq_name, frame = data['seq'], data['frame']
     frame = int(frame)
@@ -80,11 +80,11 @@ def test_one_sequence(data, traj_scale, sample_k, save_dir):
     recon_motion_3D, sample_motion_3D = recon_motion_3D * traj_scale, sample_motion_3D * traj_scale
 
     """save samples"""
-    recon_dir = os.path.join(save_dir, 'recon');
+    recon_dir = os.path.join(save_dir, 'recon')
     mkdir_if_missing(recon_dir)
-    sample_dir = os.path.join(save_dir, 'samples');
+    sample_dir = os.path.join(save_dir, 'samples')
     mkdir_if_missing(sample_dir)
-    gt_dir = os.path.join(save_dir, 'gt');
+    gt_dir = os.path.join(save_dir, 'gt')
     mkdir_if_missing(gt_dir)
     for i in range(sample_motion_3D.shape[0]):
         save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir)
@@ -107,7 +107,7 @@ def test_model(generator, save_dir, cfg):
     total_num_preds = []
     for data in datas:
         total_num_preds.append(test_one_sequence(*data))
-    # with multiprocessing.Pool(multiprocessing.cpu_count() - 5) as pool:
+    # with multiprocessing.Pool() as pool:
     #     total_num_preds = pool.starmap(test_one_sequence, datas)
     total_num_pred = sum(total_num_preds)
 

@@ -68,22 +68,27 @@ def main():
     metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
     data = pd.read_csv(metrics_path)
     data = data[data['label'].apply(lambda r: 'zara2_sfm_base' in r)]
-    data['color_val_ADE'] = (data['ADE'] - data['ADE'].min()) / (data['ADE'].max() - data['ADE'].min())
-    data['color_val_FDE'] = (data['FDE'] - data['FDE'].min()) / (data['FDE'].max() - data['FDE'].min())
-    data['color_val_CR_pred'] = (data['CR_pred'] - data['CR_pred'].min()) / (data['CR_pred'].max() - data['CR_pred'].min())
-    data['weight'] = data['label'].apply(lambda r: r.split('_')[-3].split('-')[-1])
-    data['sigma_d'] = data['label'].apply(lambda r: r.split('_')[-1].split('-')[-1])
+    data['color_ADE'] = (data['ADE'] - data['ADE'].min()) / (data['ADE'].max() - data['ADE'].min())
+    data['color_FDE'] = (data['FDE'] - data['FDE'].min()) / (data['FDE'].max() - data['FDE'].min())
+    data['color_CR_pred'] = (data['CR_pred'] - data['CR_pred'].min()) / (data['CR_pred'].max() - data['CR_pred'].min())
+    data['weight'] = data['label'].apply(lambda r: float(r.split('_')[-3].split('-')[-1]))
+    data['sigma_d'] = data['label'].apply(lambda r: float(r.split('_')[-1].split('-')[-1]))
+    data.pop('label')
+    data.pop('CR_gt')
+    data.pop('CR_gt_mean')
+    data.pop('ACFL')
+    data.pop('results_dir')
     # data['CR_p'] = data['CR_pred'] / 100
-    print("data:", data)
+    print(data)
 
     cmap = plt.get_cmap('coolwarm')
-    import ipdb; ipdb.set_trace()
-    fig, (ax, ax2) = plt.subplots(2, 1, figsize=(10, 16))
-    circles = []
-    rad = 1
-    for row in data:
-        circles.append(ax.add_artist(patches.Circle((row['weight'], row['sigma_d']), rad, fill=True, color=cmap(data['color_val_ADE']), zorder=0)))
-        circles.append(ax2.add_artist(patches.Circle((row['weight'], row['sigma_d']), rad, fill=True, color=cmap(data['color_val_CR_pred']), zorder=0)))
+    fig, (ax, ax2) = plt.subplots(2, 1, figsize=(10, 15))
+    rad = 0.2
+    for row_i, row in data.iterrows():
+        center = (row['weight'], row['sigma_d'])
+        print("center:", center)
+        ax.add_artist(patches.Circle(center, rad, fill=True, color=cmap(row['color_ADE']), alpha=0.5, zorder=0))
+        ax2.add_artist(patches.Circle(center, rad, fill=True, color=cmap(row['color_CR_pred']), alpha=0.5, zorder=0))
 
     # for p_i, p in enumerate(chart.patches):
     #     chart.annotate(f"{df['N'][p_i]:.0f} / {df['prop'][p_i]:0.2f}", (p.get_x() + p.get_width() / 2., p.get_height()),
@@ -101,9 +106,15 @@ def main():
     ax2.set_xlabel("weight")
     ax.set_ylabel("sigma_d")
     ax2.set_ylabel("sigma_d")
+    ax.set_aspect("equal", 'box')
+    # ax.axis("equal")
+    ax2.set_aspect("equal", 'box')
+    # ax2.axis("equal")
+    ax.set(xlim=[-0.5, 3.5], ylim=[-.5, 1.75])
+    ax2.set(xlim=[-0.5, 3.5], ylim=[-.5, 1.75])
     # plt.tight_layout()
     # plt.subplots_adjust(hspace=0.5)
-    fig_path = f'viz/af_sfm_feat.pdf'
+    fig_path = f'viz/af_sfm_sweep.pdf'
     plt.savefig(fig_path, bbox_inches='tight')
     plt.close(fig)
     print(f"saved figure to {fig_path}")

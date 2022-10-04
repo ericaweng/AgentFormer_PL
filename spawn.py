@@ -7,7 +7,7 @@ import torch
 # torch.multiprocessing.set_start_method('spawn')
 
 
-def main():
+def main(args):
     num_gpus = torch.cuda.device_count()
     env = 'zara2'
     sigma_ds_weights = [(0.01, 0.05), (1.25, 0.0), (0.25, 1.5), (1, 0.01), (0.1, 1.5), (0.05, 0.01), (0.01, 0.0), (0.25, 0.1),
@@ -23,10 +23,11 @@ def main():
 
     cfg = f'{env}_sfm_base'#_weight-{weight}_sigma_d-{sigma_d}' for sigma_d, weight in sigma_ds_weights[:5]]
 
-    gpu_i = 3
+    gpu_i = 0
     cmds = []
-    for sigma_d, weight in sigma_ds_weights[:2]:#for cfg in cfgs:
-        cmd = f"python test.py --cfg {cfg} --gpu {gpu_i} --epoch last --weight {weight} --sigma_d {sigma_d} --cached"
+    start,end = args.start_end
+    for sigma_d, weight in sigma_ds_weights[start:end]:#for cfg in cfgs:
+        cmd = f"python test.py --cfg {cfg} --gpu {gpu_i} --epoch last --weight {weight} --sigma_d {sigma_d}"
         # cmd = f"python train.py --cfg {cfg} --gpu {gpu_i} --cached"
         print("cmd:", cmd)
         cmds.append(cmd)
@@ -39,4 +40,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--start_end', '-se', type=lambda x:map(int, x.split(',')))
+    args = parser.parse_args()
+
+    main(args)
