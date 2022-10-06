@@ -326,7 +326,7 @@ def eval_one_seq(gt_raw, data_file, stats_meter, stats_func):
 
 
 if __name__ == '__main__':
-
+    __spec__ = None
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default='nuscenes_pred')
     parser.add_argument('--results_dir', default=None)

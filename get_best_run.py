@@ -6,6 +6,9 @@ pd.set_option('display.max_columns', None)
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
+
 
 label_to_sfm_weight = {
         "eth_agentformer_sfm_pre6": 1,
@@ -68,6 +71,11 @@ def main():
     metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
     data = pd.read_csv(metrics_path)
     data = data[data['label'].apply(lambda r: 'zara2_sfm_base' in r)]
+    # get min test epoch of each hparam set
+    data = data[data.groupby(['label'])['ADE'].transform(min) == data['ADE']]
+    min_epoch = 50
+    data = data[data['epoch'] > min_epoch]
+    # set color values
     data['color_ADE'] = (data['ADE'] - data['ADE'].min()) / (data['ADE'].max() - data['ADE'].min())
     data['color_FDE'] = (data['FDE'] - data['FDE'].min()) / (data['FDE'].max() - data['FDE'].min())
     data['color_CR_pred'] = (data['CR_pred'] - data['CR_pred'].min()) / (data['CR_pred'].max() - data['CR_pred'].min())
@@ -78,38 +86,59 @@ def main():
     data.pop('CR_gt_mean')
     data.pop('ACFL')
     data.pop('results_dir')
-    # data['CR_p'] = data['CR_pred'] / 100
     print(data)
+    print("len(data):", len(data))
+    # print(data)
 
-    cmap = plt.get_cmap('coolwarm')
+    # sweep performance tables
+    table_arr = np.zeros((len(data['weight'].unique()), len(data['weight'].unique())))
+    sorted_weights = sorted(data['weight'].unique())
+    sorted_sigmas = sorted(data['sigma_d'].unique())
+    for row_i, row in data.iterrows():
+        table_arr[sorted_weights.index(row['weight']), sorted_sigmas.index(row['sigma_d'])] = row['ADE']
+    df = pd.DataFrame(table_arr, columns=sorted_weights)
+    df['sigma_ds'] = sorted_sigmas
+    df.to_csv('viz/af_sfm_sweep_ADE.csv')
+
+    table_arr = np.zeros((len(data['weight'].unique()), len(data['weight'].unique())))
+    sorted_weights = sorted(data['weight'].unique())
+    sorted_sigmas = sorted(data['sigma_d'].unique())
+    for row_i, row in data.iterrows():
+        table_arr[sorted_weights.index(row['weight']), sorted_sigmas.index(row['sigma_d'])] = row['CR_pred']
+    df = pd.DataFrame(table_arr, columns=sorted_weights)
+    df['sigma_ds'] = sorted_sigmas
+    df.to_csv('viz/af_sfm_sweep_CR.csv', format)
+    print("saved tables")
+
+    cmap_name = 'viridis'
+    cmap = plt.get_cmap(cmap_name)
     fig, (ax, ax2) = plt.subplots(2, 1, figsize=(10, 15))
-    rad = 0.2
+    rad = 0.04
+    fs = 20
     for row_i, row in data.iterrows():
         center = (row['weight'], row['sigma_d'])
-        print("center:", center)
         ax.add_artist(patches.Circle(center, rad, fill=True, color=cmap(row['color_ADE']), alpha=0.5, zorder=0))
+        ax.text(*center, f"{row['ADE']:0.2f}", fontsize=fs, weight='bold')
         ax2.add_artist(patches.Circle(center, rad, fill=True, color=cmap(row['color_CR_pred']), alpha=0.5, zorder=0))
+        ax2.text(*center, f"{row['CR_pred']:0.1f}", fontsize=fs, weight='bold')
 
-    # for p_i, p in enumerate(chart.patches):
-    #     chart.annotate(f"{df['N'][p_i]:.0f} / {df['prop'][p_i]:0.2f}", (p.get_x() + p.get_width() / 2., p.get_height()),
-    #                    ha='center', va='center', fontsize=6, color='black', xytext=(0, 5),
-    #                    textcoords='offset points')
-    # sns.despine(bottom=True, left=True)
-    # chart.set_xticklabels(chart.get_xticklabels(), visible=False)
-    # chart2.set_xticklabels(chart2.get_xticklabels(), visible=False)
-    # fig.legend(chart.containers[0], list(label_to_description.values()),
-    #            loc='upper right', fontsize=9, labelspacing=0.25)  # , ncol=2, labelspacing=0.8)
+    # ts = 20
+    # cbaxes = fig.add_axes([0.2, 0.45, 0.6, 0.01])
+    cNorm = Normalize(vmin=data['ADE'].min(), vmax=data['ADE'].max())
+    cmappable = ScalarMappable(cNorm, cmap=cmap_name)
+    plt.colorbar(cmappable, cmap=cmap_name, location='bottom', ax=ax)
+    cNorm2 = Normalize(vmin=data['CR_pred'].min(), vmax=data['CR_pred'].max())
+    cmappable2 = ScalarMappable(cNorm2, cmap=cmap_name)
+    plt.colorbar(cmappable2, cmap=cmap_name, location='bottom', ax=ax2)
 
-    # fig.suptitle(f"AF+SFM's SFM vs. ADE and CR", fontsize=16)
     fig.suptitle(f"SF weight and sigma_d vs. ADE (top), CR (bottom)", fontsize=16)
     ax.set_xlabel("weight")
     ax2.set_xlabel("weight")
     ax.set_ylabel("sigma_d")
     ax2.set_ylabel("sigma_d")
     ax.set_aspect("equal", 'box')
-    # ax.axis("equal")
+
     ax2.set_aspect("equal", 'box')
-    # ax2.axis("equal")
     ax.set(xlim=[-0.5, 3.5], ylim=[-.5, 1.75])
     ax2.set(xlim=[-0.5, 3.5], ylim=[-.5, 1.75])
     # plt.tight_layout()
@@ -118,10 +147,6 @@ def main():
     plt.savefig(fig_path, bbox_inches='tight')
     plt.close(fig)
     print(f"saved figure to {fig_path}")
-    exit()
-
-
-    # import ipdb; ipdb.set_trace()
 
 
 def main1():
@@ -255,10 +280,7 @@ def main2():
         plt.savefig(fig_path, bbox_inches='tight')
         plt.close(fig)
         print(f"saved figure to {fig_path}")
-        exit()
-        import ipdb; ipdb.set_trace()
 
 
 if __name__ == "__main__":
     main()
-    # main2()
