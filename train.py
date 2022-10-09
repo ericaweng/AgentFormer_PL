@@ -78,7 +78,7 @@ def train(epoch):
                 learable_hparams_str = ' '.join([f'{k}: {v.item():.4f}' for k, v in model.sfm_learnable_hparams.items()])
             else:
                 learable_hparams_str = None
-            logging(args.cfg, log, epoch, cfg.num_epochs, generator.index, generator.num_total_samples, ep, seq, frame,
+            logging(cfg.id, log, epoch, cfg.num_epochs, generator.index, generator.num_total_samples, ep, seq, frame,
                     losses_str, learable_hparams_str)
             for name, meter in train_loss_meter.items():
                 tb_logger.add_scalar('model_' + name, meter.avg, tb_ind)
@@ -99,10 +99,10 @@ if __name__ == '__main__':
     parser.add_argument('--cached', action='store_true', default=False)
     parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--tmp', action='store_true', default=False)
-    parser.add_argument('--eval_when_train', action='store_true', default=False)
+    parser.add_argument('--eval_when_train', action='store_true', default=True)
     parser.add_argument('--gpu', type=int, default=0)
-    parser.add_argument('--weight', type=float)
-    parser.add_argument('--sigma_d', type=float)
+    parser.add_argument('--weight', type=float, default=None)
+    parser.add_argument('--sigma_d', type=float, default=None)
 
     args = parser.parse_args()
 
@@ -180,7 +180,8 @@ if __name__ == '__main__':
             torch.save(model_cp, cp_path)
 
             if args.eval_when_train:
-                cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {i + 1}"
+                # cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {i + 1}"
+                cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {i + 1} --weight {args.weight} --sigma_d {args.sigma_d}"
                 subprocess.run(cmd.split(' '))
 
     """ testing """

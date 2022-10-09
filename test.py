@@ -3,6 +3,7 @@ import argparse
 import os
 import sys
 import shutil
+import itertools
 import subprocess
 import multiprocessing
 from functools import partial
@@ -57,7 +58,55 @@ def save_prediction(pred, data, suffix, save_dir, indices, num_future_frames, sc
     return pred_num
 
 
-def run_model(data, traj_scale, sample_k, save_dir):
+def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok):
+    """run model with collision rejection"""
+    seq_name, frame = data['seq'], data['frame']
+    frame = int(frame)
+    sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))
+    sys.stdout.flush()
+
+    gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
+    non_colliding_samples = torch.empty(0).to(device)
+    num_tries = 0
+    MAX_NUM_TRIES = 10
+    while non_colliding_samples.shape[0] < sample_k:
+        with torch.no_grad():
+            num_samples = 40 if num_tries == 0 else 20
+            recon_motion_3D, sample_motion_3D = get_model_prediction(data, num_samples)
+            num_tries += 1
+        recon_motion_3D, sample_motion_3D = recon_motion_3D * traj_scale, sample_motion_3D * traj_scale
+
+        # compute number of colliding samples
+        if collisions_ok:
+            break
+
+        pred_arr = sample_motion_3D.cpu().numpy()
+        if pred_arr.shape[0] > 1:
+            # multiprocessing.set_start_method('spawn')
+            # with multiprocessing.Pool(processes=multiprocessing.cpu_count() - 1) as pool:
+            #     mask = pool.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
+            mask = itertools.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
+            maskk = np.where(~np.any(np.array(list(zip(*mask))[1]).astype(np.bool), axis=-1))[0]
+            if maskk.shape[0] == 0:
+                if num_tries > MAX_NUM_TRIES:
+                    print_log(f"collected {40+ (num_tries-1)*20} and only "
+                              f"{non_colliding_samples.shape[0]} non-colliding samples \n"
+                              f"num_peds: {pred_arr.shape[0]}", log)
+                    return None
+                continue
+            non_collide_idx = torch.LongTensor(maskk)
+            assert torch.max(non_collide_idx) < sample_motion_3D.shape[0]
+            assert 0 <= torch.max(non_collide_idx)
+            sample_motion_3D = torch.index_select(sample_motion_3D, 0, non_collide_idx.to(device))
+        non_colliding_samples = torch.cat([non_colliding_samples, sample_motion_3D])
+        sample_motion_3D = non_colliding_samples[:sample_k]  # select only 20 non-colliding samples
+
+    # num_samples_needed.append(20 + 10 * (num_tries - 1))
+
+    return gt_motion_3D, sample_motion_3D[0], sample_motion_3D
+
+
+def run_model(data, traj_scale, sample_k):
     seq_name, frame = data['seq'], data['frame']
     frame = int(frame)
     sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))
@@ -82,7 +131,7 @@ def save_results(data, save_dir, indices, num_future_frames, gt_motion_3D, recon
         save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir, indices, num_future_frames)
     save_prediction(recon_motion_3D, data, '', recon_dir, indices, num_future_frames)  # save recon
     num_pred = save_prediction(gt_motion_3D, data, '', gt_dir, indices, num_future_frames)  # save gt
-    print(f"saved to {save_dir}")
+    # print(f"saved to {save_dir}")
     return num_pred
 
 
@@ -123,7 +172,7 @@ def test_model(generator, save_dir, cfg, start_frame):
             continue
         if 'pred_mask' in data and np.all(data['pred_mask'] == -1):
             continue
-        args_list.append((data, cfg.traj_scale, cfg.sample_k, save_dir))
+        args_list.append((data, cfg.traj_scale, cfg.sample_k, cfg.get('collisions_ok', True)))
 
     if 'sdd' in cfg.dataset:
         indices = [0, 1, 2, 3]
@@ -142,7 +191,10 @@ def test_model(generator, save_dir, cfg, start_frame):
     # run first sequentially, then mp save
     args_list_w_results = []
     for args_l in args_list:
-        res = list(map(lambda x: x.cpu().numpy(), run_model(*args_l)))
+        res = run_model_w_col_rej(*args_l)
+        if res is None:
+            continue
+        res = list(map(lambda x: x.cpu().numpy(), res))
         args_list_w_results.append((args_l[0], save_dir, indices, num_future_frames, *res))
     multiprocessing.set_start_method('spawn')
     with multiprocessing.Pool() as pool:
@@ -151,6 +203,7 @@ def test_model(generator, save_dir, cfg, start_frame):
     total_num_pred = sum(total_num_preds)
 
     print_log(f'\n\n total_num_pred: {total_num_pred}', log)
+    print_log(f'\n\n avg_num_pred: {total_num_pred / (len(total_num_preds) + 1e-7)}', log)
     if cfg.dataset == 'nuscenes_pred':
         scene_num = {
             'train': 32186,
@@ -159,8 +212,8 @@ def test_model(generator, save_dir, cfg, start_frame):
         }
         assert total_num_pred == scene_num[generator.split]
 
-    print_log(f"avg num_samples: {np.mean(num_samples_needed)}", log)
-    print_log(f"std num_samples: {np.std(num_samples_needed)}", log)
+    # print_log(f"avg num_samples: {np.mean(num_samples_needed)}", log)
+    # print_log(f"std num_samples: {np.std(num_samples_needed)}", log)
 
 
 if __name__ == '__main__':

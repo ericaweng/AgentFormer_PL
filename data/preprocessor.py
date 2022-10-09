@@ -27,7 +27,9 @@ class preprocess(object):
         if parser.dataset == 'nuscenes_pred':
             label_path = os.path.join(data_root, 'label/{}/{}.txt'.format(split, seq_name))
             delimiter = ' '
-        elif parser.dataset in {'eth', 'hotel', 'univ', 'zara1', 'zara2'}:
+        elif parser.dataset in {'eth', 'hotel', 'univ', 'zara1', 'zara2'} or 'dagger' in parser.dataset:
+            if 'dagger' in parser.dataset:
+                parser.dataset = parser.dataset.split('-')[0]
             label_path = f'{data_root}/{parser.dataset}/{seq_name}.txt'
             delimiter = ' '
         else:

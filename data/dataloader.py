@@ -4,7 +4,7 @@ import os, random, numpy as np, copy
 from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
 from .stanford_drone_split import get_stanford_drone_split
-from .ethucy_split import get_ethucy_split
+from .ethucy_split import get_ethucy_split, get_ethucy_split_dagger
 from utils.utils import print_log
 
 
@@ -26,6 +26,12 @@ class data_generator(object):
         elif parser.dataset in {'eth', 'hotel', 'univ', 'zara1', 'zara2'}:
             data_root = parser.data_root_ethucy            
             seq_train, seq_val, seq_test = get_ethucy_split(parser.dataset)
+            self.init_frame = 0
+        elif 'dagger' in parser.dataset:
+            data_root = parser.data_root_ethucy
+            seq_train, seq_val, seq_test = get_ethucy_split_dagger(parser.dataset)
+            print("seq_train:", len(seq_train))
+            import ipdb; ipdb.set_trace()
             self.init_frame = 0
         elif parser.dataset == 'trajnet_sdd':
             data_root = parser.data_root_trajnet_sdd

@@ -35,8 +35,8 @@ def align_gt(pred, gt):
     obs_len = 8
     obs_idx = np.arange(min(index_list1) - obs_len, min(index_list1))
     assert np.all(obs_idx >= 0)
-    obs = gt[obs_idx, 2:]
-    assert obs.shape == (obs_len, 2)
+    obs = gt[obs_idx]
+    assert obs.shape == (obs_len, 4)
     return pred_new, gt_new, obs
 
 
@@ -147,6 +147,7 @@ def main(args):
                 # same for second model
                 pred_idx2 = all_traj2[:, ind, :]  # sample x frames x 4
                 pred_idx2, gt_idx, obs = align_gt(pred_idx2, gt_idx)
+                obs = obs[..., 2:]
 
                 # append
                 agent_traj.append(pred_idx)

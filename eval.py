@@ -261,6 +261,7 @@ def write_metrics_to_csv(stats_meter, csv_file, label, results_dir, epoch, data)
             df.loc[index, mname] = meter.avg
         df.to_csv(csv_file, index=False, float_format='%f')
 
+
 def eval_one_seq(gt_raw, data_file, stats_meter, stats_func):
     # for reconsutrction or deterministic
     if isfile(data_file):
@@ -318,9 +319,9 @@ def eval_one_seq(gt_raw, data_file, stats_meter, stats_func):
         #     import ipdb; ipdb.set_trace()
 
         # stats_str = ' '.join([f'{x}: {y.val:.4f} ({y.avg:.4f})' for x, y in stats_meter.items()])
-        print_log(
-                f'evaluating seq {seq_name:s}, forecasting frame {int(frame_list[0]):06d} to {int(frame_list[-1]):06d}',# {stats_str}',
-                log_file)
+        # print_log(
+        #         f'evaluating seq {seq_name:s}, forecasting frame {int(frame_list[0]):06d} to {int(frame_list[-1]):06d}',# {stats_str}',
+        #         log_file)
 
     return values, agent_traj_nums
 
@@ -422,8 +423,8 @@ if __name__ == '__main__':
     print_log('-' * 67, log_file)
     for name, meter in stats_meter.items():
         if 'gt' not in name:
-            print(f"{meter.avg:.4f}")
-    print('epoch:', args.epoch)
+            print_log(f"{meter.avg:.4f}", log_file)
+    print_log(f'epoch: {args.epoch}', log_file)
     log_file.close()
 
     write_metrics_to_csv(stats_meter, csv_file, args.label, results_dir, args.epoch, args.data)

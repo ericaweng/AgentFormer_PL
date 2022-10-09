@@ -64,6 +64,16 @@ def main0():
     # sfm_data.to_csv(header=None, index=False, sep='\t')
 
 
+def get_train_evals():
+    """plot AF+SFM hyperparam search results"""
+    metrics_dir = "metrics"  # /home/yyuan2/Documents/repo/AgentFormerSDD/
+
+    metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
+    data = pd.read_csv(metrics_path)
+    data = data[data['results_dir'].apply(lambda r: 'train' in r or 'zara2_agentformer' in r and 'sfm' not in r)]
+    import ipdb; ipdb.set_trace()
+
+
 def main():
     """plot AF+SFM hyperparam search results"""
     metrics_dir = "metrics"  # /home/yyuan2/Documents/repo/AgentFormerSDD/
@@ -71,8 +81,11 @@ def main():
     metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
     data = pd.read_csv(metrics_path)
     data = data[data['label'].apply(lambda r: 'zara2_sfm_base' in r)]
+    print("epochs represented:", sorted(data['epoch'].unique()))
     # get min test epoch of each hparam set
     data = data[data.groupby(['label'])['ADE'].transform(min) == data['ADE']]
+    print("epochs represented in the best:", sorted(data['epoch'].unique()))
+    import ipdb; ipdb.set_trace()
     min_epoch = 50
     data = data[data['epoch'] > min_epoch]
     # set color values
@@ -91,30 +104,28 @@ def main():
     # print(data)
 
     # sweep performance tables
-    table_arr = np.zeros((len(data['weight'].unique()), len(data['weight'].unique())))
     sorted_weights = sorted(data['weight'].unique())
     sorted_sigmas = sorted(data['sigma_d'].unique())
+    table_arr = np.zeros((len(sorted_weights), len(sorted_sigmas)))
     for row_i, row in data.iterrows():
         table_arr[sorted_weights.index(row['weight']), sorted_sigmas.index(row['sigma_d'])] = row['ADE']
-    df = pd.DataFrame(table_arr, columns=sorted_weights)
-    df['sigma_ds'] = sorted_sigmas
+    df = pd.DataFrame(data=table_arr.transpose(), index=sorted_sigmas, columns=sorted_weights)
     df.to_csv('viz/af_sfm_sweep_ADE.csv')
 
-    table_arr = np.zeros((len(data['weight'].unique()), len(data['weight'].unique())))
     sorted_weights = sorted(data['weight'].unique())
     sorted_sigmas = sorted(data['sigma_d'].unique())
+    table_arr = np.zeros((len(sorted_weights), len(sorted_sigmas)))
     for row_i, row in data.iterrows():
         table_arr[sorted_weights.index(row['weight']), sorted_sigmas.index(row['sigma_d'])] = row['CR_pred']
-    df = pd.DataFrame(table_arr, columns=sorted_weights)
-    df['sigma_ds'] = sorted_sigmas
-    df.to_csv('viz/af_sfm_sweep_CR.csv', format)
+    df = pd.DataFrame(data=table_arr.transpose(), index=sorted_sigmas, columns=sorted_weights)
+    df.to_csv('viz/af_sfm_sweep_CR.csv')
     print("saved tables")
 
     cmap_name = 'viridis'
     cmap = plt.get_cmap(cmap_name)
     fig, (ax, ax2) = plt.subplots(2, 1, figsize=(10, 15))
     rad = 0.04
-    fs = 20
+    fs = 10
     for row_i, row in data.iterrows():
         center = (row['weight'], row['sigma_d'])
         ax.add_artist(patches.Circle(center, rad, fill=True, color=cmap(row['color_ADE']), alpha=0.5, zorder=0))
@@ -283,4 +294,5 @@ def main2():
 
 
 if __name__ == "__main__":
+    # get_train_evals()
     main()
