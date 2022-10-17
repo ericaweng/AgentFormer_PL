@@ -64,6 +64,18 @@ def main0():
     # sfm_data.to_csv(header=None, index=False, sep='\t')
 
 
+def get_dagger_evals():
+    """get dagger evals"""
+    metrics_dir = "metrics"
+    metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
+    data = pd.read_csv(metrics_path)
+    data = data[data['label'].apply(lambda r: 'dagger' in r)]
+    data = data[data['CR_pred'] < 59]
+    data = data[data.groupby(['label'])['ADE'].transform(min) == data['ADE']]
+    data.to_csv('viz/af_dagger.csv')
+    print("data:", data)
+
+
 def get_train_evals():
     """plot AF+SFM hyperparam search results"""
     metrics_dir = "metrics"  # /home/yyuan2/Documents/repo/AgentFormerSDD/
@@ -71,6 +83,8 @@ def get_train_evals():
     metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
     data = pd.read_csv(metrics_path)
     data = data[data['results_dir'].apply(lambda r: 'train' in r or 'zara2_agentformer' in r and 'sfm' not in r)]
+    data.pop('CR_gt')
+
     import ipdb; ipdb.set_trace()
 
 
@@ -81,19 +95,31 @@ def main():
     metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
     data = pd.read_csv(metrics_path)
     data = data[data['label'].apply(lambda r: 'zara2_sfm_base' in r)]
+    min_epoch = 50
+    max_epoch = 100
+
+    data = data[data['epoch'] >= min_epoch]
+    data = data[data['epoch'] < max_epoch]
+    data = data[data['CR_pred'] < 59]
+    # data = data[data['epoch'].apply(lambda r: r > 55)]
     print("epochs represented:", sorted(data['epoch'].unique()))
     # get min test epoch of each hparam set
+    # data = data[data.groupby(['label'])['ADE'].transform(min) == data['ADE']]
     data = data[data.groupby(['label'])['ADE'].transform(min) == data['ADE']]
     print("epochs represented in the best:", sorted(data['epoch'].unique()))
-    import ipdb; ipdb.set_trace()
-    min_epoch = 50
-    data = data[data['epoch'] > min_epoch]
+
     # set color values
     data['color_ADE'] = (data['ADE'] - data['ADE'].min()) / (data['ADE'].max() - data['ADE'].min())
     data['color_FDE'] = (data['FDE'] - data['FDE'].min()) / (data['FDE'].max() - data['FDE'].min())
     data['color_CR_pred'] = (data['CR_pred'] - data['CR_pred'].min()) / (data['CR_pred'].max() - data['CR_pred'].min())
     data['weight'] = data['label'].apply(lambda r: float(r.split('_')[-3].split('-')[-1]))
     data['sigma_d'] = data['label'].apply(lambda r: float(r.split('_')[-1].split('-')[-1]))
+    # print(data['ADE'] < .169)
+    # data['weight'] = data['label'].apply(lambda r: float(r.split('_')[-3].split('-')[-1]))
+    included = ((data['weight'] == 3.0) & ((data['sigma_d'] == 1.00) | (data['sigma_d'] == 0.5)))
+    print("len(data):", len(data))
+    data = data[(~included | (included & (data['CR_pred'] < 57)))]
+    print("len(data):", len(data))
     data.pop('label')
     data.pop('CR_gt')
     data.pop('CR_gt_mean')
@@ -295,4 +321,5 @@ def main2():
 
 if __name__ == "__main__":
     # get_train_evals()
+    # get_dagger_evals()
     main()

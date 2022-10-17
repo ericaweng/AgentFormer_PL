@@ -191,7 +191,7 @@ def plot_traj_anim(obs_traj, save_fn, ped_radius=0.1, ped_discomfort_dist=0.5, p
 
     # plot collision circles for predictions only
     if collision_mats is not None:
-        collide_circle_rad = (ped_radius + ped_discomfort_dist) * 2
+        collide_circle_rad = (ped_radius)# + ped_discomfort_dist) * 2
         # assert collision_mats.shape == (pred_len, num_peds, num_peds)
         collision_circles = [ax.add_artist(plt.Circle((0, 0), collide_circle_rad, fill=False, zorder=5, visible=False))
                              for _ in range(num_peds)]
@@ -288,7 +288,10 @@ def plot_traj_anim(obs_traj, save_fn, ped_radius=0.1, ped_discomfort_dist=0.5, p
 
         # update collision circles (only if we are during pred timesteps)
         if (plot_collisions_all or obs_len <= frame_i <= obs_len + pred_len) and collision_mats is not None:
-            obs_gt_fake = np.concatenate([obs_traj, pred_traj_fake])
+            if pred_traj_fake is not None:
+                obs_gt_fake = np.concatenate([obs_traj, pred_traj_fake])
+            else:
+                obs_gt_fake = np.concatenate([obs_traj, pred_traj_gt])
             for ped_i in range(num_peds):
                 # new frame; decrease the text disappearance delay by 1
                 if collided_delays[ped_i] > 0:
@@ -296,10 +299,10 @@ def plot_traj_anim(obs_traj, save_fn, ped_radius=0.1, ped_discomfort_dist=0.5, p
                 for ped_j in range(ped_i):
                     if collided_delays[ped_i] > 0:  # still in delay, circle doesn't disappear
                         break
-                    elif collision_mats[frame_i, ped_i, ped_j]:
+                    elif collision_mats[frame_i-obs_len, ped_i, ped_j]:
                         ## put the center of the circle in the point between the two ped centers
-                        x = (obs_gt_fake[frame_i][ped_i][0] + obs_gt_fake[frame_i][ped_j][0]) / 2
-                        y = (obs_gt_fake[frame_i][ped_i][1] + obs_gt_fake[frame_i][ped_j][1]) / 2
+                        x = (obs_gt_fake[frame_i-obs_len][ped_i][0] + obs_gt_fake[frame_i-obs_len][ped_j][0]) / 2
+                        y = (obs_gt_fake[frame_i-obs_len][ped_i][1] + obs_gt_fake[frame_i-obs_len][ped_j][1]) / 2
                         collision_circles[ped_i].set_center((x, y))
                         collision_circles[ped_i].set_edgecolor(cmap_fake(ped_i))
                         collision_circles[ped_i].set_visible(True)

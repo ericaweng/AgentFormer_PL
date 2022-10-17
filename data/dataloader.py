@@ -29,9 +29,8 @@ class data_generator(object):
             self.init_frame = 0
         elif 'dagger' in parser.dataset:
             data_root = parser.data_root_ethucy
-            seq_train, seq_val, seq_test = get_ethucy_split_dagger(parser.dataset)
-            print("seq_train:", len(seq_train))
-            import ipdb; ipdb.set_trace()
+            seq_train, seq_val, seq_test = get_ethucy_split_dagger(parser.dataset, 'pred_test')
+            print("len(seq_test):", len(seq_test))
             self.init_frame = 0
         elif parser.dataset == 'trajnet_sdd':
             data_root = parser.data_root_trajnet_sdd

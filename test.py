@@ -2,10 +2,12 @@ import numpy as np
 import argparse
 import os
 import sys
+import torch
 import shutil
 import itertools
 import subprocess
 import multiprocessing
+# multiprocessing.set_start_method('spawn')
 from functools import partial
 
 sys.path.append(os.getcwd())
@@ -71,7 +73,7 @@ def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok):
     MAX_NUM_TRIES = 10
     while non_colliding_samples.shape[0] < sample_k:
         with torch.no_grad():
-            num_samples = 40 if num_tries == 0 else 20
+            num_samples = 40 if num_tries == 0 and not collisions_ok else 20
             recon_motion_3D, sample_motion_3D = get_model_prediction(data, num_samples)
             num_tries += 1
         recon_motion_3D, sample_motion_3D = recon_motion_3D * traj_scale, sample_motion_3D * traj_scale
@@ -82,7 +84,6 @@ def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok):
 
         pred_arr = sample_motion_3D.cpu().numpy()
         if pred_arr.shape[0] > 1:
-            # multiprocessing.set_start_method('spawn')
             # with multiprocessing.Pool(processes=multiprocessing.cpu_count() - 1) as pool:
             #     mask = pool.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
             mask = itertools.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
@@ -131,11 +132,11 @@ def save_results(data, save_dir, indices, num_future_frames, gt_motion_3D, recon
         save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir, indices, num_future_frames)
     save_prediction(recon_motion_3D, data, '', recon_dir, indices, num_future_frames)  # save recon
     num_pred = save_prediction(gt_motion_3D, data, '', gt_dir, indices, num_future_frames)  # save gt
-    # print(f"saved to {save_dir}")
+    print(f"saved to {save_dir}")
     return num_pred
 
 
-def test_one_sequence(data, traj_scale, sample_k, save_dir):
+def test_one_sequence(data, save_dir, indices, num_future_frames, traj_scale, sample_k):
     seq_name, frame = data['seq'], data['frame']
     frame = int(frame)
     sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))
@@ -154,15 +155,24 @@ def test_one_sequence(data, traj_scale, sample_k, save_dir):
     gt_dir = os.path.join(save_dir, 'gt')
     mkdir_if_missing(gt_dir)
     for i in range(sample_motion_3D.shape[0]):
-        save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir)
-    save_prediction(recon_motion_3D, data, '', recon_dir)  # save recon
-    num_pred = save_prediction(gt_motion_3D, data, '', gt_dir)  # save gt
+        save_prediction(sample_motion_3D[i].cpu().numpy(), data, f'/sample_{i:03d}', sample_dir, indices, num_future_frames)
+    save_prediction(recon_motion_3D.cpu().numpy(), data, '', recon_dir, indices, num_future_frames)  # save recon
+    num_pred = save_prediction(gt_motion_3D.cpu().numpy(), data, '', gt_dir, indices, num_future_frames)  # save gt
+    # print(f"saved to {save_dir}")
     return num_pred
 
 
 def test_model(generator, save_dir, cfg, start_frame):
+    if 'sdd' in cfg.dataset:
+        indices = [0, 1, 2, 3]
+    else:
+        # frame, ID, x, z (remove y which is the height)
+        indices = [0, 1, 13, 15]
+    num_future_frames = cfg.future_frames
+
     num_samples_needed = []  # number of samples needed before we reached 20
     args_list = []
+    collisions_ok = cfg.get('collisions_ok', True)
     while not generator.is_epoch_end():
         data = generator()
         if data is None:
@@ -172,33 +182,39 @@ def test_model(generator, save_dir, cfg, start_frame):
             continue
         if 'pred_mask' in data and np.all(data['pred_mask'] == -1):
             continue
-        args_list.append((data, cfg.traj_scale, cfg.sample_k, cfg.get('collisions_ok', True)))
+        if not args.multiprocess2:
+            args_list.append((data, save_dir, indices, cfg.future_frames, cfg.traj_scale, cfg.sample_k))
+        else:
+            args_list.append((data, cfg.traj_scale, cfg.sample_k, collisions_ok))
 
-    if 'sdd' in cfg.dataset:
-        indices = [0, 1, 2, 3]
-    else:
-        # frame, ID, x, z (remove y which is the height)
-        indices = [0, 1, 13, 15]
-    num_future_frames = cfg.future_frames
-
-    # total_num_preds = []
+    total_num_preds = []
     # both run and save in subprocess
-    # for data in datas:
-    #     total_num_preds.append(test_one_sequence(*data))
-    # with multiprocessing.Pool() as pool:
-    #     total_num_preds = pool.starmap(test_one_sequence, datas)
-
-    # run first sequentially, then mp save
-    args_list_w_results = []
-    for args_l in args_list:
-        res = run_model_w_col_rej(*args_l)
-        if res is None:
-            continue
-        res = list(map(lambda x: x.cpu().numpy(), res))
-        args_list_w_results.append((args_l[0], save_dir, indices, num_future_frames, *res))
-    multiprocessing.set_start_method('spawn')
-    with multiprocessing.Pool() as pool:
-        total_num_preds = pool.starmap(save_results, args_list_w_results)
+    if args.multiprocess:
+        with multiprocessing.Pool() as pool:
+            total_num_preds = pool.starmap(test_one_sequence, args_list)
+    elif not args.multiprocess2:
+        for data in args_list:
+            total_num_preds.append(test_one_sequence(*data))
+    else:  # args.multiprocess2 and not args.multiprocess:
+        # run first sequentially, then mp save
+        args_list_w_results = []
+        for args_l in args_list:
+            # if collisions_ok:
+            #     res = run_model(*args_l)
+            # else:
+            res = run_model_w_col_rej(*args_l)
+            if res is None:
+                continue
+            res = list(map(lambda x: x.cpu().numpy(), res))
+            args_list_w_results.append((args_l[0], save_dir, indices, num_future_frames, *res))
+        # cpus_per_gpu = int(multiprocessing.cpu_count() / torch.cuda.device_count()) - 1
+        # print("cpus_per_gpu:", cpus_per_gpu)
+        # with multiprocessing.Pool(cpus_per_gpu) as pool:
+        #     total_num_preds = pool.starmap(save_results, args_list_w_results)
+        # print("saved preds")
+        total_num_preds = []
+        for args_tup in args_list_w_results:
+            total_num_preds.append(save_results(*args_tup))
 
     total_num_pred = sum(total_num_preds)
 
@@ -217,20 +233,25 @@ def test_model(generator, save_dir, cfg, start_frame):
 
 
 if __name__ == '__main__':
-    __spec__ = None
+    # __spec__ = None
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', default=None)
     parser.add_argument('--data_eval', default='test')
     parser.add_argument('--epochs', default=None)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--cached', action='store_true', default=False)
+    parser.add_argument('--multiprocess', '-mp', action='store_true', default=False)
+    parser.add_argument('--multiprocess2', '-mp2', action='store_true', default=False)
     parser.add_argument('--resume', action='store_true', default=False)
+    parser.add_argument('--eval_gt', action='store_true', default=False)
     parser.add_argument('--cleanup', action='store_true', default=False)
     parser.add_argument('--all_epochs', action='store_true', default=False)
-    parser.add_argument('--weight', type=float)
-    parser.add_argument('--sigma_d', type=float)
+    parser.add_argument('--weight', type=float, default=None)
+    parser.add_argument('--sigma_d', type=float, default=None)
     args = parser.parse_args()
 
+    if args.eval_gt:
+        args.cached = True
     """ setup """
     cfg = Config(args.cfg, additional_cfg_vars={'weight': args.weight, 'sigma_d': args.sigma_d})
     args.collisions_ok = cfg.get('collisions_ok', True)
@@ -297,7 +318,9 @@ if __name__ == '__main__':
 
             # import ipdb; ipdb.set_trace()
             log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
-            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --label {cfg.id} --epoch {epoch} --sample_num {cfg.sample_k} --data {split} --log {log_file}"
+            eval_gt = " --eval_gt" if args.eval_gt else ""
+            mp = " -mp" if args.multiprocess2 or args.multiprocess else ""
+            cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --label {cfg.id} --epoch {epoch} --sample_num {cfg.sample_k} --data {split} --log {log_file}{eval_gt}{mp}"
             subprocess.run(cmd.split(' '))
 
             # remove eval folder to save disk space

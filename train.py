@@ -1,3 +1,4 @@
+import glob
 import os
 import sys
 import argparse
@@ -143,7 +144,15 @@ if __name__ == '__main__':
         if args.start_epoch > 0:
             cp_path = cfg.model_path % args.start_epoch
         elif args.cached:
-            cp_path = cfg.model_path_last
+            existing_models = glob.glob('/'.join(cfg.model_path.split('/')[:-1]) + '/*')
+            if os.path.exists(cfg.model_path_last):
+                cp_path = cfg.model_path_last
+            elif len(existing_models):
+                cp_path = existing_models[-1]
+            else:
+                raise NotImplementedError
+            # cp_path = cfg.model_path_last
+            print("loading existing model from:", cp_path)
         else:
             raise NotImplementedError
         print_log(f'loading model from checkpoint: {cp_path}', log)
@@ -167,6 +176,7 @@ if __name__ == '__main__':
     model.set_device(device)
     model.train()
     for i in range(args.start_epoch, cfg.num_epochs):
+        print("training for:", cfg.num_epochs, "epochs")
         train(i)
         """ save last model """
         model_cp = {'model_dict': model.state_dict(), 'opt_dict': optimizer.state_dict(),
@@ -182,12 +192,12 @@ if __name__ == '__main__':
             if args.eval_when_train:
                 # cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {i + 1}"
                 cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {i + 1} --weight {args.weight} --sigma_d {args.sigma_d}"
-                subprocess.run(cmd.split(' '))
+                subprocess.Popen(cmd.split(' '))
 
     """ testing """
     if not args.eval_when_train:
         del model
         torch.cuda.empty_cache()
         test_epochs = ','.join([str(x) for x in range(cfg.model_save_freq, cfg.num_epochs + 1, cfg.model_save_freq)])
-        cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {test_epochs}"
+        cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {test_epochs} --weight {args.weight} --sigma_d {args.sigma_d}"
         subprocess.run(cmd.split(' '))

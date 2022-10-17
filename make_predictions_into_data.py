@@ -10,7 +10,6 @@ from visualize import align_gt
 def main(args):
     model_name = 'zara2_agentformer_pre_nocol'
     print("model_name:", model_name)
-    # model_name = 'zara2_agentformer_pre_nocol'
     results_root = os.path.join('results', model_name, 'results')
     dataset = 'zara2'
     # dataset_root = 'datasets'
@@ -18,7 +17,7 @@ def main(args):
     # glob.glob(os.path.join(output_path, '*.pt'))
 
     gt_dir = f'datasets/eth_ucy/{dataset}'
-    seq_train, _, _ = get_ethucy_split(dataset)
+    _, _, seq_train = get_ethucy_split(dataset)
     total = 0
     for seq_name in seq_train:
         # load GT raw data
@@ -34,7 +33,7 @@ def main(args):
         gt_raw = np.stack(gt_raw)
 
         # load samples
-        samples_dir = os.path.join(sorted(glob.glob(os.path.join(results_root, 'epoch_*')))[-1], 'train/samples')
+        samples_dir = os.path.join(sorted(glob.glob(os.path.join(results_root, 'epoch_*')))[-1], 'test/samples')
         data_filelist, _ = load_list_from_folder(os.path.join(samples_dir, seq_name))
         total += len(data_filelist)
         # print("len(data_filelist):", len(data_filelist))
@@ -80,7 +79,7 @@ def main(args):
             save_arr = np.full((save_trajs.shape[0], 17), '-1.0', dtype='object')
             save_arr[:, [0,1,13,15]] = save_trajs
             save_arr[:, 2] = 'Pedestrian'
-            save_dir = os.path.join(gt_dir, 'pred_data')
+            save_dir = os.path.join(gt_dir, 'pred_test')
             mkdir_if_missing(save_dir)
             save_path = os.path.join(save_dir, f'{seq_name}-{data_file_i:06d}.txt')
             np.savetxt(save_path, save_arr, fmt="%s")
@@ -89,45 +88,10 @@ def main(args):
     print("total:", total)
 
 
-def save_prediction(pred, data, suffix, save_dir, indices, num_future_frames, scale=1.0):
-    pred_num = 0
-    pred_arr = []
-    fut_data, seq_name, frame, valid_id, pred_mask = data['fut_data'], data['seq'], data['frame'], data['valid_id'], data['pred_mask']
-
-    for i in range(len(valid_id)):    # number of agents
-        identity = valid_id[i]
-        if pred_mask is not None and pred_mask[i] != 1.0:
-            continue
-
-        """future frames"""
-        for j in range(num_future_frames):
-            cur_data = fut_data[j]
-            if len(cur_data) > 0 and identity in cur_data[:, 1]:
-                data = cur_data[cur_data[:, 1] == identity].squeeze()
-            else:
-                data = most_recent_data.copy()
-                data[0] = frame + j + 1
-            data[indices[-2:]] = pred[i, j] / scale  # [13, 15] or [2, 3] corresponds to 2D pos
-            most_recent_data = data.copy()
-            pred_arr.append(data)
-        pred_num += 1
-
-    if len(pred_arr) > 0:
-        pred_arr = np.vstack(pred_arr)
-        pred_arr = pred_arr[:, indices]
-        # save results
-        fname = f'{save_dir}/{seq_name}/frame_{int(frame):06d}{suffix}.txt'
-        mkdir_if_missing(fname)
-        np.savetxt(fname, pred_arr, fmt="%.3f")
-    return pred_num
-
-
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--save_first', '-sf', action='store_true', default=True)
-    # parser.add_argument('--', '-', type=lambda x: list(map(int, x.split())))
-    # parser.add_argument('--', '-', action='store_true')
     args = parser.parse_args()
     main(args)

@@ -1,7 +1,7 @@
 import os
 
 
-def get_ethucy_split_dagger(dataset):
+def get_ethucy_split_dagger(dataset, version):
      seqs = [
           'biwi_eth',
           'biwi_hotel',
@@ -31,15 +31,32 @@ def get_ethucy_split_dagger(dataset):
           train.append(f'{seq}_train')
           val.append(f'{seq}_val')
 
-     for file in os.listdir('datasets/eth_ucy/zara2/pred_data'):
-          seq_name = f"pred_data/{file.split('.')[0]}"
-          if 'train' in seq_name:
+     if version == 'pred_test':
+          for file in os.listdir('datasets/eth_ucy/zara2/pred_test'):
+               seq_name = f"pred_test/{file.split('.')[0]}"
                train.append(seq_name)
-          elif 'val' in seq_name:
-               val.append(seq_name)
-          else:
-               print(file)
-               import ipdb; ipdb.set_trace()
+
+     if version == '2111':
+          for file in os.listdir('datasets/eth_ucy/zara2/pred_data'):
+               seq_name = f"pred_data/{file.split('.')[0]}"
+               if 'train' in seq_name:
+                    train.append(seq_name)
+               elif 'val' in seq_name:
+                    val.append(seq_name)
+               else:
+                    print(file)
+                    import ipdb; ipdb.set_trace()
+
+     if version == 'big':
+          for file in os.listdir('datasets/eth_ucy/zara2/pred_data2'):
+               seq_name = f"pred_data2/{file.split('.')[0]}"
+               if 'train' in seq_name:
+                    train.append(seq_name)
+               elif 'val' in seq_name:
+                    val.append(seq_name)
+               else:
+                    print(file)
+                    import ipdb; ipdb.set_trace()
      return train, val, test
 
 

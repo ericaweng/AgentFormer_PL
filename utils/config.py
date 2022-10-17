@@ -13,10 +13,17 @@ class Config:
         self.id = cfg_id
         cfg_path = 'cfg/**/%s.yml' % cfg_id
         files = glob.glob(cfg_path, recursive=True)
-        assert(len(files) == 1)
+        if len(files) == 0:
+            things = cfg_id.split("_")
+            files = glob.glob('cfg/**/%s.yml' % "_".join(things[:3]), recursive=True)
+            additional_cfg_vars = {'sigma_d': float(things[-1].split('-')[-1]), 'weight': float(things[3].split('-')[-1])}
+        else:
+            if additional_cfg_vars is not None and 'sigma_d' in additional_cfg_vars and additional_cfg_vars['sigma_d'] is not None:
+                self.id = f"{cfg_id}_weight-{additional_cfg_vars['weight']}_sigma_d-{additional_cfg_vars['sigma_d']}"
+
+        assert (len(files) == 1)
         self.yml_dict = EasyDict(yaml.safe_load(open(files[0], 'r')))
         if additional_cfg_vars is not None and 'sigma_d' in additional_cfg_vars and additional_cfg_vars['sigma_d'] is not None:
-            self.id = f"{self.id}_weight-{additional_cfg_vars['weight']}_sigma_d-{additional_cfg_vars['sigma_d']}"
             """cfg new vars"""
             self.yml_dict.sfm_params.sigma_d = additional_cfg_vars['sigma_d']
             self.yml_dict.loss_cfg.sample_sfm = {}
