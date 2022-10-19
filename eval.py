@@ -187,10 +187,12 @@ def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
 
 
 def compute_CR(pred_arr,
-               gt_arr,
+               gt_arr=None,
                pred=False,
                gt=False,
                aggregation='max',
+               return_sample_crs=False,
+               return_collision_mat=False,
                **kwargs):
     """Compute collision rate and collision-free likelihood.
     Input:
@@ -205,19 +207,21 @@ def compute_CR(pred_arr,
     n_sample, n_ped, _, _ = pred_arr.shape
 
     col_pred = np.zeros((n_sample))  # cr_pred
-
+    col_mats = []
     if n_ped > 1:
         # with nool(processes=multiprocessing.cpu_count() - 1) as pool:
         #     r = pool.starmap(
         #             partial(check_collision_per_sample, gt_arr=gt_arr),
         #             enumerate(pred_arr))
-        r = []
+        # r = []
         for i, pa in enumerate(pred_arr):
             # r.append(check_collision_per_sample(i, pa, gt_arr))
-            tup = get_collisions_mat_old(i, pa)
-            r.append(tup)
+            sample_idx, n_ped_with_col_pred, col_mat = get_collisions_mat_old(i, pa)
+            col_mats.append(col_mat)
+            # tup = get_collisions_mat_old(i, pa)
+            # r.append(tup)
 
-        for sample_idx, n_ped_with_col_pred, _ in r:
+        # for sample_idx, n_ped_with_col_pred, _ in r:
             col_pred[sample_idx] += (n_ped_with_col_pred.sum())
 
     if aggregation == 'mean':
@@ -231,8 +235,12 @@ def compute_CR(pred_arr,
 
     # Multiply by 100 to make it percentage
     cr_pred *= 100
-
-    return cr_pred / n_ped
+    crs = [cr_pred / n_ped]
+    if return_sample_crs:
+        crs.append(col_pred / n_ped)
+    if return_collision_mat:
+        crs.append(col_mats)
+    return tuple(crs) if len(crs) > 1 else crs[0]
 
 
 def check_collision_per_sample_no_gt(sample_idx, sample, ped_radius=0.1):
@@ -306,7 +314,7 @@ def eval_one_seq(gt_raw, data_file, stats_meter, stats_func):
             sample = np.loadtxt(sample, delimiter=' ', dtype='float32')  # (frames x agents) x 4
             sample_all.append(sample)
         all_traj = np.stack(sample_all, axis=0)  # samples x (framex x agents) x 4
-        assert len(sample_all) == 20
+        # assert len(sample_all) == 20
     else:
         assert False, 'error'
 

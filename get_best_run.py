@@ -87,7 +87,6 @@ def get_train_evals():
 
     import ipdb; ipdb.set_trace()
 
-
 def main():
     """plot AF+SFM hyperparam search results"""
     metrics_dir = "metrics"  # /home/yyuan2/Documents/repo/AgentFormerSDD/
@@ -95,34 +94,39 @@ def main():
     metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
     data = pd.read_csv(metrics_path)
     data = data[data['label'].apply(lambda r: 'zara2_sfm_base' in r)]
-    min_epoch = 50
+    min_epoch = 60
     max_epoch = 100
 
     data = data[data['epoch'] >= min_epoch]
     data = data[data['epoch'] < max_epoch]
-    data = data[data['CR_pred'] < 59]
+    # data = data[data[CR_pred] < 59]
     # data = data[data['epoch'].apply(lambda r: r > 55)]
     print("epochs represented:", sorted(data['epoch'].unique()))
+
     # get min test epoch of each hparam set
     # data = data[data.groupby(['label'])['ADE'].transform(min) == data['ADE']]
     data = data[data.groupby(['label'])['ADE'].transform(min) == data['ADE']]
     print("epochs represented in the best:", sorted(data['epoch'].unique()))
 
+    CR_pred = 'CR_pred'
+    ADE = 'FDE'
     # set color values
     data['color_ADE'] = (data['ADE'] - data['ADE'].min()) / (data['ADE'].max() - data['ADE'].min())
     data['color_FDE'] = (data['FDE'] - data['FDE'].min()) / (data['FDE'].max() - data['FDE'].min())
-    data['color_CR_pred'] = (data['CR_pred'] - data['CR_pred'].min()) / (data['CR_pred'].max() - data['CR_pred'].min())
+    data['color_CR_pred'] = (data[CR_pred] - data[CR_pred].min()) / (data[CR_pred].max() - data[CR_pred].min())
     data['weight'] = data['label'].apply(lambda r: float(r.split('_')[-3].split('-')[-1]))
     data['sigma_d'] = data['label'].apply(lambda r: float(r.split('_')[-1].split('-')[-1]))
     # print(data['ADE'] < .169)
     # data['weight'] = data['label'].apply(lambda r: float(r.split('_')[-3].split('-')[-1]))
-    included = ((data['weight'] == 3.0) & ((data['sigma_d'] == 1.00) | (data['sigma_d'] == 0.5)))
-    print("len(data):", len(data))
-    data = data[(~included | (included & (data['CR_pred'] < 57)))]
-    print("len(data):", len(data))
+
+    # get rid of bad buggy evals
+    # included = ((data['weight'] == 3.0) & ((data['sigma_d'] == 1.00) | (data['sigma_d'] == 0.5)))
+    # data = data[(~included | (included & (data[CR_pred] < 57)))]
+
     data.pop('label')
     data.pop('CR_gt')
     data.pop('CR_gt_mean')
+    # data.pop('CR_pred_mean')
     data.pop('ACFL')
     data.pop('results_dir')
     print(data)
@@ -142,7 +146,7 @@ def main():
     sorted_sigmas = sorted(data['sigma_d'].unique())
     table_arr = np.zeros((len(sorted_weights), len(sorted_sigmas)))
     for row_i, row in data.iterrows():
-        table_arr[sorted_weights.index(row['weight']), sorted_sigmas.index(row['sigma_d'])] = row['CR_pred']
+        table_arr[sorted_weights.index(row['weight']), sorted_sigmas.index(row['sigma_d'])] = row[CR_pred]
     df = pd.DataFrame(data=table_arr.transpose(), index=sorted_sigmas, columns=sorted_weights)
     df.to_csv('viz/af_sfm_sweep_CR.csv')
     print("saved tables")
@@ -154,17 +158,16 @@ def main():
     fs = 10
     for row_i, row in data.iterrows():
         center = (row['weight'], row['sigma_d'])
-        ax.add_artist(patches.Circle(center, rad, fill=True, color=cmap(row['color_ADE']), alpha=0.5, zorder=0))
-        ax.text(*center, f"{row['ADE']:0.2f}", fontsize=fs, weight='bold')
+        ax.add_artist(patches.Circle(center, rad, fill=True, color=cmap(row[f'color_{ADE}']), alpha=0.5, zorder=0))
+        ax.text(*center, f"{row[ADE]:0.2f}", fontsize=fs, weight='bold')
         ax2.add_artist(patches.Circle(center, rad, fill=True, color=cmap(row['color_CR_pred']), alpha=0.5, zorder=0))
-        ax2.text(*center, f"{row['CR_pred']:0.1f}", fontsize=fs, weight='bold')
-
+        ax2.text(*center, f"{row[CR_pred]:0.1f}", fontsize=fs, weight='bold')
     # ts = 20
     # cbaxes = fig.add_axes([0.2, 0.45, 0.6, 0.01])
     cNorm = Normalize(vmin=data['ADE'].min(), vmax=data['ADE'].max())
     cmappable = ScalarMappable(cNorm, cmap=cmap_name)
     plt.colorbar(cmappable, cmap=cmap_name, location='bottom', ax=ax)
-    cNorm2 = Normalize(vmin=data['CR_pred'].min(), vmax=data['CR_pred'].max())
+    cNorm2 = Normalize(vmin=data[CR_pred].min(), vmax=data[CR_pred].max())
     cmappable2 = ScalarMappable(cNorm2, cmap=cmap_name)
     plt.colorbar(cmappable2, cmap=cmap_name, location='bottom', ax=ax2)
 

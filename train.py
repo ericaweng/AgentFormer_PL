@@ -191,7 +191,8 @@ if __name__ == '__main__':
 
             if args.eval_when_train:
                 # cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {i + 1}"
-                cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {i + 1} --weight {args.weight} --sigma_d {args.sigma_d}"
+                tail = f" --weight {args.weight} --sigma_d {args.sigma_d}" if args.weight is not None and args.sigma_d is not None else ""
+                cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {i + 1}{tail}"
                 subprocess.Popen(cmd.split(' '))
 
     """ testing """
@@ -199,5 +200,6 @@ if __name__ == '__main__':
         del model
         torch.cuda.empty_cache()
         test_epochs = ','.join([str(x) for x in range(cfg.model_save_freq, cfg.num_epochs + 1, cfg.model_save_freq)])
-        cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {test_epochs} --weight {args.weight} --sigma_d {args.sigma_d}"
+        tail = f" --weight {args.weight} --sigma_d {args.sigma_d}" if args.weight is not None and args.sigma_d is not None else ""
+        cmd = f"python test.py --cfg {args.cfg} --gpu {args.gpu} --data_eval test --epochs {test_epochs}{tail}"
         subprocess.run(cmd.split(' '))

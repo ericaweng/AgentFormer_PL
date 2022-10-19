@@ -4,7 +4,10 @@
 description                  : AgentFormer (Before DLow)
 results_root_dir             : results
 seed                         : 10
-dataset                      : zara2-dagger
+dataset                      : zara2
+dagger                       : true
+dagger_split                 : default
+dagger_data                  : test
 data_root_ethucy             : datasets/eth_ucy
 data_root_nuscenes_pred      : datasets/nuscenes_pred
 

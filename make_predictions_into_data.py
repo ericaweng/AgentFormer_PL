@@ -8,7 +8,8 @@ from visualize import align_gt
 
 
 def main(args):
-    model_name = 'zara2_agentformer_pre_nocol'
+    model_name = 'zara2_dagger_tune_test_nocol'
+    # model_name = 'zara2_agentformer_pre_nocol'
     print("model_name:", model_name)
     results_root = os.path.join('results', model_name, 'results')
     dataset = 'zara2'
@@ -47,7 +48,7 @@ def main(args):
                 sample_list, _ = load_list_from_folder(data_file)
                 sample_all = []
                 for sample_i, sample in enumerate(sample_list):
-                    if sample_i == 0:
+                    if sample_i == 0 or sample_i == 1:
                         continue
                     sample = np.loadtxt(sample, delimiter=' ', dtype='float32')  # (frames x agents) x 4
                     sample_all.append(sample)
@@ -79,7 +80,8 @@ def main(args):
             save_arr = np.full((save_trajs.shape[0], 17), '-1.0', dtype='object')
             save_arr[:, [0,1,13,15]] = save_trajs
             save_arr[:, 2] = 'Pedestrian'
-            save_dir = os.path.join(gt_dir, 'pred_test')
+            save_folder = 'pred_zara2_dagger_tune_test'
+            save_dir = os.path.join(gt_dir, save_folder)
             mkdir_if_missing(save_dir)
             save_path = os.path.join(save_dir, f'{seq_name}-{data_file_i:06d}.txt')
             np.savetxt(save_path, save_arr, fmt="%s")

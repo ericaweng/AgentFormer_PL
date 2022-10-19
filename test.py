@@ -132,34 +132,37 @@ def save_results(data, save_dir, indices, num_future_frames, gt_motion_3D, recon
         save_prediction(sample_motion_3D[i], data, f'/sample_{i:03d}', sample_dir, indices, num_future_frames)
     save_prediction(recon_motion_3D, data, '', recon_dir, indices, num_future_frames)  # save recon
     num_pred = save_prediction(gt_motion_3D, data, '', gt_dir, indices, num_future_frames)  # save gt
-    print(f"saved to {save_dir}")
+    print(f"saved frame {data['frame']} to {save_dir}")
     return num_pred
 
 
-def test_one_sequence(data, save_dir, indices, num_future_frames, traj_scale, sample_k):
-    seq_name, frame = data['seq'], data['frame']
-    frame = int(frame)
-    sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))
-    sys.stdout.flush()
+def test_one_sequence(data, save_dir, indices, num_future_frames, traj_scale, sample_k, collisions_ok):
+    # seq_name, frame = data['seq'], data['frame']
+    # frame = int(frame)
+    # sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))
+    # sys.stdout.flush()
 
-    gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
-    with torch.no_grad():
-        recon_motion_3D, sample_motion_3D = get_model_prediction(data, sample_k)
-    recon_motion_3D, sample_motion_3D = recon_motion_3D * traj_scale, sample_motion_3D * traj_scale
-
-    """save samples"""
-    recon_dir = os.path.join(save_dir, 'recon')
-    mkdir_if_missing(recon_dir)
-    sample_dir = os.path.join(save_dir, 'samples')
-    mkdir_if_missing(sample_dir)
-    gt_dir = os.path.join(save_dir, 'gt')
-    mkdir_if_missing(gt_dir)
-    for i in range(sample_motion_3D.shape[0]):
-        save_prediction(sample_motion_3D[i].cpu().numpy(), data, f'/sample_{i:03d}', sample_dir, indices, num_future_frames)
-    save_prediction(recon_motion_3D.cpu().numpy(), data, '', recon_dir, indices, num_future_frames)  # save recon
-    num_pred = save_prediction(gt_motion_3D.cpu().numpy(), data, '', gt_dir, indices, num_future_frames)  # save gt
-    # print(f"saved to {save_dir}")
+    gt_motion_3D, recon_motion_3D, sample_motion_3D = run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok)
+    num_pred = save_results(data, save_dir, indices, num_future_frames, gt_motion_3D, recon_motion_3D, sample_motion_3D)
     return num_pred
+    # gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
+    # with torch.no_grad():
+    #     recon_motion_3D, sample_motion_3D = get_model_prediction(data, sample_k)
+    # recon_motion_3D, sample_motion_3D = recon_motion_3D * traj_scale, sample_motion_3D * traj_scale
+    #
+    # """save samples"""
+    # recon_dir = os.path.join(save_dir, 'recon')
+    # mkdir_if_missing(recon_dir)
+    # sample_dir = os.path.join(save_dir, 'samples')
+    # mkdir_if_missing(sample_dir)
+    # gt_dir = os.path.join(save_dir, 'gt')
+    # mkdir_if_missing(gt_dir)
+    # for i in range(sample_motion_3D.shape[0]):
+    #     save_prediction(sample_motion_3D[i].cpu().numpy(), data, f'/sample_{i:03d}', sample_dir, indices, num_future_frames)
+    # save_prediction(recon_motion_3D.cpu().numpy(), data, '', recon_dir, indices, num_future_frames)  # save recon
+    # num_pred = save_prediction(gt_motion_3D.cpu().numpy(), data, '', gt_dir, indices, num_future_frames)  # save gt
+    # # print(f"saved to {save_dir}")
+    # return num_pred
 
 
 def test_model(generator, save_dir, cfg, start_frame):
@@ -189,32 +192,25 @@ def test_model(generator, save_dir, cfg, start_frame):
 
     total_num_preds = []
     # both run and save in subprocess
-    if args.multiprocess:
+    if args.multiprocess and args.dont_save:  # multiprocess and dont save
+        pass
+    if args.multiprocess:  # multiprocess
         with multiprocessing.Pool() as pool:
             total_num_preds = pool.starmap(test_one_sequence, args_list)
-    elif not args.multiprocess2:
+    elif not args.multiprocess2:  # sequentially
         for data in args_list:
             total_num_preds.append(test_one_sequence(*data))
-    else:  # args.multiprocess2 and not args.multiprocess:
+    else:  # multiprocess2
         # run first sequentially, then mp save
         args_list_w_results = []
         for args_l in args_list:
-            # if collisions_ok:
-            #     res = run_model(*args_l)
-            # else:
             res = run_model_w_col_rej(*args_l)
             if res is None:
                 continue
             res = list(map(lambda x: x.cpu().numpy(), res))
             args_list_w_results.append((args_l[0], save_dir, indices, num_future_frames, *res))
-        # cpus_per_gpu = int(multiprocessing.cpu_count() / torch.cuda.device_count()) - 1
-        # print("cpus_per_gpu:", cpus_per_gpu)
-        # with multiprocessing.Pool(cpus_per_gpu) as pool:
-        #     total_num_preds = pool.starmap(save_results, args_list_w_results)
-        # print("saved preds")
-        total_num_preds = []
-        for args_tup in args_list_w_results:
-            total_num_preds.append(save_results(*args_tup))
+        with multiprocessing.Pool() as pool:
+            total_num_preds = pool.starmap(save_results, args_list_w_results)
 
     total_num_pred = sum(total_num_preds)
 
@@ -237,7 +233,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', default=None)
     parser.add_argument('--data_eval', default='test')
-    parser.add_argument('--epochs', default=None)
+    parser.add_argument('--epochs', default='last')
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--cached', action='store_true', default=False)
     parser.add_argument('--multiprocess', '-mp', action='store_true', default=False)
@@ -245,6 +241,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume', action='store_true', default=False)
     parser.add_argument('--eval_gt', action='store_true', default=False)
     parser.add_argument('--cleanup', action='store_true', default=False)
+    parser.add_argument('--dont_save', action='store_true', default=False)
     parser.add_argument('--all_epochs', action='store_true', default=False)
     parser.add_argument('--weight', type=float, default=None)
     parser.add_argument('--sigma_d', type=float, default=None)
