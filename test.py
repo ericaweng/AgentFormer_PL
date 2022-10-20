@@ -16,7 +16,7 @@ from utils.torch import *
 from utils.config import Config
 from model.model_lib import model_dict
 from utils.utils import prepare_seed, print_log, mkdir_if_missing
-from eval import check_collision_per_sample_no_gt
+from eval import check_collision_per_sample_no_gt, get_collisions_mat_old
 
 
 def get_model_prediction(data, sample_k):
@@ -60,7 +60,7 @@ def save_prediction(pred, data, suffix, save_dir, indices, num_future_frames, sc
     return pred_num
 
 
-def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok):
+def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok, collision_rad):
     """run model with collision rejection"""
     seq_name, frame = data['seq'], data['frame']
     frame = int(frame)
@@ -68,10 +68,12 @@ def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok):
     sys.stdout.flush()
 
     gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
-    non_colliding_samples = torch.empty(0).to(device)
+    samples_to_return = torch.empty(0).to(device)
     num_tries = 0
+    num_zeros = 0
+    MAX_NUM_ZEROS = 3
     MAX_NUM_TRIES = 10
-    while non_colliding_samples.shape[0] < sample_k:
+    while samples_to_return.shape[0] < sample_k:
         with torch.no_grad():
             num_samples = 40 if num_tries == 0 and not collisions_ok else 20
             recon_motion_3D, sample_motion_3D = get_model_prediction(data, num_samples)
@@ -79,32 +81,37 @@ def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok):
         recon_motion_3D, sample_motion_3D = recon_motion_3D * traj_scale, sample_motion_3D * traj_scale
 
         # compute number of colliding samples
-        if collisions_ok:
+        pred_arr = sample_motion_3D.cpu().numpy()
+        if collisions_ok or pred_arr.shape[0] == 1:
             break
 
-        pred_arr = sample_motion_3D.cpu().numpy()
-        if pred_arr.shape[0] > 1:
-            # with multiprocessing.Pool(processes=multiprocessing.cpu_count() - 1) as pool:
-            #     mask = pool.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
-            mask = itertools.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
-            maskk = np.where(~np.any(np.array(list(zip(*mask))[1]).astype(np.bool), axis=-1))[0]
-            if maskk.shape[0] == 0:
-                if num_tries > MAX_NUM_TRIES:
-                    print_log(f"collected {40+ (num_tries-1)*20} and only "
-                              f"{non_colliding_samples.shape[0]} non-colliding samples \n"
-                              f"num_peds: {pred_arr.shape[0]}", log)
-                    return None
-                continue
-            non_collide_idx = torch.LongTensor(maskk)
-            assert torch.max(non_collide_idx) < sample_motion_3D.shape[0]
-            assert 0 <= torch.max(non_collide_idx)
-            sample_motion_3D = torch.index_select(sample_motion_3D, 0, non_collide_idx.to(device))
-        non_colliding_samples = torch.cat([non_colliding_samples, sample_motion_3D])
-        sample_motion_3D = non_colliding_samples[:sample_k]  # select only 20 non-colliding samples
+        # with multiprocessing.Pool(processes=multiprocessing.cpu_count() - 1) as pool:
+        #     mask = pool.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
+        args_list = list(zip(np.arange(len(pred_arr)), pred_arr, [collision_rad for _ in range(len(pred_arr))]))
+        mask = itertools.starmap(get_collisions_mat_old, args_list)
+        # mask = itertools.starmap(check_collision_per_sample_no_gt, args_list)
+        maskk = np.where(~np.any(np.array(list(zip(*mask))[1]).astype(np.bool), axis=-1))[0]  # get indices of samples that have 0 collisions
+        if maskk.shape[0] == 0:
+            num_zeros += 1
+            if num_zeros > MAX_NUM_ZEROS or num_tries > MAX_NUM_TRIES:
+                print_log(f"frame {data['frame']} with {len(data['pre_motion_3D'])} peds: "
+                          f"collected {40+ (num_tries-1)*20} samples, only "
+                          f"{samples_to_return.shape[0]} non-colliding. \n", log)
+                sample_motion_3D = samples_to_return[:sample_k]  # select only 20 non-colliding samples
+                break
+            continue
+        # append new non-colliding samples to list
+        non_collide_idx = torch.LongTensor(maskk)
+        assert torch.max(non_collide_idx) < sample_motion_3D.shape[0]
+        assert 0 <= torch.max(non_collide_idx)
+        sample_motion_3D = torch.index_select(sample_motion_3D, 0, non_collide_idx.to(device))  # select only those in current sample who don't collide
+        samples_to_return = torch.cat([samples_to_return, sample_motion_3D])
+        sample_motion_3D = samples_to_return[:sample_k]  # select only 20 non-colliding samples
 
-    # num_samples_needed.append(20 + 10 * (num_tries - 1))
-
-    return gt_motion_3D, sample_motion_3D[0], sample_motion_3D
+    recon_motion_3D = sample_motion_3D[0].cpu().numpy()
+    sample_motion_3D = sample_motion_3D.cpu().numpy()
+    gt_motion_3D = gt_motion_3D.cpu().numpy()
+    return gt_motion_3D, recon_motion_3D, sample_motion_3D
 
 
 def run_model(data, traj_scale, sample_k):
@@ -136,13 +143,37 @@ def save_results(data, save_dir, indices, num_future_frames, gt_motion_3D, recon
     return num_pred
 
 
-def test_one_sequence(data, save_dir, indices, num_future_frames, traj_scale, sample_k, collisions_ok):
+def test_one_dont_save(data, save_dir, indices, num_future_frames, traj_scale, sample_k, collisions_ok, collision_rad):
+    tup = run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok, collision_rad)
+    if tup is None:
+        return 0
+    gt_motion_3D, recon_motion_3D, sample_motion_3D = tup
+
+    import ipdb; ipdb.set_trace()
+    eval_one_seq(gt_raw, data_file, stats_meter, stats_func, collision_rad)
+    values = []
+    agent_traj_nums = []
+    for stats_name in stats_meter:
+        func = stats_func[stats_name]
+        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad}
+        if stats_name == 'CR_pred_mean':
+            stats_func_args['aggregation'] = 'mean'
+
+        value = func(**stats_func_args)
+        values.append(value)
+        agent_traj_nums.append(len(agent_traj))
+    import ipdb; ipdb.set_trace()
+
+def test_one_sequence(data, save_dir, indices, num_future_frames, traj_scale, sample_k, collisions_ok, collision_rad):
     # seq_name, frame = data['seq'], data['frame']
     # frame = int(frame)
     # sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))
     # sys.stdout.flush()
 
-    gt_motion_3D, recon_motion_3D, sample_motion_3D = run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok)
+    tup = run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok, collision_rad)
+    if tup is None:
+        return 0
+    gt_motion_3D, recon_motion_3D, sample_motion_3D = tup
     num_pred = save_results(data, save_dir, indices, num_future_frames, gt_motion_3D, recon_motion_3D, sample_motion_3D)
     return num_pred
     # gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
@@ -176,6 +207,8 @@ def test_model(generator, save_dir, cfg, start_frame):
     num_samples_needed = []  # number of samples needed before we reached 20
     args_list = []
     collisions_ok = cfg.get('collisions_ok', True)
+    collision_rad = cfg.collision_rad
+    # collision_rad = cfg.get('collision_rad')
     while not generator.is_epoch_end():
         data = generator()
         if data is None:
@@ -186,15 +219,16 @@ def test_model(generator, save_dir, cfg, start_frame):
         if 'pred_mask' in data and np.all(data['pred_mask'] == -1):
             continue
         if not args.multiprocess2:
-            args_list.append((data, save_dir, indices, cfg.future_frames, cfg.traj_scale, cfg.sample_k))
+            args_list.append((data, save_dir, indices, cfg.future_frames, cfg.traj_scale, cfg.sample_k, collisions_ok, collision_rad))
         else:
-            args_list.append((data, cfg.traj_scale, cfg.sample_k, collisions_ok))
+            args_list.append((data, cfg.traj_scale, cfg.sample_k, collisions_ok, collision_rad))
 
     total_num_preds = []
     # both run and save in subprocess
-    if args.multiprocess and args.dont_save:  # multiprocess and dont save
-        pass
-    if args.multiprocess:  # multiprocess
+    if args.dont_save:  # multiprocess and dont save
+        for data in args_list:
+            total_num_preds.append(test_one_dont_save(*data))
+    elif args.multiprocess:  # multiprocess
         with multiprocessing.Pool() as pool:
             total_num_preds = pool.starmap(test_one_sequence, args_list)
     elif not args.multiprocess2:  # sequentially
@@ -207,7 +241,6 @@ def test_model(generator, save_dir, cfg, start_frame):
             res = run_model_w_col_rej(*args_l)
             if res is None:
                 continue
-            res = list(map(lambda x: x.cpu().numpy(), res))
             args_list_w_results.append((args_l[0], save_dir, indices, num_future_frames, *res))
         with multiprocessing.Pool() as pool:
             total_num_preds = pool.starmap(save_results, args_list_w_results)

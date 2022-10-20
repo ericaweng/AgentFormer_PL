@@ -8,15 +8,15 @@ from visualize import align_gt
 
 
 def main(args):
-    model_name = 'zara2_dagger_tune_test_nocol'
-    # model_name = 'zara2_agentformer_pre_nocol'
-    print("model_name:", model_name)
+    # model_name = 'zara2_nocol_0.15'
+    # model_name = 'zara2_nocol_0.15'
+    model_name = 'zara2_agentformer_pre_nocol'
+    train_or_test = 'test'#'train'
+    save_folder = f'{train_or_test}-0.1'
+    print(f"Saving {model_name}'s predictions on {train_or_test} data to: {save_folder}")
+
     results_root = os.path.join('results', model_name, 'results')
     dataset = 'zara2'
-    # dataset_root = 'datasets'
-    # output_path = os.path.join(results_root, model_name)
-    # glob.glob(os.path.join(output_path, '*.pt'))
-
     gt_dir = f'datasets/eth_ucy/{dataset}'
     _, _, seq_train = get_ethucy_split(dataset)
     total = 0
@@ -34,7 +34,7 @@ def main(args):
         gt_raw = np.stack(gt_raw)
 
         # load samples
-        samples_dir = os.path.join(sorted(glob.glob(os.path.join(results_root, 'epoch_*')))[-1], 'test/samples')
+        samples_dir = os.path.join(sorted(glob.glob(os.path.join(results_root, 'epoch_*')))[-1], f'{train_or_test}/samples')
         data_filelist, _ = load_list_from_folder(os.path.join(samples_dir, seq_name))
         total += len(data_filelist)
         # print("len(data_filelist):", len(data_filelist))
@@ -80,9 +80,9 @@ def main(args):
             save_arr = np.full((save_trajs.shape[0], 17), '-1.0', dtype='object')
             save_arr[:, [0,1,13,15]] = save_trajs
             save_arr[:, 2] = 'Pedestrian'
-            save_folder = 'pred_zara2_dagger_tune_test'
             save_dir = os.path.join(gt_dir, save_folder)
             mkdir_if_missing(save_dir)
+            os.makedirs(save_dir, exist_ok=True)
             save_path = os.path.join(save_dir, f'{seq_name}-{data_file_i:06d}.txt')
             np.savetxt(save_path, save_arr, fmt="%s")
             print("saved:", save_path)

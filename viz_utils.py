@@ -6,14 +6,18 @@ import matplotlib.animation as animation
 import matplotlib.patches as patches
 
 
-def plot_fig(save_fn, *list_of_arg_dicts):
-    if len(list_of_arg_dicts) % 2 == 0 and len(list_of_arg_dicts) > 4:
-        num_plots_width = 2
-        num_plots_height = int(len(list_of_arg_dicts)/2)
+def plot_fig(save_fn, title=None, *list_of_arg_dicts):
+    if len(list_of_arg_dicts) > 4:  # len(list_of_arg_dicts) % 2 == 0 and
+        num_plots_height = 2
+        num_plots_width = int((len(list_of_arg_dicts) + 1)/2)
     else:
-        num_plots_width = 1
-        num_plots_height = len(list_of_arg_dicts)
-    fig, axes = plt.subplots(num_plots_width, num_plots_height, figsize=(10 * num_plots_height, 10 * num_plots_width))
+        num_plots_height = 1
+        num_plots_width = len(list_of_arg_dicts)
+
+    num_plots_width = 4
+    num_plots_height = 3
+    assert num_plots_width * num_plots_height >= len(list_of_arg_dicts)
+    fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(15 * num_plots_width, 10 * num_plots_height))
     if isinstance(axes[0], np.ndarray):
         axes = [a for ax in axes for a in ax]
     # fig, axes = plt.subplots(1, len(list_of_arg_dicts), figsize=(10 * len(list_of_arg_dicts), 10))
@@ -29,16 +33,19 @@ def plot_fig(save_fn, *list_of_arg_dicts):
     pred_len = 12
 
     bounds = None
-    for ax_i, (arg_dict,ax) in enumerate(zip(list_of_arg_dicts[::-1], axes[::-1])):
+    for ax_i, (arg_dict,ax) in enumerate(zip(list_of_arg_dicts, axes)):
         ao = AnimObj()
         anim_graphs.append(ao)
         ao.plot_traj_anim(**arg_dict, ax=ax, bounds=bounds)
-        bounds = ao.bounds
+        if ax_i == 1:
+            bounds = ao.bounds
 
     anim = animation.FuncAnimation(fig, lambda frame_i: [ag.update(frame_i) for ag in anim_graphs],
                                    frames=obs_len + pred_len, interval=500)
     fig.tight_layout()
     fig.subplots_adjust(hspace=0.1)
+    if title is not None:
+        fig.set_title(title)
     anim.save(save_fn)
     print(f"saved animation to {save_fn}")
     plt.close(fig)
@@ -58,7 +65,7 @@ class AnimObj:
                        bounds=None, int_cat_abbv=None, scene_stats=None, cfg_names=None,
                        collision_mats=None, cmap_name='tab10', extend_last_frame=3, show_ped_stats=False,
                        text_time=None, text_fixed=None, grid_values=None, plot_collisions_all=False, plot_title=None,
-                       ax=None, update=None):
+                       ax=None, update=None, pred_alpha=None):
         """
         obs_traj: shape (8, num_peds, 2) observation input to model, first 8 timesteps of the scene
         save_fn: file name where to save animation
@@ -112,11 +119,11 @@ class AnimObj:
         if bounds is None:
             all_traj = obs_traj
             if pred_traj_gt is not None:
-                all_traj = np.concatenate([all_traj, pred_traj_gt])
+                all_traj = np.concatenate([all_traj.reshape(-1,all_traj.shape[-1]), pred_traj_gt.reshape(-1,pred_traj_gt.shape[-1])])
             if pred_traj_fake is not None:
-                all_traj = np.concatenate([all_traj, *[p for ptf in pred_traj_fake for p in ptf]])
-            x_low, x_high = np.min(all_traj[:, :, 0]) - ped_radius, np.max(all_traj[:, :, 0]) + ped_radius
-            y_low, y_high = np.min(all_traj[:, :, 1]) - ped_radius, np.max(all_traj[:, :, 1]) + ped_radius
+                all_traj = np.concatenate([all_traj.reshape(-1,all_traj.shape[-1]), *[p.reshape(-1,p.shape[-1]) for ptf in pred_traj_fake for p in ptf]])
+            x_low, x_high = np.min(all_traj[:, 0]) - ped_radius, np.max(all_traj[:, 0]) + ped_radius
+            y_low, y_high = np.min(all_traj[:, 1]) - ped_radius, np.max(all_traj[:, 1]) + ped_radius
         else:  # set bounds as specified
             x_low, x_high, y_low, y_high = bounds
         self.bounds = x_low, x_high, y_low, y_high
@@ -138,10 +145,11 @@ class AnimObj:
         text_offset_x = 0.2
         text_offset_y = 0.2
         obs_alpha = 1  # how much alpha to plot obs traj
-        pred_alpha = 0.5  # how much alpha to plot gt traj, if they exist
+        if pred_alpha is None:
+            pred_alpha = 0.7  # how much alpha to plot gt traj, if they exist
         # each sample a different marker
-        markers_0 = ['o', '*', '^', 's', '1', 'P', 'x', '$\#$', ',', '$\clubsuit$'] #'v', '<', ',', ]
-        markers_1 = ['P', 'x', '$\#$', ',', '$\clubsuit$'] #'v', '<', ',', ]
+        markers_0 = [None] * 10#['o', '*', '^', 's', '1', 'P', 'x', '$\#$', ',', '$\clubsuit$'] #'v', '<', ',', ]
+        markers_1 = [None] * 10#['P', 'x', '$\#$', ',', '$\clubsuit$'] #'v', '<', ',', ]
         # each ped a different color
         cmap_real = plt.get_cmap(cmap_name, max(10, num_peds))
         cmap_fake = plt.get_cmap(cmap_name, max(10, num_peds))
@@ -212,17 +220,9 @@ class AnimObj:
                 lines_pred_gt.append(ax.add_artist(line_pred_gt))
 
             if pred_traj_fake is not None:  # plot fake pred trajs
-                pred_traj_fake = pred_traj_fake.copy()
-                if isinstance(pred_traj_fake, np.ndarray):
-                    if len(pred_traj_fake.shape) == 3:
-                        pred_traj_fake = pred_traj_fake[np.newaxis]
-                    else:
-                        assert len(pred_traj_fake.shape) == 4
-                    pred_traj_fake = [pred_traj_fake]
                 lpf, cf = [], []
                 for model_i, ptf in enumerate(pred_traj_fake):
                     lpf_inner, cf_inner = [], []
-                    # alpha = 1#0.5#(len(pred_traj_fake) - model_i - 1) * (1 - alpha_min) / len(pred_traj_fake) + alpha_min
                     for sample_i, p in enumerate(ptf):
                         circle_fake = plt.Circle(ptf[0, ped_i], ped_radius, fill=True, color=color_fake[ped_i][model_i],
                                                  alpha=pred_alpha, visible=False, zorder=1)
@@ -337,6 +337,7 @@ class AnimObj:
                 #     import ipdb; ipdb.set_trace()
                 if pred_traj_gt is not None:
                     # traj_gt = np.concatenate([obs_traj, pred_traj_gt])
+                    assert len(circles_gt) == len(lines_pred_gt) == len(ped_texts)
                     for ped_i, (circle_gt, line_pred_gt, ped_text) in enumerate(zip(
                             circles_gt, lines_pred_gt, ped_texts)):
                         circle_gt.center = pred_traj_gt[frame_i - obs_len, ped_i]
@@ -349,11 +350,12 @@ class AnimObj:
                                     (circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
 
                 if pred_traj_fake is not None:
+                    assert len(lines_pred_fake) == len(circles_fake)
                     for ped_i, (cf, lpf) in enumerate(zip(circles_fake, lines_pred_fake)):
+                        assert len(cf) == len(lpf)
                         for model_i, (cf_inner, lpf_inner) in enumerate(zip(cf, lpf)):
+                            assert len(cf_inner) == len(lpf_inner)
                             for sample_i, (circle_fake, line_pred_fake) in enumerate(zip(cf_inner, lpf_inner)):
-                                # circle_fake.set_visible(True)
-                                # print("circle_fake:", circle_fake.get_visible())
                                 circle_fake.center = pred_traj_fake[model_i][sample_i, frame_i - obs_len, ped_i]
                                 last_obs_pred_fake = np.concatenate([obs_traj[-1:, ped_i], pred_traj_fake[model_i][sample_i, 0:frame_i + 1 - obs_len, ped_i]])
                                 line_pred_fake.set_data(*last_obs_pred_fake.T)

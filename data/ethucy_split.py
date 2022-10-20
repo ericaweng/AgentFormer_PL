@@ -1,7 +1,7 @@
 import os
 
 
-def get_ethucy_split_dagger(dataset, version):
+def get_ethucy_split_dagger(dataset, additional_data_source):
     seqs = [
             'biwi_eth',
             'biwi_hotel',
@@ -31,7 +31,7 @@ def get_ethucy_split_dagger(dataset, version):
         train.append(f'{seq}_train')
         val.append(f'{seq}_val')
 
-    if version == 'test':
+    if additional_data_source == 'test':
         folder = 'pred_zara2_dagger_tune_test'
         for file in os.listdir(f'datasets/eth_ucy/zara2/{folder}'):
             seq_name = f"{folder}/{file.split('.')[0]}"
@@ -42,7 +42,7 @@ def get_ethucy_split_dagger(dataset, version):
         # for file in os.listdir('datasets/eth_ucy/zara2/pred_test2'):
         #     seq_name = f"pred_test2/{file.split('.')[0]}"
         #     train.append(seq_name)
-    elif version == 'train':
+    elif additional_data_source == 'train':
         for file in os.listdir('datasets/eth_ucy/zara2/pred_data'):
             seq_name = f"pred_data/{file.split('.')[0]}"
             if 'train' in seq_name:
@@ -61,6 +61,12 @@ def get_ethucy_split_dagger(dataset, version):
             else:
                 print(file)
                 import ipdb; ipdb.set_trace()
+    else:
+        assert isinstance(additional_data_source, list)
+        for folder in additional_data_source:
+            for file in os.listdir(f'datasets/eth_ucy/zara2/{folder}'):
+                seq_name = f"{folder}/{file.split('.')[0]}"
+                train.append(seq_name)
     return train, val, test
 
 

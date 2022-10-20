@@ -39,7 +39,7 @@ def point_to_segment_dist_old(x1, y1, x2, y2, p1, p2):
     return np.linalg.norm((x - p1, y - p2), axis=-1)
 
 
-def get_collisions_mat_old(sample_idx, pred_traj_fake, threshold=0.1):
+def get_collisions_mat_old(sample_idx, pred_traj_fake, threshold):
     """threshold: radius + discomfort distance of agents"""
     pred_traj_fake = pred_traj_fake.transpose(1, 0, 2)
     ts, num_peds, _ = pred_traj_fake.shape
@@ -85,7 +85,7 @@ def get_collisions_mat_old(sample_idx, pred_traj_fake, threshold=0.1):
     # return collision_mat, collision_mat_vals
 
 
-def compute_ADE(pred_arr, gt_arr):
+def compute_ADE(pred_arr, gt_arr, return_all_ades=False, **kwargs):
     ade = 0.0
     for pred, gt in zip(pred_arr, gt_arr):
         diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
@@ -93,10 +93,12 @@ def compute_ADE(pred_arr, gt_arr):
         dist = dist.mean(axis=-1)  # samples
         ade += dist.min(axis=0)  # (1, )
     ade /= len(pred_arr)
+    if return_all_ades:
+        return ade, dist / len(pred_arr)
     return ade
 
 
-def compute_FDE(pred_arr, gt_arr):
+def compute_FDE(pred_arr, gt_arr, return_sample_fdes=False, **kwargs):
     fde = 0.0
     for pred, gt in zip(pred_arr, gt_arr):
         diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
@@ -104,6 +106,8 @@ def compute_FDE(pred_arr, gt_arr):
         dist = dist[..., -1]  # samples
         fde += dist.min(axis=0)  # (1, )
     fde /= len(pred_arr)
+    if return_sample_fdes:
+        return fde, dist / len(pred_arr)
     return fde
 
 
@@ -188,12 +192,10 @@ def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
 
 def compute_CR(pred_arr,
                gt_arr=None,
-               pred=False,
-               gt=False,
                aggregation='max',
                return_sample_crs=False,
                return_collision_mat=False,
-               **kwargs):
+               collision_rad=None):
     """Compute collision rate and collision-free likelihood.
     Input:
         - pred_arr: (np.array) (n_pedestrian, n_samples, timesteps, 4)
@@ -216,7 +218,7 @@ def compute_CR(pred_arr,
         # r = []
         for i, pa in enumerate(pred_arr):
             # r.append(check_collision_per_sample(i, pa, gt_arr))
-            sample_idx, n_ped_with_col_pred, col_mat = get_collisions_mat_old(i, pa)
+            sample_idx, n_ped_with_col_pred, col_mat = get_collisions_mat_old(i, pa, collision_rad)
             col_mats.append(col_mat)
             # tup = get_collisions_mat_old(i, pa)
             # r.append(tup)
@@ -300,7 +302,7 @@ def write_metrics_to_csv(stats_meter, csv_file, label, results_dir, epoch, data)
         df.to_csv(csv_file, index=False, float_format='%f')
 
 
-def eval_one_seq(gt_raw, data_file, stats_meter, stats_func):
+def eval_one_seq(gt_raw, data_file, stats_meter, stats_func, collision_rad):
     # for reconsutrction or deterministic
     if isfile(data_file):
         all_traj = np.loadtxt(data_file, delimiter=' ', dtype='float32')  # (frames x agents) x 4
@@ -343,16 +345,8 @@ def eval_one_seq(gt_raw, data_file, stats_meter, stats_func):
     agent_traj_nums = []
     for stats_name in stats_meter:
         func = stats_func[stats_name]
-        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj}
-        if stats_name == 'CR_pred':
-            stats_func_args['pred'] = True
-        elif stats_name == 'CR_gt':
-            stats_func_args['gt'] = True
-        elif stats_name == 'CR_pred_mean':
-            stats_func_args['pred'] = True
-            stats_func_args['aggregation'] = 'mean'
-        elif stats_name == 'CR_gt_mean':
-            stats_func_args['gt'] = True
+        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad}
+        if stats_name == 'CR_pred_mean':
             stats_func_args['aggregation'] = 'mean'
 
         value = func(**stats_func_args)
@@ -378,12 +372,14 @@ if __name__ == '__main__':
     parser.add_argument('--eval_gt', action='store_true', default=False)
     parser.add_argument('--multiprocess', '-mp' , action='store_true', default=False)
     parser.add_argument('--epoch', type=int, default=-1)
+    parser.add_argument('--collision_rad', type=int, default=0.1)
     parser.add_argument('--sample_num', type=int, default=5)
     parser.add_argument('--data', default='test')
     parser.add_argument('--log_file', default=None)
     args = parser.parse_args()
 
     dataset = args.dataset.lower()
+    collision_rad = args.collision_rad
     results_dir = args.results_dir
 
     resize = 1.0
@@ -454,13 +450,13 @@ if __name__ == '__main__':
 
         data_filelist, _ = load_list_from_folder(os.path.join(results_dir, seq_name))
         if args.multiprocess:
-            args_list = [(gt_raw, data_file, stats_meter, stats_func) for data_file in data_filelist]
+            args_list = [(gt_raw, data_file, stats_meter, stats_func, collision_rad) for data_file in data_filelist]
             with Pool() as pool:
                 all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(eval_one_seq, args_list))
         else:
             all_meters_values, all_meters_agent_traj_nums = [],[]
             for data_file in data_filelist:  # each example e.g., seq_0001 - frame_000009
-                meters, agent_traj_nums = eval_one_seq(gt_raw, data_file, stats_meter, stats_func)
+                meters, agent_traj_nums = eval_one_seq(gt_raw, data_file, stats_meter, stats_func, collision_rad)
                 all_meters_values.append(meters)
                 all_meters_agent_traj_nums.append(agent_traj_nums)
         for meter, values, agent_traj_num in zip(stats_meter.values(), zip(*all_meters_values), zip(*all_meters_agent_traj_nums)):
