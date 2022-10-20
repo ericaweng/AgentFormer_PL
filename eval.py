@@ -302,48 +302,56 @@ def write_metrics_to_csv(stats_meter, csv_file, label, results_dir, epoch, data)
         df.to_csv(csv_file, index=False, float_format='%f')
 
 
-def eval_one_seq(gt_raw, data_file, stats_meter, stats_func, collision_rad):
-    # for reconsutrction or deterministic
-    if isfile(data_file):
-        all_traj = np.loadtxt(data_file, delimiter=' ', dtype='float32')  # (frames x agents) x 4
-        all_traj = np.expand_dims(all_traj, axis=0)  # 1 x (frames x agents) x 4
-    # for stochastic with multiple samples
-    elif isfolder(data_file):
-        sample_list, _ = load_list_from_folder(data_file)
-        sample_list = sample_list[:20]
-        sample_all = []
-        for sample in sample_list:
-            sample = np.loadtxt(sample, delimiter=' ', dtype='float32')  # (frames x agents) x 4
-            sample_all.append(sample)
-        all_traj = np.stack(sample_all, axis=0)  # samples x (framex x agents) x 4
-        # assert len(sample_all) == 20
-    else:
-        assert False, 'error'
-
-    # convert raw data to our format for evaluation
-    id_list = np.unique(all_traj[:, :, 1])
-    frame_list = np.unique(all_traj[:, :, 0])
-    agent_traj = []
-    gt_traj = []
-    for idx in id_list:
-        # GT traj
-        gt_idx = gt_raw[gt_raw[:, 1] == idx]  # frames x 4
-        # predicted traj
-        ind = np.unique(np.where(all_traj[:, :, 1] == idx)[1].tolist())
-        pred_idx = all_traj[:, ind, :]  # sample x frames x 4
-        # filter data
-        pred_idx, gt_idx = align_gt(pred_idx, gt_idx)
-        # append
-        if not args.eval_gt:
-            agent_traj.append(pred_idx)
+def eval_one_seq(gt_raw, data_file, stats_func, collision_rad):
+    if len(gt_raw.shape) == 2 and isinstance(data_file, str):
+        # for reconsutrction or deterministic
+        if isfile(data_file):
+            all_traj = np.loadtxt(data_file, delimiter=' ', dtype='float32')  # (frames x agents) x 4
+            all_traj = np.expand_dims(all_traj, axis=0)  # 1 x (frames x agents) x 4
+        # for stochastic with multiple samples
+        elif isfolder(data_file):
+            sample_list, _ = load_list_from_folder(data_file)
+            sample_list = sample_list[:20]
+            sample_all = []
+            if len(sample_list) == 0:
+                print(f'No samples in {data_file}')
+                return [0] * len(stats_func), [0] * len(stats_func)
+            for sample in sample_list:
+                sample = np.loadtxt(sample, delimiter=' ', dtype='float32')  # (frames x agents) x 4
+                sample_all.append(sample)
+            all_traj = np.stack(sample_all, axis=0)  # samples x (framex x agents) x 4
+            # assert len(sample_all) == 20
         else:
-            agent_traj.append(gt_idx[np.newaxis, ...])
-        gt_traj.append(gt_idx)
+            assert False, 'error'
+
+        # convert raw data to our format for evaluation
+        id_list = np.unique(all_traj[:, :, 1])
+        frame_list = np.unique(all_traj[:, :, 0])
+        agent_traj = []
+        gt_traj = []
+        for idx in id_list:
+            # GT traj
+            gt_idx = gt_raw[gt_raw[:, 1] == idx]  # frames x 4
+            # predicted traj
+            ind = np.unique(np.where(all_traj[:, :, 1] == idx)[1].tolist())
+            pred_idx = all_traj[:, ind, :]  # sample x frames x 4
+            # filter data
+            pred_idx, gt_idx = align_gt(pred_idx, gt_idx)
+            # append
+            if not args.eval_gt:
+                agent_traj.append(pred_idx)
+            else:
+                agent_traj.append(gt_idx[np.newaxis, ...])
+            gt_traj.append(gt_idx)
+    else:
+        assert len(gt_raw.shape) == 3 and isinstance(data_file, np.ndarray) and len(data_file.shape) == 4
+        gt_traj = gt_raw
+        agent_traj = data_file.swapaxes(0,1)
 
     """compute stats"""
     values = []
     agent_traj_nums = []
-    for stats_name in stats_meter:
+    for stats_name in stats_func:
         func = stats_func[stats_name]
         stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad}
         if stats_name == 'CR_pred_mean':
@@ -362,6 +370,13 @@ def eval_one_seq(gt_raw, data_file, stats_meter, stats_func, collision_rad):
 
     return values, agent_traj_nums
 
+
+stats_func = {
+            'ADE': compute_ADE,
+            'FDE': compute_FDE,
+            'CR_pred': compute_CR,
+            'CR_pred_mean': compute_CR,
+}
 
 if __name__ == '__main__':
     __spec__ = None
@@ -420,16 +435,6 @@ if __name__ == '__main__':
     print_log('loading results from %s' % results_dir, log_file)
     print_log('loading GT from %s' % gt_dir, log_file)
 
-    stats_func = {
-            'ADE': compute_ADE,
-            'FDE': compute_FDE,
-            'CR_pred': compute_CR,
-            # 'CR_gt': compute_CR,
-            'CR_pred_mean': compute_CR,
-            # 'CR_gt_mean': compute_CR,
-            # 'ACFL': compute_ACFL
-    }
-
     stats_meter = {x: AverageMeter() for x in stats_func.keys()}
 
     _, num_seq = load_list_from_folder(gt_dir)
@@ -450,13 +455,13 @@ if __name__ == '__main__':
 
         data_filelist, _ = load_list_from_folder(os.path.join(results_dir, seq_name))
         if args.multiprocess:
-            args_list = [(gt_raw, data_file, stats_meter, stats_func, collision_rad) for data_file in data_filelist]
+            args_list = [(gt_raw, data_file, stats_func, collision_rad) for data_file in data_filelist]
             with Pool() as pool:
                 all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(eval_one_seq, args_list))
         else:
             all_meters_values, all_meters_agent_traj_nums = [],[]
             for data_file in data_filelist:  # each example e.g., seq_0001 - frame_000009
-                meters, agent_traj_nums = eval_one_seq(gt_raw, data_file, stats_meter, stats_func, collision_rad)
+                meters, agent_traj_nums = eval_one_seq(gt_raw, data_file, stats_func, collision_rad)
                 all_meters_values.append(meters)
                 all_meters_agent_traj_nums.append(agent_traj_nums)
         for meter, values, agent_traj_num in zip(stats_meter.values(), zip(*all_meters_values), zip(*all_meters_agent_traj_nums)):
@@ -469,7 +474,7 @@ if __name__ == '__main__':
     print_log('-' * 67, log_file)
     for name, meter in stats_meter.items():
         if 'gt' not in name:
-            print_log(f"{meter.avg:.4f}", log_file)
+            print(f"{meter.avg:.4f}")
     print_log(f'epoch: {args.epoch}', log_file)
     log_file.close()
 

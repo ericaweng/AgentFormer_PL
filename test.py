@@ -7,7 +7,6 @@ import shutil
 import itertools
 import subprocess
 import multiprocessing
-# multiprocessing.set_start_method('spawn')
 from functools import partial
 
 sys.path.append(os.getcwd())
@@ -15,8 +14,8 @@ from data.dataloader import data_generator
 from utils.torch import *
 from utils.config import Config
 from model.model_lib import model_dict
-from utils.utils import prepare_seed, print_log, mkdir_if_missing
-from eval import check_collision_per_sample_no_gt, get_collisions_mat_old
+from utils.utils import prepare_seed, print_log, mkdir_if_missing, AverageMeter
+from eval import check_collision_per_sample_no_gt, get_collisions_mat_old, eval_one_seq, stats_func, write_metrics_to_csv
 
 
 def get_model_prediction(data, sample_k):
@@ -108,6 +107,8 @@ def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok, collision_rad
         samples_to_return = torch.cat([samples_to_return, sample_motion_3D])
         sample_motion_3D = samples_to_return[:sample_k]  # select only 20 non-colliding samples
 
+    if sample_motion_3D.shape[0] == 0:
+        return
     recon_motion_3D = sample_motion_3D[0].cpu().numpy()
     sample_motion_3D = sample_motion_3D.cpu().numpy()
     gt_motion_3D = gt_motion_3D.cpu().numpy()
@@ -143,57 +144,20 @@ def save_results(data, save_dir, indices, num_future_frames, gt_motion_3D, recon
     return num_pred
 
 
-def test_one_dont_save(data, save_dir, indices, num_future_frames, traj_scale, sample_k, collisions_ok, collision_rad):
+def test_one_dont_save(data, save_dir, indices, future_frames, traj_scale, sample_k, collisions_ok, collision_rad):
     tup = run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok, collision_rad)
     if tup is None:
         return 0
-    gt_motion_3D, recon_motion_3D, sample_motion_3D = tup
+    return tup
 
-    import ipdb; ipdb.set_trace()
-    eval_one_seq(gt_raw, data_file, stats_meter, stats_func, collision_rad)
-    values = []
-    agent_traj_nums = []
-    for stats_name in stats_meter:
-        func = stats_func[stats_name]
-        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad}
-        if stats_name == 'CR_pred_mean':
-            stats_func_args['aggregation'] = 'mean'
-
-        value = func(**stats_func_args)
-        values.append(value)
-        agent_traj_nums.append(len(agent_traj))
-    import ipdb; ipdb.set_trace()
 
 def test_one_sequence(data, save_dir, indices, num_future_frames, traj_scale, sample_k, collisions_ok, collision_rad):
-    # seq_name, frame = data['seq'], data['frame']
-    # frame = int(frame)
-    # sys.stdout.write('testing seq: %s, frame: %06d                \r' % (seq_name, frame))
-    # sys.stdout.flush()
-
     tup = run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok, collision_rad)
     if tup is None:
         return 0
     gt_motion_3D, recon_motion_3D, sample_motion_3D = tup
     num_pred = save_results(data, save_dir, indices, num_future_frames, gt_motion_3D, recon_motion_3D, sample_motion_3D)
     return num_pred
-    # gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
-    # with torch.no_grad():
-    #     recon_motion_3D, sample_motion_3D = get_model_prediction(data, sample_k)
-    # recon_motion_3D, sample_motion_3D = recon_motion_3D * traj_scale, sample_motion_3D * traj_scale
-    #
-    # """save samples"""
-    # recon_dir = os.path.join(save_dir, 'recon')
-    # mkdir_if_missing(recon_dir)
-    # sample_dir = os.path.join(save_dir, 'samples')
-    # mkdir_if_missing(sample_dir)
-    # gt_dir = os.path.join(save_dir, 'gt')
-    # mkdir_if_missing(gt_dir)
-    # for i in range(sample_motion_3D.shape[0]):
-    #     save_prediction(sample_motion_3D[i].cpu().numpy(), data, f'/sample_{i:03d}', sample_dir, indices, num_future_frames)
-    # save_prediction(recon_motion_3D.cpu().numpy(), data, '', recon_dir, indices, num_future_frames)  # save recon
-    # num_pred = save_prediction(gt_motion_3D.cpu().numpy(), data, '', gt_dir, indices, num_future_frames)  # save gt
-    # # print(f"saved to {save_dir}")
-    # return num_pred
 
 
 def test_model(generator, save_dir, cfg, start_frame):
@@ -207,7 +171,7 @@ def test_model(generator, save_dir, cfg, start_frame):
     num_samples_needed = []  # number of samples needed before we reached 20
     args_list = []
     collisions_ok = cfg.get('collisions_ok', True)
-    collision_rad = cfg.collision_rad
+    collision_rad = cfg.get('collision_rad', 0.1)
     # collision_rad = cfg.get('collision_rad')
     while not generator.is_epoch_end():
         data = generator()
@@ -226,14 +190,40 @@ def test_model(generator, save_dir, cfg, start_frame):
     total_num_preds = []
     # both run and save in subprocess
     if args.dont_save:  # multiprocess and dont save
-        for data in args_list:
-            total_num_preds.append(test_one_dont_save(*data))
-    elif args.multiprocess:  # multiprocess
-        with multiprocessing.Pool() as pool:
-            total_num_preds = pool.starmap(test_one_sequence, args_list)
+        if not args.multiprocess and not args.multiprocess2:
+            for data in args_list:
+                total_num_preds.append(test_one_dont_save(*data))
+        else:
+            stats_meter = {x: AverageMeter() for x in stats_func.keys()}
+            # with multiprocessing.Pool() as pool:
+            #     test_results = pool.starmap(test_one_dont_save, args_list)
+            test_results = []
+            for arg_list in args_list:
+                test_results.append(test_one_dont_save(*arg_list))
+            args_list = [(gt_motion_3D, sample_motion_3D, stats_func, collision_rad) for gt_motion_3D, _, sample_motion_3D in test_results]
+            with multiprocessing.Pool() as pool:
+                all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(eval_one_seq, args_list))
+            for meter, values, agent_traj_num in zip(stats_meter.values(), zip(*all_meters_values), zip(*all_meters_agent_traj_nums)):
+                meter.update((np.sum(np.array(values) * np.array(agent_traj_num)) / np.sum(agent_traj_num)).item(),
+                             n=np.sum(agent_traj_num).item())
+
+            print_log('-' * 30 + ' STATS ' + '-' * 30, log_file)
+            for name, meter in stats_meter.items():
+                print_log(f'{meter.count} {name}: {meter.avg:.4f}', log_file)
+            print_log('-' * 67, log_file)
+            for name, meter in stats_meter.items():
+                if 'gt' not in name:
+                    print_log(f"{meter.avg:.4f}", log_file)
+            print_log(f'epoch: {args.epoch}', log_file)
+            log_file.close()
+
+            # write_metrics_to_csv(stats_meter, csv_file, args.label, results_dir, args.epoch, args.data)
+            exit(0)
+
     elif not args.multiprocess2:  # sequentially
         for data in args_list:
             total_num_preds.append(test_one_sequence(*data))
+
     else:  # multiprocess2
         # run first sequentially, then mp save
         args_list_w_results = []
@@ -262,7 +252,8 @@ def test_model(generator, save_dir, cfg, start_frame):
 
 
 if __name__ == '__main__':
-    # __spec__ = None
+    __spec__ = None
+    multiprocessing.set_start_method('spawn')
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', default=None)
     parser.add_argument('--data_eval', default='test')
@@ -339,15 +330,16 @@ if __name__ == '__main__':
             start_frame = 0
             if args.resume:  # resume in case previous test run got interrupted
                 import glob
-                result_files = sorted(glob.glob(os.path.join(eval_dir, '*/frame*'), recursive=True))
+                result_files = sorted(glob.glob(os.path.join(eval_dir, '*/frame*/**.txt'), recursive=True))
                 if len(result_files) > 0:
-                    start_frame = int(result_files[-1][-6:]) + 1
+                    start_frame = int(result_files[-1].split('frame_')[-1].split('/')[0]) + 1
                     print("start testing at frame:", start_frame)
+
+            log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
             if not args.cached:
                 test_model(generator, save_dir, cfg, start_frame)
 
             # import ipdb; ipdb.set_trace()
-            log_file = os.path.join(cfg.log_dir, 'log_eval.txt')
             eval_gt = " --eval_gt" if args.eval_gt else ""
             mp = " -mp" if args.multiprocess2 or args.multiprocess else ""
             cmd = f"python eval.py --dataset {cfg.dataset} --results_dir {eval_dir} --label {cfg.id} --epoch {epoch} --sample_num {cfg.sample_k} --data {split} --log {log_file}{eval_gt}{mp}"
