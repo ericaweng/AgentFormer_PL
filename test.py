@@ -7,15 +7,14 @@ import shutil
 import itertools
 import subprocess
 import multiprocessing
-from functools import partial
 
 sys.path.append(os.getcwd())
 from data.dataloader import data_generator
-from utils.torch import *
 from utils.config import Config
 from model.model_lib import model_dict
 from utils.utils import prepare_seed, print_log, mkdir_if_missing, AverageMeter
-from eval import check_collision_per_sample_no_gt, get_collisions_mat_old, eval_one_seq, stats_func, write_metrics_to_csv
+from metrics import check_collision_per_sample_no_gt, get_collisions_mat_old
+from eval import eval_one_seq, stats_func, write_metrics_to_csv
 
 
 def get_model_prediction(data, sample_k):
@@ -147,7 +146,7 @@ def save_results(data, save_dir, indices, num_future_frames, gt_motion_3D, recon
 def test_one_dont_save(data, save_dir, indices, future_frames, traj_scale, sample_k, collisions_ok, collision_rad):
     tup = run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok, collision_rad)
     if tup is None:
-        return 0
+        return None
     return tup
 
 
@@ -199,25 +198,28 @@ def test_model(generator, save_dir, cfg, start_frame):
             #     test_results = pool.starmap(test_one_dont_save, args_list)
             test_results = []
             for arg_list in args_list:
-                test_results.append(test_one_dont_save(*arg_list))
-            args_list = [(gt_motion_3D, sample_motion_3D, stats_func, collision_rad) for gt_motion_3D, _, sample_motion_3D in test_results]
+                tup = test_one_dont_save(*arg_list)
+                if tup is not None:
+                    test_results.append(tup)
+            args_list = [(gt_motion_3D, sample_motion_3D, collision_rad) for gt_motion_3D, _, sample_motion_3D in test_results]
             with multiprocessing.Pool() as pool:
                 all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(eval_one_seq, args_list))
             for meter, values, agent_traj_num in zip(stats_meter.values(), zip(*all_meters_values), zip(*all_meters_agent_traj_nums)):
                 meter.update((np.sum(np.array(values) * np.array(agent_traj_num)) / np.sum(agent_traj_num)).item(),
                              n=np.sum(agent_traj_num).item())
 
-            print_log('-' * 30 + ' STATS ' + '-' * 30, log_file)
+            print('-' * 30 + ' STATS ' + '-' * 30)
             for name, meter in stats_meter.items():
-                print_log(f'{meter.count} {name}: {meter.avg:.4f}', log_file)
-            print_log('-' * 67, log_file)
+                print(f'{meter.count} {name}: {meter.avg:.4f}')
+            print('-' * 67)
+            print(epoch)
             for name, meter in stats_meter.items():
                 if 'gt' not in name:
-                    print_log(f"{meter.avg:.4f}", log_file)
-            print_log(f'epoch: {args.epoch}', log_file)
-            log_file.close()
+                    print(f"{meter.avg:.4f}")
 
-            # write_metrics_to_csv(stats_meter, csv_file, args.label, results_dir, args.epoch, args.data)
+            csv_file = f'metrics/metrics_{cfg.dataset}12.csv'
+            results_dir = cfg.result_dir
+            write_metrics_to_csv(stats_meter, csv_file, '', results_dir, epoch, args.data_eval)
             exit(0)
 
     elif not args.multiprocess2:  # sequentially

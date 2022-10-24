@@ -6,7 +6,7 @@ from .map import GeometricMap
 
 class preprocess(object):
     
-    def __init__(self, data_root, seq_name, parser, log, split='train', phase='training'):
+    def __init__(self, data_root, seq_name, parser, split='train', phase='training'):
         self.parser = parser
         self.dataset = parser.dataset
         self.data_root = data_root
@@ -22,7 +22,6 @@ class preprocess(object):
         self.seq_name = seq_name
         self.split = split
         self.phase = phase
-        self.log = log
 
         if parser.dataset == 'nuscenes_pred':
             label_path = os.path.join(data_root, 'label/{}/{}.txt'.format(split, seq_name))
@@ -190,5 +189,20 @@ class preprocess(object):
             'seq': self.seq_name,
             'frame': frame
         }
+        # print("pre_motion_3D.shape:", pre_motion_3D[0].shape)
+        # print("len(pre_motion_3D):", len(pre_motion_3D))
+        # print("fut_motion_3D.shape:", fut_motion_3D[0].shape)
+        # print("len(fut_motion_3D):", len(fut_motion_3D))
+        # print("fut_motion_mask.shape:", fut_motion_mask[0].shape)
+        # print("len(fut_motion_mask):", len(fut_motion_mask))
+        # print("pre_motion_mask.shape:", pre_motion_mask[0].shape)
+        # print("len(pre_motion_mask):", len(pre_motion_mask))
+        # print("pre_data.shape:", pre_data[0].shape)
+        # print("len(pre_data):", len(pre_data))
+        # print("fut_data.shape:", fut_data[0].shape)
+        # if True:
+        #     print("len(fut_data):", len(fut_data))
+        #     print("valid_id.shape:", valid_id[0].shape)
+        #     print("len(valid_id):", len(valid_id))
 
         return data

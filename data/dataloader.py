@@ -45,9 +45,9 @@ class data_generator(object):
         self.data_root = data_root
 
         print_log("\n-------------------------- loading %s data --------------------------" % split, log=log)
-        if self.split == 'train':  self.sequence_to_load = seq_train
+        if self.split == 'train' and not parser.get('sanity', False):  self.sequence_to_load = seq_train
         elif self.split == 'val':  self.sequence_to_load = seq_val
-        elif self.split == 'test': self.sequence_to_load = seq_test
+        elif self.split == 'test' or parser.get('sanity', False): self.sequence_to_load = seq_test
         else:                      assert False, 'error'
 
         self.num_total_samples = 0
@@ -58,7 +58,7 @@ class data_generator(object):
         self.sequence_dagger = []
         for seq_name in self.sequence_to_load:
             print_log("loading sequence {} ...".format(seq_name), log=log)
-            preprocessor = process_func(data_root, seq_name, parser, log, self.split, self.phase)
+            preprocessor = process_func(data_root, seq_name, parser, self.split, self.phase)
 
             num_seq_samples = preprocessor.num_fr - (parser.min_past_frames + parser.min_future_frames - 1) * self.frame_skip
 
