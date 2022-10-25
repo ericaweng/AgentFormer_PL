@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.spatial.distance import pdist, squareform, cdist
+from functools import partial
 
 
 def point_to_segment_dist_old(x1, y1, x2, y2, p1, p2):
@@ -254,10 +255,9 @@ def check_collision_per_sample_no_gt(sample_idx, sample, ped_radius=0.1):
     return sample_idx, n_ped_with_col_pred_per_sample
 
 
-
 stats_func = {
             'ADE': compute_ADE,
             'FDE': compute_FDE,
-            'CR_pred': compute_CR,
-            'CR_pred_mean': compute_CR,
+            'CR_pred': partial(compute_CR, aggregation='max'),
+            'CR_pred_mean': partial(compute_CR, aggregation='mean'),
 }

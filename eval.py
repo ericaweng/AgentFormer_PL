@@ -91,7 +91,7 @@ def eval_one_seq(gt_raw, data_file, collision_rad):
     else:
         assert len(gt_raw.shape) == 3 and isinstance(data_file, np.ndarray) and len(data_file.shape) == 4
         gt_traj = gt_raw
-        agent_traj = data_file.swapaxes(0,1)  # (num_agents, num_samples, ts, 2)
+        agent_traj = data_file#.swapaxes(0,1)  # (num_agents, num_samples, ts, 2)
 
     """compute stats"""
     values = []
@@ -99,8 +99,8 @@ def eval_one_seq(gt_raw, data_file, collision_rad):
     for stats_name in stats_func:
         func = stats_func[stats_name]
         stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad}
-        if stats_name == 'CR_pred_mean':
-            stats_func_args['aggregation'] = 'mean'
+        # if stats_name == 'CR_pred_mean':
+        #     stats_func_args['aggregation'] = 'mean'
 
         value = func(**stats_func_args)
         values.append(value)

@@ -5,9 +5,10 @@ from data.dataset import AgentFormerDataset
 
 
 class AgentFormerDataModule(pl.LightningDataModule):
-    def __init__(self, cfg, args):
+    def __init__(self, cfg, args):#batch_size):#
         super().__init__()
         self.cfg = cfg
+        # self.batch_size = batch_size
         self.args = args
 
     def prepare_data(self):
@@ -20,7 +21,7 @@ class AgentFormerDataModule(pl.LightningDataModule):
         phase = 'testing' if 'val' in mode or 'test' in mode or 'sanity' in mode else 'training'
         ds = AgentFormerDataset(self.cfg, split=mode, phase=phase)
         shuffle = False if 'val' in mode or 'test' in mode or 'sanity' in mode else True
-        dataloader = DataLoader(ds, batch_size=self.args.batch_size, num_workers=8,
+        dataloader = DataLoader(ds, batch_size=self.args.batch_size, num_workers=self.args.num_workers,
                                 pin_memory=True, collate_fn=ds.collate, shuffle=shuffle, drop_last=shuffle)
         return dataloader
 
@@ -28,7 +29,7 @@ class AgentFormerDataModule(pl.LightningDataModule):
         return self.get_dataloader('train')
 
     def val_dataloader(self):
-        return self.get_dataloader('val')
+        return self.get_dataloader('test')
 
     def test_dataloader(self):
         return self.get_dataloader('test')
