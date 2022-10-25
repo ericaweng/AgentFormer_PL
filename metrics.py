@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 from scipy.spatial.distance import pdist, squareform, cdist
 from functools import partial
@@ -26,8 +27,43 @@ def point_to_segment_dist_old(x1, y1, x2, y2, p1, p2):
     return np.linalg.norm((x - p1, y - p2), axis=-1)
 
 
-def get_collisions_mat_old(sample_idx, pred_traj_fake, threshold):
+def get_collisions_mat_old_torch(pred_traj_fake, threshold):
     """threshold: radius + discomfort distance of agents"""
+    pred_traj_fake = pred_traj_fake.transpose(1, 0)
+    ts, num_peds, _ = pred_traj_fake.shape
+    collision_mat = torch.full((ts, num_peds, num_peds), False)
+    collision_mat_vals = torch.full((ts, num_peds, num_peds), np.inf)
+    # test initial timesteps
+    for ped_i, x_i in enumerate(pred_traj_fake[0]):
+        for ped_j, x_j in enumerate(pred_traj_fake[0]):
+            if ped_i == ped_j:
+                continue
+            closest_dist = torch.norm(x_i - x_j) - threshold * 2
+            if closest_dist < 0:
+                collision_mat[0, ped_i, ped_j] = True
+            collision_mat_vals[0, ped_i, ped_j] = closest_dist
+
+    # test t-1 later timesteps
+    for t in range(ts - 1):
+        for ped_i, ((ped_ix, ped_iy), (ped_ix1, ped_iy1)) in enumerate(zip(pred_traj_fake[t], pred_traj_fake[t+1])):
+            for ped_j, ((ped_jx, ped_jy), (ped_jx1, ped_jy1)) in enumerate(zip(pred_traj_fake[t], pred_traj_fake[t+1])):
+                if ped_i == ped_j:
+                    continue
+                px = ped_ix - ped_jx
+                py = ped_iy - ped_jy
+                ex = ped_ix1 - ped_jx1
+                ey = ped_iy1 - ped_jy1
+                closest_dist = point_to_segment_dist_old(px, py, ex, ey, 0, 0) - threshold * 2
+                if closest_dist < 0:
+                    collision_mat[t+1, ped_i, ped_j] = True
+                collision_mat_vals[t + 1, ped_i, ped_j] = closest_dist
+
+    return torch.any(torch.any(collision_mat, dim=0), dim=0), collision_mat
+
+
+def get_collisions_mat_old(sample_idx, pred_traj_fake, threshold):
+    """pred_traj_fake: shape (num_peds, num_samples, ts, 2)
+    threshold: radius + discomfort distance of agents"""
     pred_traj_fake = pred_traj_fake.transpose(1, 0, 2)
     ts, num_peds, _ = pred_traj_fake.shape
     collision_mat = np.full((ts, num_peds, num_peds), False)
@@ -233,6 +269,42 @@ def compute_CR(pred_arr,
 
 
 def check_collision_per_sample_no_gt(sample_idx, sample, ped_radius=0.1):
+    """sample: shape (n_ped, ts, 2"""
+    sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
+    ts, num_peds, _ = sample.shape
+    num_ped_pairs = (num_peds * (num_peds - 1)) // 2
+
+    # pred
+    # Get collision for timestep=0
+    collision_0_pred = pdist(sample[0]) < ped_radius
+    # Get difference between each pair. (ts, n_ped_pairs, 2)
+    ped_pair_diffs_pred = _get_diffs_pred(sample)
+    print("ped_pair_diffs_pred:", ped_pair_diffs_pred)
+    print("ped_pair_diffs_pred.shape:", ped_pair_diffs_pred.shape)
+    import ipdb; ipdb.set_trace()
+    pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
+    import ipdb; ipdb.set_trace()
+    exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
+    import ipdb; ipdb.set_trace()
+
+    collision_t_pred1 = _lineseg_dist(pxy, exy).reshape(
+            ts - 1, num_ped_pairs) #< ped_radius * 2
+    collision_t_pred = collision_t_pred1 < ped_radius * 2
+    if np.any(collision_t_pred):
+        collision_mat_pred_t = np.stack(
+                [squareform(cm - ped_radius * 2) for cm in np.concatenate([pdist(sample[0])[np.newaxis, ...], collision_t_pred1])])
+    collision_mat_pred = squareform(np.any(collision_t_pred, axis=0) | collision_0_pred)
+    if True:
+        collision_mat_pred_t_bool = np.stack([squareform(cm) for cm in np.concatenate([collision_0_pred[np.newaxis,...], collision_t_pred])])
+    n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
+    # print(collision_mat_pred)
+    if np.any(n_ped_with_col_pred_per_sample):
+        print(list(zip(*np.where(collision_mat_pred))))
+
+    return sample_idx, n_ped_with_col_pred_per_sample, collision_mat_pred_t_bool,
+
+
+def check_collision_per_sample_no_gt2(sample_idx, sample, ped_radius=0.1):
     """sample: (num_peds, ts, 2)"""
 
     sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
@@ -261,3 +333,25 @@ stats_func = {
             'CR_pred': partial(compute_CR, aggregation='max'),
             'CR_pred_mean': partial(compute_CR, aggregation='mean'),
 }
+
+
+def main():
+    cr = 0.1
+    pred_arr = np.zeros((2, 12, 2))
+    pred_arr[1] = np.ones((1, 12, 2))
+    _, cols_old, col_mats_old = get_collisions_mat_old(None, pred_arr, cr)
+    _, cols, col_mats = check_collision_per_sample_no_gt(None, pred_arr, cr)
+    print("col_mats_old:", col_mats_old)
+    print("col_mats:", col_mats)
+    print("cols_old:\n", cols_old)
+    print("cols:\n", cols)
+    from viz_utils import plot_traj_anim
+    save_fn_old = 'viz/old.mp4'
+    save_fn = 'viz/new.mp4'
+    plot_traj_anim(save_fn=save_fn_old, pred_traj_fake=pred_arr.swapaxes(0,1), collision_mats=col_mats_old, ped_radius=cr)
+    plot_traj_anim(save_fn=save_fn, pred_traj_fake=pred_arr.swapaxes(0,1), collision_mats=col_mats, ped_radius=cr)
+    assert np.all(cols) == np.all(cols_old)
+
+
+if __name__ == "__main__":
+    main()

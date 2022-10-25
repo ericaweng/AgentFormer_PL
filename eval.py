@@ -89,7 +89,9 @@ def eval_one_seq(gt_raw, data_file, collision_rad):
                 agent_traj.append(gt_idx[np.newaxis, ...])
             gt_traj.append(gt_idx)
     else:
-        assert len(gt_raw.shape) == 3 and isinstance(data_file, np.ndarray) and len(data_file.shape) == 4
+        assert len(gt_raw.shape) == 3, f"len(gt_raw.shape) should be 3 but is {len(gt_raw.shape)}"
+        assert isinstance(data_file, np.ndarray), f'data_file should be type np.ndarray but is {type(data_file)}'
+        assert len(data_file.shape) == 4, f"len(data_file.shape) should be 4 but is {len(data_file.shape)}"
         gt_traj = gt_raw
         agent_traj = data_file#.swapaxes(0,1)  # (num_agents, num_samples, ts, 2)
 

@@ -2,7 +2,7 @@ import torch
 import pytorch_lightning as pl
 import numpy as np
 from eval import eval_one_seq
-from metrics import stats_func, get_collisions_mat_old
+from metrics import stats_func, get_collisions_mat_old_torch
 import multiprocessing
 from model.agentformer import AgentFormer
 from utils.torch import get_scheduler
@@ -17,11 +17,12 @@ class Stats(Metric):
 
     def __init__(self, collision_rad):
         super().__init__()
-        self.add_state("num_peds", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("ade", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("fde", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("cr_max", default=torch.tensor(0), dist_reduce_fx="sum")
-        self.add_state("cr_mean", default=torch.tensor(0), dist_reduce_fx="sum")
+        torch.set_default_dtype(torch.float32)
+        self.add_state("num_peds", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("ade", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("fde", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("cr_max", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("cr_mean", default=torch.tensor(0.), dist_reduce_fx="sum")
         self.collision_rad = collision_rad
 
 
@@ -29,27 +30,25 @@ class Stats(Metric):
         assert gt.shape[0] == preds.shape[0]
         assert gt.shape[1:] == preds.shape[2:], f"gt.shape[1:] ({gt.shape[1:]}) != preds.shape[2:] ({preds.shape[2:]})"
         self.num_peds += gt.shape[0]
-        self.ade = 0.0
-        self.fde = 0.0
-        for pred, gt in zip(preds.transpose(1, 0, 2, 3), gt):
-            diff = pred - gt.unsqueeze(0)  # samples x frames x 2
-            dist = torch.norm(diff, axis=-1)  # samples x frames
-            ade_dist = dist.mean(axis=-1)  # samples
-            self.ade += ade_dist.min(axis=0)  # (1, )
+        for pred, ped_gt in zip(preds, gt):
+            diff = pred - ped_gt.unsqueeze(0)  # samples x frames x 2
+            dist = torch.norm(diff, dim=-1)  # samples x frames
+            ade_dist = dist.mean(dim=-1)  # samples
+            self.ade += ade_dist.min(dim=0)[0].item()  # (1, )
             fde_dist = dist[..., -1]  # samples
-            self.fde += fde_dist.min(axis=0)  # (1, )
+            self.fde += fde_dist.min(dim=0)[0].item()  # (1, )
 
         n_ped, n_sample, _, _ = preds.shape
         col_pred = torch.zeros((n_sample))  # cr_pred
         col_mats = []
         if n_ped > 1:
-            for sample_idx, pa in enumerate(preds):
-                _, n_ped_with_col_pred, col_mat = get_collisions_mat_old(sample_idx, pa, self.collision_rad)
+            for sample_idx in range(n_sample):
+                n_ped_with_col_pred, col_mat = get_collisions_mat_old_torch(preds[:,sample_idx], self.collision_rad)
                 col_mats.append(col_mat)
                 col_pred[sample_idx] += (n_ped_with_col_pred.sum())
 
-        self.cr_mean = col_pred.mean(axis=0)
-        self.cr_max = col_pred.max(axis=0)
+        self.cr_mean += col_pred.mean(dim=0).item()
+        self.cr_max += col_pred.max(dim=0)[0].item()
         # self.cr_min = col_pred.min(axis=0)
 
     def compute(self):
@@ -94,8 +93,8 @@ class AgentFormerTrainer(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         data, loss_dict = self._step(batch, 'test')
-        gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0)
-        pred_motion = data[f'infer_dec_motion'].detach()
+        gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
+        pred_motion = data[f'infer_dec_motion'].detach().cpu()
         self.stats.update(gt_motion, pred_motion)
         return {**loss_dict, 'gt_motion': gt_motion, 'pred_motion': pred_motion}
 

@@ -4,6 +4,7 @@ import glob
 import argparse
 
 import torch
+torch.set_default_dtype(torch.float32)
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -50,7 +51,6 @@ def main(args):
         lim_train_batch = 10#None
         lim_val_batch = None
 
-    torch.set_default_dtype(torch.float32)
 
     # Initialize data module
     dm = AgentFormerDataModule(cfg, args)
