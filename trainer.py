@@ -3,57 +3,12 @@ import pytorch_lightning as pl
 import numpy as np
 from functools import partial
 from eval import eval_one_seq
-from metrics import stats_func, get_collisions_mat_old_torch, check_collision_per_sample_no_gt
+from metrics import stats_func
 import multiprocessing
 from model.agentformer import AgentFormer
 from utils.torch import get_scheduler
 
-from torchmetrics import Metric
 from viz_utils import plot_fig
-
-
-class Stats(Metric):
-    full_state_update = True
-    higher_is_better = False
-    is_differentiable = True
-
-    def __init__(self, collision_rad):
-        super().__init__()
-        torch.set_default_dtype(torch.float32)
-        self.add_state("num_peds", default=torch.tensor(0.), dist_reduce_fx="sum")
-        self.add_state("ade", default=torch.tensor(0.), dist_reduce_fx="sum")
-        self.add_state("fde", default=torch.tensor(0.), dist_reduce_fx="sum")
-        self.add_state("cr_max", default=torch.tensor(0.), dist_reduce_fx="sum")
-        self.add_state("cr_mean", default=torch.tensor(0.), dist_reduce_fx="sum")
-        self.collision_rad = collision_rad
-
-    def update(self, gt: torch.Tensor, preds: torch.Tensor):
-        assert gt.shape[0] == preds.shape[0]
-        assert gt.shape[1:] == preds.shape[2:], f"gt.shape[1:] ({gt.shape[1:]}) != preds.shape[2:] ({preds.shape[2:]})"
-        self.num_peds += gt.shape[0]
-        for pred, ped_gt in zip(preds, gt):
-            diff = pred - ped_gt.unsqueeze(0)  # samples x frames x 2
-            dist = torch.norm(diff, dim=-1)  # samples x frames
-            ade_dist = dist.mean(dim=-1)  # samples
-            self.ade += ade_dist.min(dim=0)[0].item()  # (1, )
-            fde_dist = dist[..., -1]  # samples
-            self.fde += fde_dist.min(dim=0)[0].item()  # (1, )
-
-        n_ped, n_sample, _, _ = preds.shape
-        col_pred = torch.zeros((n_sample))  # cr_pred
-        col_mats = []
-        if n_ped > 1:
-            for sample_idx in range(n_sample):
-                n_ped_with_col_pred, col_mat = get_collisions_mat_old_torch(preds[:,sample_idx], self.collision_rad)
-                col_mats.append(col_mat)
-                col_pred[sample_idx] += (n_ped_with_col_pred.sum())
-
-        self.cr_mean += col_pred.mean(dim=0).item()
-        self.cr_max += col_pred.max(dim=0)[0].item()
-        # self.cr_min = col_pred.min(axis=0)
-
-    def compute(self):
-        return [self.ade / self.num_peds, self.fde / self.num_peds, self.cr_max / self.num_peds, self.cr_mean / self.num_peds]
 
 
 class AgentFormerTrainer(pl.LightningModule):
@@ -67,7 +22,6 @@ class AgentFormerTrainer(pl.LightningModule):
         self.collision_rad = cfg.get('collision_rad', 0.1)
         self.hparams.update(vars(cfg))
         self.hparams.update(vars(args))
-        self.stats = Stats(self.collision_rad)
 
     def on_test_start(self):
         self.model.set_device(self.device)
@@ -82,7 +36,7 @@ class AgentFormerTrainer(pl.LightningModule):
         total_loss, loss_dict, loss_unweighted_dict = self.model.compute_loss()
 
         # losses
-        self.log(f'{mode}/loss', total_loss, on_epoch=True, sync_dist=True, prog_bar=True, logger=True, batch_size=self.batch_size)
+        self.log(f'{mode}/loss', total_loss, on_epoch=True, sync_dist=True, logger=True, batch_size=self.batch_size)
         for loss_name, loss in loss_dict.items():
             self.log(f'{mode}/{loss_name}', loss, on_step=False, on_epoch=True, sync_dist=True, logger=True, batch_size=self.batch_size)
 
@@ -95,32 +49,31 @@ class AgentFormerTrainer(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         data, loss_dict = self._step(batch, 'test')
         gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
-        pred_motion = data[f'infer_dec_motion'].detach().cpu()
+        pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
         # self.stats.update(gt_motion, pred_motion)
-        return {**loss_dict, 'gt_motion': gt_motion, 'pred_motion': pred_motion}
+        return {**loss_dict, 'gt_motion': gt_motion, 'pred_motion': pred_motion, 'frame': batch['frame'], 'seq': batch['seq']}
 
     def test_step(self, batch, batch_idx):
-        data, loss_dict = self._step(batch, 'test')
-        gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
-        pred_motion = data[f'infer_dec_motion'].detach().cpu()
-        return {**loss_dict, 'gt_motion': gt_motion, 'pred_motion': pred_motion}
+        return self.validation_step(batch, batch_idx)
 
     def _epoch_end(self, outputs, mode):
         args_list = [(output['gt_motion'].numpy(), output['pred_motion'].numpy()) for output in outputs]
         with multiprocessing.Pool(self.num_workers) as pool:
-            all_meters_values = zip(*pool.starmap(partial(eval_one_seq,
-                                                          collision_rad=self.collision_rad,
-                                                          return_agent_traj_nums=False,
-                                                          return_sample_vals=self.args.save_viz), args_list))
+            all_meters_values = pool.starmap(partial(eval_one_seq,
+                                                     collision_rad=self.collision_rad,
+                                                     return_agent_traj_nums=False,
+                                                     return_sample_vals=self.args.save_viz), args_list)
         if self.args.save_viz:
-            all_meters_values, all_sample_vals = all_meters_values
+            all_meters_values, all_sample_vals = zip(*all_meters_values)
             args_list = []
             all_sample_vals = np.array(all_sample_vals).swapaxes(1, 2)
-            for frame, (output, sample_vals) in enumerate(zip(outputs, all_sample_vals)):
+            for frame_i, (output, sample_vals) in enumerate(zip(outputs, all_sample_vals)):
+                frame = output['frame']
+                seq = output['seq']
                 pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
                 pred_fake_traj = output['pred_motion'].numpy().transpose(1,2,0,3)
-                anim_save_fn = f'viz/frame-{frame}.mp4'
-                args_dicts = [anim_save_fn, f"frame {frame}"]
+                anim_save_fn = f'viz/{seq}_frame-{frame}.mp4'
+                args_dicts = [anim_save_fn, f"Seq: {seq} frame: {frame}", (5, 4)]
                 for sample_i, sample_vals in enumerate(sample_vals):
                     args_dict = {'plot_title': f"Sample {sample_i}",
                                  'pred_traj_gt': pred_gt_traj,
@@ -131,13 +84,15 @@ class AgentFormerTrainer(pl.LightningModule):
                 args_list.append(args_dicts)
 
             with multiprocessing.Pool(self.num_workers) as pool:
-                pool.starmap(plot_fig, args_list)  # all_meters_agent_traj_nums
+                pool.starmap(plot_fig, args_list)
 
         total_num_agents = np.array([output['gt_motion'].shape[0] for output in outputs])
         self.log(f'{mode}/total_num_agents', float(np.sum(total_num_agents)), sync_dist=True, logger=True)
         # for key, metric in zip(stats_func.keys(), self.stats):
         #     self.log(f'{mode}/{key}-torchmetric', metric.compute(), sync_dist=True, prog_bar=True, logger=True)
-        for key, values in zip(stats_func.keys(), all_meters_values):
+        print("all_meters_values:", len(all_meters_values))
+        print("all_meters_values:", len(all_meters_values[0]))
+        for key, values in zip(stats_func.keys(), zip(*all_meters_values)):
             value = np.sum(values * total_num_agents) / np.sum(total_num_agents)
             self.log(f'{mode}/{key}', value, sync_dist=True, prog_bar=True, logger=True)
 

@@ -79,7 +79,7 @@ def main(args):
     logger = TensorBoardLogger(args.logs_root, name=cfg.id)#cfg.result_dir, name='tb')#, version=args.experiment_name)
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE')
     checkpoint_callback = ModelCheckpoint(monitor='val/ADE', save_top_k=3, mode='min', save_last=True,
-                                          every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
+                                          every_n_epochs=1, dirpath=default_root_dir, filename='h_{epoch:04d}')
 
     print("LOGGING TO:", default_root_dir)
     print("\n\n")
@@ -104,7 +104,6 @@ if __name__ == '__main__':
     parser.add_argument('--mode', '-m', default='train')
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_workers', type=int, default=32)
-    # parser.add_argument('--epoch', '-e', default=None, type=int, help='Epoch to resume training at, or to test at')
     parser.add_argument('--dont_resume', '-dr', dest='resume', action='store_false', default=True)
     parser.add_argument('--checkpoint_path', '-cp', default=None)
     parser.add_argument('--test', action='store_true', default=False)

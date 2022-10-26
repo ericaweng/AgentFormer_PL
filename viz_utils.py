@@ -6,22 +6,26 @@ import matplotlib.animation as animation
 import matplotlib.patches as patches
 
 
-def plot_fig(save_fn, title=None, *list_of_arg_dicts):
-    if len(list_of_arg_dicts) > 4:  # len(list_of_arg_dicts) % 2 == 0 and
-        num_plots_height = 2
-        num_plots_width = int((len(list_of_arg_dicts) + 1)/2)
+def plot_fig(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
+    if plot_size is None:
+        if len(list_of_arg_dicts) > 4:
+            num_plots_height = 2
+            num_plots_width = int((len(list_of_arg_dicts) + 1)/2)
+        else:
+            num_plots_height = 1
+            num_plots_width = len(list_of_arg_dicts)
     else:
-        num_plots_height = 1
-        num_plots_width = len(list_of_arg_dicts)
+        num_plots_width, num_plots_height = plot_size
 
-    num_plots_width = 5
-    num_plots_height = 4
-    assert num_plots_width * num_plots_height >= len(list_of_arg_dicts)
+    assert num_plots_width * num_plots_height >= len(list_of_arg_dicts), \
+        f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
     fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(7.5 * num_plots_width, 5 * num_plots_height))
     if isinstance(axes[0], np.ndarray):
         axes = [a for ax in axes for a in ax]
     # fig, axes = plt.subplots(1, len(list_of_arg_dicts), figsize=(10 * len(list_of_arg_dicts), 10))
     anim_graphs = []
+
+    # determine obs_len and pred_len automatically
     # obs_len = list_of_arg_dicts[0]['obs_traj'].shape[0]
     # if list_of_arg_dicts[0]['pred_traj_gt'] is not None:
     #     pred_len = list_of_arg_dicts[0]['pred_traj_gt'].shape[0]
@@ -32,18 +36,25 @@ def plot_fig(save_fn, title=None, *list_of_arg_dicts):
     obs_len = 8
     pred_len = 12
 
-    bounds = None
+    bounds = []
     for ax_i, (arg_dict,ax) in enumerate(zip(list_of_arg_dicts, axes)):
         ao = AnimObj()
         anim_graphs.append(ao)
-        ao.plot_traj_anim(**arg_dict, ax=ax, bounds=bounds)
-        if ax_i == 1:
-            bounds = ao.bounds
+        ao.plot_traj_anim(**arg_dict, ax=ax)
+        bounds.append(ao.bounds)
+
+    # reset bounds to be equal across all graphs, now that they are calculated
+    bounds = np.stack(bounds)
+    x_low, y_low = np.min(bounds[:, [0,2]], axis=0)
+    x_high, y_high = np.max(bounds[:, [1,3]], axis=0)
+    for ax_i, (arg_dict,ax) in enumerate(zip(list_of_arg_dicts, axes)):
+        ax.set_xlim(x_low, x_high)
+        ax.set_ylim(y_low, y_high)
 
     anim = animation.FuncAnimation(fig, lambda frame_i: [ag.update(frame_i) for ag in anim_graphs],
                                    frames=obs_len + pred_len, interval=500)
     fig.tight_layout()
-    fig.subplots_adjust(hspace=0.1)
+    fig.subplots_adjust(hspace=0.2)
     if title is not None:
         fig.suptitle(title, fontsize=16)
     anim.save(save_fn)
@@ -75,7 +86,8 @@ class AnimObj:
                         or tensor of shape (num_samples, 8 or 12 pred timesteps, num_peds, 2)
                         or list of tensors of shape (8 or 12, num_peds, 2)  (where each item are the samples predicted by a different model)
                         or list of tensors of shape (num_samples, 8 or 12 pred timesteps, num_peds, 2)
-        bounds: plotting bonuds, if not specified the min and max bounds of whichever trajectories are present are used
+        bounds: x_low, x_high, y_low, y_high: plotting bounds
+                if not specified the min and max bounds of whichever trajectories are present are used
         pred_traj_gt: shape (8 or 12, num_peds, 2) ground-truth trajectory
         interaction_matrix: shape (num_peds, num_peds - 1) specifies which pairs belong to the given int_type.
                             only used for int_types that are pairwise, i.e. "linear" "static" etc. are not relevant.

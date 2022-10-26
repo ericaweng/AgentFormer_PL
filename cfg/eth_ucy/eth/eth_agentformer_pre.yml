@@ -64,7 +64,7 @@ loss_cfg:
     weight: 1.0
     k: 20
 
-num_epochs                   : 100
+num_epochs                   : 200
 lr_fix_epochs                : 10
 lr_scheduler: 'step'
 decay_step: 10
