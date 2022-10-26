@@ -68,7 +68,6 @@ def get_collisions_mat_old(sample_idx, pred_traj_fake, threshold):
     ts, num_peds, _ = pred_traj_fake.shape
     collision_mat = np.full((ts, num_peds, num_peds), False)
     collision_mat_vals = np.full((ts, num_peds, num_peds), np.inf)
-    # dist_mat = np.full((ts, num_peds, num_peds), False)
     # test initial timesteps
     for ped_i, x_i in enumerate(pred_traj_fake[0]):
         for ped_j, x_j in enumerate(pred_traj_fake[0]):
@@ -90,22 +89,35 @@ def get_collisions_mat_old(sample_idx, pred_traj_fake, threshold):
                 ex = ped_ix1 - ped_jx1
                 ey = ped_iy1 - ped_jy1
                 # closest distance between boundaries of two agents
-                # closest_dist = point_to_segment_dist((px, py), (ex, ey), (0, 0)) - threshold * 2
                 closest_dist = point_to_segment_dist_old(px, py, ex, ey, 0, 0) - threshold * 2
-                # closest_dist_old = point_to_segment_dist_old(px, py, ex, ey, 0, 0) - threshold * 2
-                # assert np.all(np.abs(closest_dist - closest_dist_old) < 1e-7)
                 if closest_dist < 0:
                     collision_mat[t+1, ped_i, ped_j] = True
                 collision_mat_vals[t + 1, ped_i, ped_j] = closest_dist
-                # elif closest_dist < dmin:
-                #     dmin = closest_dist
 
-    # print("collision_mat.shape:", collision_mat.shape)
-    # print("collision_mat:", collision_mat)
-    # import ipdb; ipdb.set_trace()
     return sample_idx, np.any(np.any(collision_mat, axis=0), axis=0), collision_mat  # collision_mat_pred_t_bool
-    # return sample_idx, n_ped_with_col_pred_per_sample, collision_mat#collision_mat_pred_t_bool
-    # return collision_mat, collision_mat_vals
+
+
+def check_collision_per_sample_no_gt(sample_idx, sample, ped_radius=0.1):
+    """sample: shape (n_ped, ts, 2"""
+    sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
+    ts, num_peds, _ = sample.shape
+    num_ped_pairs = (num_peds * (num_peds - 1)) // 2
+
+    # pred
+    # Get collision for timestep=0
+    collision_0_pred = pdist(sample[0]) < ped_radius
+    # Get difference between each pair. (ts, n_ped_pairs, 2)
+    ped_pair_diffs_pred = _get_diffs_pred(sample)
+    pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
+    exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
+
+    collision_t_pred1 = _lineseg_dist(pxy, exy).reshape(ts - 1, num_ped_pairs)
+    collision_t_pred = collision_t_pred1 < ped_radius * 2
+    collision_mat_pred = squareform(np.any(collision_t_pred, axis=0) | collision_0_pred)
+    collision_mat_pred_t_bool = np.stack([squareform(cm) for cm in np.concatenate([collision_0_pred[np.newaxis,...], collision_t_pred])])
+    n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
+
+    return sample_idx, n_ped_with_col_pred_per_sample, collision_mat_pred_t_bool
 
 
 def compute_ADE(pred_arr, gt_arr, return_all_ades=False, **kwargs):
@@ -137,9 +149,14 @@ def compute_FDE(pred_arr, gt_arr, return_sample_fdes=False, **kwargs):
 def _lineseg_dist(a, b):
     """
     https://stackoverflow.com/questions/56463412/distance-from-a-point-to-a-line-segment-in-3d-python
+    https://stackoverflow.com/questions/54442057/calculate-the-euclidian-distance-between-an-array-of-points-to-a-line-segment-in/54442561#54442561
     """
+    # reduce computation
+    if np.all(a == b):
+        return np.linalg.norm(-a, axis=1)
+
     # normalized tangent vector
-    d = (b - a) / (np.linalg.norm(b - a, axis=-1, keepdims=True) + 1e-8)
+    d = (b - a) / np.linalg.norm(b - a, axis=-1, keepdims=True)
 
     # signed parallel distance components
     s = (a * d).sum(axis=-1)
@@ -151,7 +168,14 @@ def _lineseg_dist(a, b):
     # perpendicular distance component
     c = np.cross(-a, d, axis=-1)
 
-    return np.hypot(h, np.abs(c))
+    ans = np.hypot(h, np.abs(c))
+
+    # edge case where agent stays still
+    ts_pairs_where_a_eq_b = np.where(np.all(a == b, axis=-1))
+    assert np.all(np.all(a == b, axis=-1) == np.isnan(ans))
+    ans[ts_pairs_where_a_eq_b] = np.linalg.norm(-a, axis=1)[ts_pairs_where_a_eq_b]
+
+    return ans
 
 
 def _get_diffs_pred(traj):
@@ -159,12 +183,8 @@ def _get_diffs_pred(traj):
     Input:
         - traj: (ts, n_ped, 2)"""
     num_peds = traj.shape[1]
-    return np.concatenate([
-            np.tile(traj[:, ped_i:ped_i + 1],
-                    (1, num_peds - ped_i - 1, 1)) - traj[:, ped_i + 1:]
-            for ped_i in range(num_peds)
-    ],
-            axis=1)
+    return np.concatenate([np.tile(traj[:, ped_i:ped_i + 1], (1, num_peds - ped_i - 1, 1)) - traj[:, ped_i + 1:]
+                           for ped_i in range(num_peds)], axis=1)
 
 
 def _get_diffs_gt(traj, gt_traj):
@@ -268,42 +288,6 @@ def compute_CR(pred_arr,
     return tuple(crs) if len(crs) > 1 else crs[0]
 
 
-def check_collision_per_sample_no_gt(sample_idx, sample, ped_radius=0.1):
-    """sample: shape (n_ped, ts, 2"""
-    sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
-    ts, num_peds, _ = sample.shape
-    num_ped_pairs = (num_peds * (num_peds - 1)) // 2
-
-    # pred
-    # Get collision for timestep=0
-    collision_0_pred = pdist(sample[0]) < ped_radius
-    # Get difference between each pair. (ts, n_ped_pairs, 2)
-    ped_pair_diffs_pred = _get_diffs_pred(sample)
-    print("ped_pair_diffs_pred:", ped_pair_diffs_pred)
-    print("ped_pair_diffs_pred.shape:", ped_pair_diffs_pred.shape)
-    import ipdb; ipdb.set_trace()
-    pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
-    import ipdb; ipdb.set_trace()
-    exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
-    import ipdb; ipdb.set_trace()
-
-    collision_t_pred1 = _lineseg_dist(pxy, exy).reshape(
-            ts - 1, num_ped_pairs) #< ped_radius * 2
-    collision_t_pred = collision_t_pred1 < ped_radius * 2
-    if np.any(collision_t_pred):
-        collision_mat_pred_t = np.stack(
-                [squareform(cm - ped_radius * 2) for cm in np.concatenate([pdist(sample[0])[np.newaxis, ...], collision_t_pred1])])
-    collision_mat_pred = squareform(np.any(collision_t_pred, axis=0) | collision_0_pred)
-    if True:
-        collision_mat_pred_t_bool = np.stack([squareform(cm) for cm in np.concatenate([collision_0_pred[np.newaxis,...], collision_t_pred])])
-    n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
-    # print(collision_mat_pred)
-    if np.any(n_ped_with_col_pred_per_sample):
-        print(list(zip(*np.where(collision_mat_pred))))
-
-    return sample_idx, n_ped_with_col_pred_per_sample, collision_mat_pred_t_bool,
-
-
 def check_collision_per_sample_no_gt2(sample_idx, sample, ped_radius=0.1):
     """sample: (num_peds, ts, 2)"""
 
@@ -339,6 +323,7 @@ def main():
     cr = 0.1
     pred_arr = np.zeros((2, 12, 2))
     pred_arr[1] = np.ones((1, 12, 2))
+    pred_arr[1, -1] = 0.15 * np.ones(2)
     _, cols_old, col_mats_old = get_collisions_mat_old(None, pred_arr, cr)
     _, cols, col_mats = check_collision_per_sample_no_gt(None, pred_arr, cr)
     print("col_mats_old:", col_mats_old)
