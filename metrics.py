@@ -61,7 +61,7 @@ def get_collisions_mat_old_torch(pred_traj_fake, threshold):
     return torch.any(torch.any(collision_mat, dim=0), dim=0), collision_mat
 
 
-def get_collisions_mat_old(sample_idx, pred_traj_fake, threshold):
+def get_collisions_mat_old(pred_traj_fake, threshold):
     """pred_traj_fake: shape (num_peds, num_samples, ts, 2)
     threshold: radius + discomfort distance of agents"""
     pred_traj_fake = pred_traj_fake.transpose(1, 0, 2)
@@ -94,33 +94,10 @@ def get_collisions_mat_old(sample_idx, pred_traj_fake, threshold):
                     collision_mat[t+1, ped_i, ped_j] = True
                 collision_mat_vals[t + 1, ped_i, ped_j] = closest_dist
 
-    return sample_idx, np.any(np.any(collision_mat, axis=0), axis=0), collision_mat  # collision_mat_pred_t_bool
+    return np.any(np.any(collision_mat, axis=0), axis=0), collision_mat  # collision_mat_pred_t_bool
 
 
-def check_collision_per_sample_no_gt(sample_idx, sample, ped_radius=0.1):
-    """sample: shape (n_ped, ts, 2"""
-    sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
-    ts, num_peds, _ = sample.shape
-    num_ped_pairs = (num_peds * (num_peds - 1)) // 2
-
-    # pred
-    # Get collision for timestep=0
-    collision_0_pred = pdist(sample[0]) < ped_radius
-    # Get difference between each pair. (ts, n_ped_pairs, 2)
-    ped_pair_diffs_pred = _get_diffs_pred(sample)
-    pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
-    exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
-
-    collision_t_pred1 = _lineseg_dist(pxy, exy).reshape(ts - 1, num_ped_pairs)
-    collision_t_pred = collision_t_pred1 < ped_radius * 2
-    collision_mat_pred = squareform(np.any(collision_t_pred, axis=0) | collision_0_pred)
-    collision_mat_pred_t_bool = np.stack([squareform(cm) for cm in np.concatenate([collision_0_pred[np.newaxis,...], collision_t_pred])])
-    n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
-
-    return sample_idx, n_ped_with_col_pred_per_sample, collision_mat_pred_t_bool
-
-
-def compute_ADE(pred_arr, gt_arr, return_all_ades=False, **kwargs):
+def compute_ADE(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
     ade = 0.0
     for pred, gt in zip(pred_arr, gt_arr):
         diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
@@ -128,12 +105,12 @@ def compute_ADE(pred_arr, gt_arr, return_all_ades=False, **kwargs):
         dist = dist.mean(axis=-1)  # samples
         ade += dist.min(axis=0)  # (1, )
     ade /= len(pred_arr)
-    if return_all_ades:
+    if return_sample_vals:
         return ade, dist / len(pred_arr)
     return ade
 
 
-def compute_FDE(pred_arr, gt_arr, return_sample_fdes=False, **kwargs):
+def compute_FDE(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
     fde = 0.0
     for pred, gt in zip(pred_arr, gt_arr):
         diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
@@ -141,7 +118,7 @@ def compute_FDE(pred_arr, gt_arr, return_sample_fdes=False, **kwargs):
         dist = dist[..., -1]  # samples
         fde += dist.min(axis=0)  # (1, )
     fde /= len(pred_arr)
-    if return_sample_fdes:
+    if return_sample_vals:
         return fde, dist / len(pred_arr)
     return fde
 
@@ -207,15 +184,13 @@ def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
 
     # pred
     # Get collision for timestep=0
-    collision_0_pred = pdist(sample[0]) < ped_radius
+    collision_0_pred = pdist(sample[0]) < ped_radius * 2
     # Get difference between each pair. (ts, n_ped_pairs, 2)
     ped_pair_diffs_pred = _get_diffs_pred(sample)
     pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
     exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
-    collision_t_pred = _lineseg_dist(pxy, exy).reshape(
-            ts - 1, num_ped_pairs) < ped_radius * 2
-    collision_mat_pred = squareform(
-            np.any(collision_t_pred, axis=0) | collision_0_pred)
+    collision_t_pred = _lineseg_dist(pxy, exy).reshape(ts - 1, num_ped_pairs) < ped_radius * 2
+    collision_mat_pred = squareform(np.any(collision_t_pred, axis=0) | collision_0_pred)
     n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
     # gt
     collision_0_gt = cdist(sample[0], gt_arr[0]) < ped_radius
@@ -223,8 +198,7 @@ def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
     ped_pair_diffs_gt = _get_diffs_gt(sample, gt_arr)
     pxy_gt = ped_pair_diffs_gt[:-1].reshape(-1, 2)
     exy_gt = ped_pair_diffs_gt[1:].reshape(-1, 2)
-    collision_t_gt = _lineseg_dist(pxy_gt, exy_gt).reshape(
-            ts - 1, num_peds, num_peds) < ped_radius * 2
+    collision_t_gt = _lineseg_dist(pxy_gt, exy_gt).reshape(ts - 1, num_peds, num_peds) < ped_radius * 2
     for ped_mat in collision_t_gt:
         np.fill_diagonal(ped_mat, False)
     collision_mat_gt = np.any(collision_t_gt, axis=0) | collision_0_gt
@@ -236,7 +210,7 @@ def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
 def compute_CR(pred_arr,
                gt_arr=None,
                aggregation='max',
-               return_sample_crs=False,
+               return_sample_vals=False,
                return_collision_mat=False,
                collision_rad=None):
     """Compute collision rate and collision-free likelihood.
@@ -247,26 +221,22 @@ def compute_CR(pred_arr,
         Collision rates
     """
     # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
-    pred_arr = np.array(pred_arr).transpose(1, 0, 2, 3)
 
-    n_sample, n_ped, _, _ = pred_arr.shape
+    n_ped, n_sample, _, _ = pred_arr.shape
 
-    col_pred = np.zeros((n_sample))  # cr_pred
+    col_pred = np.zeros((n_sample))
     col_mats = []
     if n_ped > 1:
         # with nool(processes=multiprocessing.cpu_count() - 1) as pool:
         #     r = pool.starmap(
         #             partial(check_collision_per_sample, gt_arr=gt_arr),
         #             enumerate(pred_arr))
-        # r = []
-        for i, pa in enumerate(pred_arr):
-            # r.append(check_collision_per_sample(i, pa, gt_arr))
-            sample_idx, n_ped_with_col_pred, col_mat = get_collisions_mat_old(i, pa, collision_rad)
+        for sample_idx, pa in enumerate(pred_arr):
+            # n_ped_with_col_pred, col_mat = get_collisions_mat_old(pred_arr[:, sample_idx], collision_rad)
+            n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pred_arr[:, sample_idx], collision_rad)
+            # assert np.all(n_ped_with_col_pred == n_ped_with_col_pred2), f'{n_ped_with_col_pred}\nshould equal\n{n_ped_with_col_pred2}'
+            # assert np.all(col_mat2 == col_mat), f'{col_mat} \nshould equal\n{col_mat2}'
             col_mats.append(col_mat)
-            # tup = get_collisions_mat_old(i, pa)
-            # r.append(tup)
-
-        # for sample_idx, n_ped_with_col_pred, _ in r:
             col_pred[sample_idx] += (n_ped_with_col_pred.sum())
 
     if aggregation == 'mean':
@@ -281,34 +251,31 @@ def compute_CR(pred_arr,
     # Multiply by 100 to make it percentage
     # cr_pred *= 100
     crs = [cr_pred / n_ped]
-    if return_sample_crs:
+    if return_sample_vals:
         crs.append(col_pred / n_ped)
     if return_collision_mat:
         crs.append(col_mats)
     return tuple(crs) if len(crs) > 1 else crs[0]
 
 
-def check_collision_per_sample_no_gt2(sample_idx, sample, ped_radius=0.1):
+def check_collision_per_sample_no_gt(sample, ped_radius=0.1):
     """sample: (num_peds, ts, 2)"""
 
     sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
     ts, num_peds, _ = sample.shape
     num_ped_pairs = (num_peds * (num_peds - 1)) // 2
 
-    # pred
-    # Get collision for timestep=0
-    collision_0_pred = pdist(sample[0]) < ped_radius
+    collision_0_pred = pdist(sample[0]) < ped_radius * 2
     # Get difference between each pair. (ts, n_ped_pairs, 2)
     ped_pair_diffs_pred = _get_diffs_pred(sample)
     pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
     exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
-    collision_t_pred = _lineseg_dist(pxy, exy).reshape(
-            ts - 1, num_ped_pairs) < ped_radius * 2
-    collision_mat_pred = squareform(
-            np.any(collision_t_pred, axis=0) | collision_0_pred)
+    collision_t_pred = _lineseg_dist(pxy, exy).reshape(ts - 1, num_ped_pairs) < ped_radius * 2
+    collision_mat_pred_t_bool = np.stack([squareform(cm) for cm in np.concatenate([collision_0_pred[np.newaxis,...], collision_t_pred])])
+    collision_mat_pred = squareform(np.any(collision_t_pred, axis=0) | collision_0_pred)
     n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
 
-    return sample_idx, n_ped_with_col_pred_per_sample
+    return n_ped_with_col_pred_per_sample, collision_mat_pred_t_bool
 
 
 stats_func = {
@@ -320,6 +287,8 @@ stats_func = {
 
 
 def main():
+    """debug new, fast collision fn... edge case where agent is in same position between two timesteps
+    was wrong this whole time"""
     cr = 0.1
     pred_arr = np.zeros((2, 12, 2))
     pred_arr[1] = np.ones((1, 12, 2))

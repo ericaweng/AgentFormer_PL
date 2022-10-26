@@ -14,10 +14,10 @@ def plot_fig(save_fn, title=None, *list_of_arg_dicts):
         num_plots_height = 1
         num_plots_width = len(list_of_arg_dicts)
 
-    num_plots_width = 4
-    num_plots_height = 3
+    num_plots_width = 5
+    num_plots_height = 4
     assert num_plots_width * num_plots_height >= len(list_of_arg_dicts)
-    fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(15 * num_plots_width, 10 * num_plots_height))
+    fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(7.5 * num_plots_width, 5 * num_plots_height))
     if isinstance(axes[0], np.ndarray):
         axes = [a for ax in axes for a in ax]
     # fig, axes = plt.subplots(1, len(list_of_arg_dicts), figsize=(10 * len(list_of_arg_dicts), 10))
@@ -45,7 +45,7 @@ def plot_fig(save_fn, title=None, *list_of_arg_dicts):
     fig.tight_layout()
     fig.subplots_adjust(hspace=0.1)
     if title is not None:
-        fig.set_title(title)
+        fig.suptitle(title, fontsize=16)
     anim.save(save_fn)
     print(f"saved animation to {save_fn}")
     plt.close(fig)
@@ -100,6 +100,8 @@ class AnimObj:
         # instantiate ax if not exist
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        else:
+            fig = None
         plot_title = f"{plot_title}\n" if plot_title is not None else ""
         ax.set_title(plot_title, fontsize=16)
         # ax.set_title(f"{plot_title}{save_fn}\ninteraction_type: {int_cat_abbv}")
@@ -203,7 +205,7 @@ class AnimObj:
 
         ## text that stays fixed each frame
         offset_lower = 0.1
-        text_fixed_fs = 15
+        text_fixed_fs = 16
         if isinstance(text_fixed, str):
             ax.add_artist(ax.text(x_low + offset_lower, y_low + offset_lower, text_fixed, fontsize=text_fixed_fs))
         elif isinstance(text_fixed, list):
@@ -237,7 +239,9 @@ class AnimObj:
                 lines_obs_gt.append(ax.add_artist(line_obs_gt))
 
             if pred_traj_gt is not None:
-                line_pred_gt = mlines.Line2D(*obs_traj[0:1].T, color=color_real, marker='.', linestyle='-', linewidth=1,
+                if obs_traj is None:
+                    circles_gt.append(ax.add_artist(plt.Circle(pred_traj_gt[0, ped_i], ped_radius, fill=True, color=color_real, zorder=0)))
+                line_pred_gt = mlines.Line2D(*pred_traj_gt[0:1].T, color=color_real, marker='.', linestyle='-', linewidth=1,
                                              alpha=obs_alpha, zorder=0, visible=False)
                 lines_pred_gt.append(ax.add_artist(line_pred_gt))
 
@@ -282,7 +286,7 @@ class AnimObj:
         else:
             raise RuntimeError
         for ped_i, circle in enumerate(circles_to_plot_ped_num):
-            int_text = ax.text(circle[ped_i].center[0] + text_offset_x, circles_gt[ped_i].center[1] - text_offset_y,
+            int_text = ax.text(circle.center[0] + text_offset_x, circle.center[1] - text_offset_y,
                                str(ped_i), color='black', fontsize=8)
             ped_texts.append(ax.add_artist(int_text))
 
@@ -363,12 +367,14 @@ class AnimObj:
                 #     import ipdb; ipdb.set_trace()
                 if pred_traj_gt is not None:
                     # traj_gt = np.concatenate([obs_traj, pred_traj_gt])
-                    assert len(circles_gt) == len(lines_pred_gt) == len(ped_texts)
+                    assert len(circles_gt) == len(lines_pred_gt) == len(ped_texts), f'{len(circles_gt)}, {len(lines_pred_gt)}, {len(ped_texts)} should all be equal'
                     for ped_i, (circle_gt, line_pred_gt, ped_text) in enumerate(zip(
                             circles_gt, lines_pred_gt, ped_texts)):
                         circle_gt.center = pred_traj_gt[frame_i - obs_len, ped_i]
-                        last_obs_pred_gt = np.concatenate(
-                                [obs_traj[-1:, ped_i], pred_traj_gt[0:frame_i + 1 - obs_len, ped_i]])
+                        if obs_traj is not None:
+                            last_obs_pred_gt = np.concatenate([obs_traj[-1:, ped_i], pred_traj_gt[0:frame_i + 1 - obs_len, ped_i]])
+                        else:
+                            last_obs_pred_gt = pred_traj_gt[0:frame_i + 1 - obs_len, ped_i]
                         line_pred_gt.set_data(*last_obs_pred_gt.T)
                         # move the pedestrian texts (ped number and relation)
                         if len(ped_texts) > 0:
@@ -385,7 +391,9 @@ class AnimObj:
                                 circle_fake.center = pred_traj_fake[model_i][sample_i, frame_i - obs_len, ped_i]
                                 if obs_traj is not None:
                                     last_obs_pred_fake = np.concatenate([obs_traj[-1:, ped_i], pred_traj_fake[model_i][sample_i, 0:frame_i + 1 - obs_len, ped_i]])
-                                    line_pred_fake.set_data(*last_obs_pred_fake.T)
+                                else:
+                                    last_obs_pred_fake = pred_traj_fake[model_i][sample_i, 0:frame_i + 1 - obs_len, ped_i]
+                                line_pred_fake.set_data(*last_obs_pred_fake.T)
 
             # update collision circles (only if we are during pred timesteps)
             if (plot_collisions_all or obs_len <= frame_i <= obs_len + pred_len) and collision_mats is not None:

@@ -16,7 +16,7 @@ from .ethucy_split import get_ethucy_split, get_ethucy_split_dagger
 class AgentFormerDataset(Dataset):
     """ torch Dataset """
 
-    def __init__(self, parser, split='train', phase='training'):
+    def __init__(self, parser, split='train', phase='training', is_test_mode=False):
         self.past_frames = parser.past_frames
         self.dagger = parser.get('dagger', False)
         self.dagger_data = parser.get('dagger_data', None)
@@ -24,6 +24,7 @@ class AgentFormerDataset(Dataset):
         self.frame_skip = parser.get('frame_skip', 1)
         self.phase = phase
         self.split = split
+        self.is_test_mode = is_test_mode
         assert phase in ['training', 'testing'], 'error'
         assert split in ['train', 'val', 'test'], 'error'
 
@@ -76,6 +77,9 @@ class AgentFormerDataset(Dataset):
         print(f'total num samples: {num_total_samples}')
 
         # test each frame to make sure it's valid
+        # if self.is_test_mode:
+        #     self.sample_list = self.sequence
+        # else:
         datas = []
         for idx in list(range(num_total_samples)):
             seq_index, frame = self.get_seq_and_frame(idx)
@@ -83,6 +87,9 @@ class AgentFormerDataset(Dataset):
             data = seq(frame)
             if data is None:
                 continue
+            if self.is_test_mode and idx == 5:
+                print("test mode: limiting to ds of size 5")
+                break
             datas.append(data)
         self.sample_list = datas
 
@@ -112,7 +119,11 @@ class AgentFormerDataset(Dataset):
             Returns:
                 output: Necessary values for scenario
         """
+        # if not self.is_test_mode:
         return self.sample_list[idx]
+        # seq_index, frame = self.get_seq_and_frame(idx)
+        # seq = self.sequence[seq_index]
+        # return seq(frame)
 
     @staticmethod
     def collate(batch):

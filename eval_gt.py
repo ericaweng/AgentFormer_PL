@@ -2,6 +2,7 @@ import os
 import argparse
 from filelock import FileLock
 from multiprocessing import Pool
+from functools import partial
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist, squareform, cdist
@@ -392,7 +393,9 @@ def main(args):
 
     if args.mp:
         with Pool() as pool:
-            all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(eval_one_seq, args_list))
+            all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(partial(eval_one_seq,
+                                                                                          collision_rad=0.1,
+                                                                                          return_agent_traj_nums=True), args_list))
             for meter, values, agent_traj_num in zip(stats_meter.values(), zip(*all_meters_values), zip(*all_meters_agent_traj_nums)):
                 meter.update((np.sum(np.array(values) * np.array(agent_traj_num)) / np.sum(agent_traj_num)).item(),
                              n=np.sum(agent_traj_num).item())

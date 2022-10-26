@@ -7,6 +7,7 @@ import shutil
 import itertools
 import subprocess
 import multiprocessing
+from functools import partial
 
 sys.path.append(os.getcwd())
 from data.dataloader import data_generator
@@ -201,9 +202,12 @@ def test_model(generator, save_dir, cfg, start_frame):
                 tup = test_one_dont_save(*arg_list)
                 if tup is not None:
                     test_results.append(tup)
-            args_list = [(gt_motion_3D, sample_motion_3D, collision_rad) for gt_motion_3D, _, sample_motion_3D in test_results]
+            args_list = [(gt_motion_3D, sample_motion_3D) for gt_motion_3D, _, sample_motion_3D in test_results]
             with multiprocessing.Pool() as pool:
-                all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(eval_one_seq, args_list))
+                all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(partial(eval_one_seq,
+                                                                                          collision_rad=collision_rad,
+                                                                                          return_agent_traj_nums=True),
+                                                                                  args_list))
             for meter, values, agent_traj_num in zip(stats_meter.values(), zip(*all_meters_values), zip(*all_meters_agent_traj_nums)):
                 meter.update((np.sum(np.array(values) * np.array(agent_traj_num)) / np.sum(agent_traj_num)).item(),
                              n=np.sum(agent_traj_num).item())
