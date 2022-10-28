@@ -97,36 +97,92 @@ def get_collisions_mat_old(pred_traj_fake, threshold):
     return np.any(np.any(collision_mat, axis=0), axis=0), collision_mat  # collision_mat_pred_t_bool
 
 
-def compute_ADE_scenario(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
+def compute_ADE_sequence(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
+    pred_arr = np.array(pred_arr)
+    gt_arr = np.array(gt_arr)
+    diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
+    dist = np.linalg.norm(diff, axis=-1)  # num_peds x samples x frames
+    ade_per_sample = dist.mean(axis=-1).mean(axis=0)  # samples
+    ade = ade_per_sample.min(axis=0)  # (1, )
+    return_vals = [ade]
+    if return_sample_vals:  # for each sample: the avg ped ADE
+        return_vals.append(ade_per_sample)
+    if return_argmin:  # for each ped: index of sample that is argmin
+        return_vals.append(ade_per_sample.argmin(axis=0))
+    return return_vals[0] if len(return_vals) == 1 else return_vals
+
+
+def compute_FDE_sequence(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
+    pred_arr = np.array(pred_arr)
+    gt_arr = np.array(gt_arr)
+    diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
+    dist = np.linalg.norm(diff, axis=-1)  # num_peds x samples x frames
+    fde_per_sample = dist[..., -1].mean(axis=0)  # samples
+    fde = fde_per_sample.min(axis=0)  # (1, )
+    return_vals = [fde]
+    if return_sample_vals:  # for each sample: the avg ped ADE
+        return_vals.append(fde_per_sample)
+    if return_argmin:  # for each ped: index of sample that is argmin
+        return_vals.append(fde_per_sample.argmin(axis=0))
+    return return_vals[0] if len(return_vals) == 1 else return_vals
+
+
+def compute_ADE_fast(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
+    """about 4 times faster due to numpy vectorization"""
+    pred_arr = np.array(pred_arr)
+    gt_arr = np.array(gt_arr)
+    diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
+    dist = np.linalg.norm(diff, axis=-1)  # num_peds x samples x frames
+    ades_per_sample = dist.mean(axis=-1)  # num_peds x samples
+    made_per_ped = ades_per_sample.min(axis=-1)  # num_peds
+    avg_made = made_per_ped.mean(axis=-1)  # (1,)
+    return_vals = [avg_made]
+    if return_sample_vals:  # for each sample: the avg ped ADE
+        return_vals.append(ades_per_sample.mean(axis=0))
+    if return_argmin:  # for each ped: index of sample that is argmin
+        return_vals.append(ades_per_sample.argmin(axis=-1))
+    return return_vals[0] if len(return_vals) == 1 else return_vals
+
+
+def compute_ADE(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
     ade = 0.0
-    peds = 0
+    ped_ades_per_sample = 0
+    argmins = []
     for pred, gt in zip(pred_arr, gt_arr):
         diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
         dist = np.linalg.norm(diff, axis=-1)  # samples x frames
         dist = dist.mean(axis=-1)  # samples
-        peds += dist
-        made_ped = dist.min(axis=0)  # (1, )
-        ade += made_ped
+        ped_ades_per_sample += dist
+        ade += dist.min(axis=0)  # (1, )
+        argmins.append(dist.argmin(axis=0))
     ade /= len(pred_arr)
-    if return_sample_vals:
-        return ade, peds / len(pred_arr)
-    return ade
+    return_vals = [ade]
+    if return_sample_vals:  # for each sample: the avg ped ADE
+        return_vals.append(ped_ades_per_sample / len(pred_arr))
+    if return_argmin:  # for each ped: index of sample that is argmin
+        return_vals.append(np.array(argmins))
+    # ade2, ped_ades_per_sample2, argmin2 = compute_ADE_fast(pred_arr, gt_arr, True, True)
+    # assert np.all(np.abs(ade2 - ade) < 1e-6), f"ade not equal\n{ade}\n\n{ade2}"
+    # assert np.all(np.abs(ped_ades_per_sample / len(pred_arr) - ped_ades_per_sample2) < 1e-6), f"ped_ades_per_sample not equal\n{ped_ades_per_sample}\n\n{ped_ades_per_sample2}"
+    # assert np.all(np.abs(np.array(argmins) - argmin2) < 1e-6), f"argmins not equal\n{argmins}\n\n{argmin2}"
+    return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
-def compute_ADE(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
-    ade = 0.0
-    peds = 0
-    for pred, gt in zip(pred_arr, gt_arr):
-        diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
-        dist = np.linalg.norm(diff, axis=-1)  # samples x frames
-        dist = dist.mean(axis=-1)  # samples
-        peds += dist
-        made_ped = dist.min(axis=0)  # (1, )
-        ade += made_ped
-    ade /= len(pred_arr)
-    if return_sample_vals:
-        return ade, peds / len(pred_arr)
-    return ade
+def compute_FDE_fast(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
+    """about 4 times faster due to numpy vectorization"""
+    pred_arr = np.array(pred_arr)
+    gt_arr = np.array(gt_arr)
+    diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
+    dist = np.linalg.norm(diff, axis=-1)  # num_peds x samples x frames
+    fdes_per_sample = dist[..., -1]  # num_peds x samples
+    mfde_per_ped = fdes_per_sample.min(axis=-1)  # num_peds
+    avg_mfde = mfde_per_ped.mean(axis=-1)  # (1,)
+    return_vals = [avg_mfde]
+    if return_sample_vals:  # for each sample: the avg ped ADE
+        return_vals.append(fdes_per_sample.mean(axis=0))
+    if return_argmin:  # for each ped: index of sample that is argmin
+        return_vals.append(fdes_per_sample.argmin(axis=-1))
+    return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
 def compute_FDE(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
@@ -140,6 +196,8 @@ def compute_FDE(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
         peds += dist
         fde += dist.min(axis=0)  # (1, )
     fde /= len(pred_arr)
+    fde2 = compute_FDE_fast(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False)
+    assert np.all(np.abs(fde2 - fde) < 1e-6), f"ade not equal\n{fde}\n\n{fde2}"
     if return_sample_vals:
         return fde, peds / len(pred_arr)
     return fde
@@ -306,11 +364,14 @@ def check_collision_per_sample_no_gt(sample, ped_radius=0.1):
 
 
 stats_func = {
-            'ADE': compute_ADE,
-            'FDE': compute_FDE,
-            'CR_max': partial(compute_CR, aggregation='max'),
-            'CR_mean': partial(compute_CR, aggregation='mean'),
-            'CR_mADE': partial(compute_CR),
+        'ADE': compute_ADE_fast,
+        # 'ADE_seq': compute_ADE_sequence,
+        'FDE': compute_FDE_fast,
+        # 'FDE_seq': compute_FDE_sequence,
+        'CR_max': partial(compute_CR, aggregation='max'),
+        'CR_mean': partial(compute_CR, aggregation='mean'),
+        'CR_mADE': partial(compute_CR),
+        'CR_mADE_seq': partial(compute_CR),
 }
 
 

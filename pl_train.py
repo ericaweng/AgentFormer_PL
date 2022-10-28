@@ -76,7 +76,7 @@ def main(args):
         resume_from_checkpoint = None
         print("STARTING new run from scratch")
     # Initialize trainer
-    if args.mode == 'train':
+    if args.mode == 'train' and not args.test:
         logger = TensorBoardLogger(args.logs_root, name=cfg.id)#cfg.result_dir, name='tb')#, version=args.experiment_name)
     else:
         logger = None
@@ -93,16 +93,12 @@ def main(args):
                          max_epochs=cfg.num_epochs, default_root_dir=default_root_dir,
                          logger=logger, callbacks=[early_stop_cb, checkpoint_callback],)
 
-    trainer.set_devices(None)
     if 'train' in args.mode:
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
-        trainer.set_devices(None)
-        trainer.set_logger(None)
-        # trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir)
+        trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
     elif 'test' in args.mode or 'val' in args.mode or 'cond' in args.mode:
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
-    elif 'tune' in args.mode:
-        trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
     else:
         raise NotImplementedError
 
