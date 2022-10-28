@@ -97,29 +97,51 @@ def get_collisions_mat_old(pred_traj_fake, threshold):
     return np.any(np.any(collision_mat, axis=0), axis=0), collision_mat  # collision_mat_pred_t_bool
 
 
-def compute_ADE(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
+def compute_ADE_scenario(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
     ade = 0.0
+    peds = 0
     for pred, gt in zip(pred_arr, gt_arr):
         diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
         dist = np.linalg.norm(diff, axis=-1)  # samples x frames
         dist = dist.mean(axis=-1)  # samples
-        ade += dist.min(axis=0)  # (1, )
+        peds += dist
+        made_ped = dist.min(axis=0)  # (1, )
+        ade += made_ped
     ade /= len(pred_arr)
     if return_sample_vals:
-        return ade, dist / len(pred_arr)
+        return ade, peds / len(pred_arr)
+    return ade
+
+
+def compute_ADE(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
+    ade = 0.0
+    peds = 0
+    for pred, gt in zip(pred_arr, gt_arr):
+        diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
+        dist = np.linalg.norm(diff, axis=-1)  # samples x frames
+        dist = dist.mean(axis=-1)  # samples
+        peds += dist
+        made_ped = dist.min(axis=0)  # (1, )
+        ade += made_ped
+    ade /= len(pred_arr)
+    if return_sample_vals:
+        return ade, peds / len(pred_arr)
     return ade
 
 
 def compute_FDE(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
+    """pred_arr (num_peds, num_samples): """
     fde = 0.0
+    peds = 0
     for pred, gt in zip(pred_arr, gt_arr):
         diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
         dist = np.linalg.norm(diff, axis=-1)  # samples x frames
         dist = dist[..., -1]  # samples
+        peds += dist
         fde += dist.min(axis=0)  # (1, )
     fde /= len(pred_arr)
     if return_sample_vals:
-        return fde, dist / len(pred_arr)
+        return fde, peds / len(pred_arr)
     return fde
 
 
@@ -133,7 +155,10 @@ def _lineseg_dist(a, b):
         return np.linalg.norm(-a, axis=1)
 
     # normalized tangent vector
-    d = (b - a) / np.linalg.norm(b - a, axis=-1, keepdims=True)
+    d = np.zeros_like(a)
+    # assert np.all(np.all(a == b, axis=-1) == np.isnan(ans))
+    a_eq_b = np.all(a == b, axis=-1)
+    d[~a_eq_b] = (b - a)[~a_eq_b] / np.linalg.norm(b[~a_eq_b] - a[~a_eq_b], axis=-1, keepdims=True)
 
     # signed parallel distance components
     s = (a * d).sum(axis=-1)
@@ -148,9 +173,7 @@ def _lineseg_dist(a, b):
     ans = np.hypot(h, np.abs(c))
 
     # edge case where agent stays still
-    ts_pairs_where_a_eq_b = np.where(np.all(a == b, axis=-1))
-    assert np.all(np.all(a == b, axis=-1) == np.isnan(ans))
-    ans[ts_pairs_where_a_eq_b] = np.linalg.norm(-a, axis=1)[ts_pairs_where_a_eq_b]
+    ans[a_eq_b] = np.linalg.norm(-a, axis=1)[a_eq_b]
 
     return ans
 
@@ -221,8 +244,8 @@ def compute_CR(pred_arr,
         Collision rates
     """
     # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
-
-    n_ped, n_sample, _, _ = pred_arr.shape
+    pred_arr = np.array(pred_arr).swapaxes(1, 0)
+    n_sample, n_ped, _, _ = pred_arr.shape
 
     col_pred = np.zeros((n_sample))
     col_mats = []
@@ -231,13 +254,17 @@ def compute_CR(pred_arr,
         #     r = pool.starmap(
         #             partial(check_collision_per_sample, gt_arr=gt_arr),
         #             enumerate(pred_arr))
-        for sample_idx, pa in enumerate(pred_arr):
-            # n_ped_with_col_pred, col_mat = get_collisions_mat_old(pred_arr[:, sample_idx], collision_rad)
-            n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pred_arr[:, sample_idx], collision_rad)
-            # assert np.all(n_ped_with_col_pred == n_ped_with_col_pred2), f'{n_ped_with_col_pred}\nshould equal\n{n_ped_with_col_pred2}'
-            # assert np.all(col_mat2 == col_mat), f'{col_mat} \nshould equal\n{col_mat2}'
-            col_mats.append(col_mat)
-            col_pred[sample_idx] += (n_ped_with_col_pred.sum())
+        if isinstance(aggregation, int):  # is index to get
+            n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pred_arr[aggregation], collision_rad)
+            col_pred[aggregation] += n_ped_with_col_pred.sum()
+        else:
+            for sample_idx, pa in enumerate(pred_arr):
+                # n_ped_with_col_pred, col_mat = get_collisions_mat_old(pred_arr[:, sample_idx], collision_rad)
+                n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pa, collision_rad)
+                # assert np.all(n_ped_with_col_pred == n_ped_with_col_pred2), f'{n_ped_with_col_pred}\nshould equal\n{n_ped_with_col_pred2}'
+                # assert np.all(col_mat2 == col_mat), f'{col_mat} \nshould equal\n{col_mat2}'
+                col_mats.append(col_mat)
+                col_pred[sample_idx] += n_ped_with_col_pred.sum()
 
     if aggregation == 'mean':
         cr_pred = col_pred.mean(axis=0)
@@ -281,8 +308,9 @@ def check_collision_per_sample_no_gt(sample, ped_radius=0.1):
 stats_func = {
             'ADE': compute_ADE,
             'FDE': compute_FDE,
-            'CR_pred': partial(compute_CR, aggregation='max'),
-            'CR_pred_mean': partial(compute_CR, aggregation='mean'),
+            'CR_max': partial(compute_CR, aggregation='max'),
+            'CR_mean': partial(compute_CR, aggregation='mean'),
+            'CR_mADE': partial(compute_CR),
 }
 
 

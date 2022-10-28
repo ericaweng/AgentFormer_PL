@@ -262,7 +262,8 @@ class AnimObj:
                 for model_i, ptf in enumerate(pred_traj_fake):
                     lpf_inner, cf_inner = [], []
                     for sample_i, p in enumerate(ptf):
-                        circle_fake = plt.Circle(ptf[0, ped_i], ped_radius, fill=True, color=color_fake[ped_i][model_i],
+                        circle_fake = plt.Circle(ptf[0, ped_i], ped_radius, fill=True,
+                                                 color=color_fake[ped_i % len(color_fake)][model_i],
                                                  alpha=pred_alpha, visible=False, zorder=1)
                         cf_inner.append(ax.add_artist(circle_fake))
                         if cfg_names is not None:

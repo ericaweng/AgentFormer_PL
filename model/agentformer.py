@@ -315,6 +315,7 @@ class FutureDecoder(nn.Module):
         self.use_sfm = ctx['use_sfm']
         self.sfm_params = ctx['sfm_params']
         self.input_norm_type = cfg.get('input_norm_type', None)
+        self.tune_z = cfg.get('tune_z', False)
         # networks
         in_dim = forecast_dim + len(self.input_type) * forecast_dim + self.nz
         if 'map' in self.input_type:

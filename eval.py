@@ -90,16 +90,18 @@ def get_gt_from_raw_and_preds_from_file(gt_raw, data_file):
     return gt_traj, agent_traj
 
 
-def eval_one_seq(gt_raw, data_file, collision_rad, return_agent_traj_nums=False, return_sample_vals=False):
+def eval_one_seq(data_file, gt_raw, collision_rad, return_agent_traj_nums=False, return_sample_vals=False):
     """"""
     if len(gt_raw.shape) == 2 and isinstance(data_file, str):
         gt_traj, agent_traj = get_gt_from_raw_and_preds_from_file(gt_raw, data_file)
     else:
+        # assert isinstance(data_file, np.ndarry)
         gt_traj = gt_raw
         agent_traj = data_file
-    assert len(gt_traj.shape) == 3, f"len(gt_raw.shape) should be 3 but is {len(gt_raw.shape)}"
-    assert isinstance(agent_traj, np.ndarray), f'data_file should be type np.ndarray but is {type(data_file)}'
-    assert len(agent_traj.shape) == 4, f"len(data_file.shape) should be 4 but is {len(data_file.shape)}"
+    assert isinstance(gt_traj, list) and len(gt_traj[0].shape) == 2 or len(gt_traj.shape) == 3, \
+        f"len(gt_raw.shape) should be 3 but is {len(gt_raw.shape)}"
+    assert isinstance(agent_traj, list) and len(agent_traj[0].shape) == 3 or len(agent_traj.shape) == 4, \
+        f"len(data_file.shape) should be 4 but is {len(data_file.shape)}"
 
     """compute stats"""
     values = []
@@ -200,18 +202,19 @@ if __name__ == '__main__':
 
         data_filelist, _ = load_list_from_folder(os.path.join(results_dir, seq_name))
         if args.multiprocess:
-            args_list = [(gt_raw, data_file) for data_file in data_filelist]
             with Pool() as pool:
-                all_meters_values, all_meters_agent_traj_nums = zip(*pool.starmap(partial(eval_one_seq,
-                                                                                          collision_rad=collision_rad,
-                                                                                          return_agent_traj_nums=True),
-                                                                                  args_list))
+                all_meters_values, all_meters_agent_traj_nums = zip(*pool.map(partial(eval_one_seq,
+                                                                                      gt_raw=gt_raw,
+                                                                                      collision_rad=collision_rad,
+                                                                                      return_agent_traj_nums=True),
+                                                                                  data_filelist))
         else:
             all_meters_values, all_meters_agent_traj_nums = [],[]
             for data_file in data_filelist:  # each example e.g., seq_0001 - frame_000009
-                meters, agent_traj_nums = eval_one_seq(gt_raw, data_file, collision_rad, return_agent_traj_nums=True)
+                meters, agent_traj_nums = eval_one_seq(data_file, gt_raw, collision_rad, return_agent_traj_nums=True)
                 all_meters_values.append(meters)
                 all_meters_agent_traj_nums.append(agent_traj_nums)
+
         for meter, values, agent_traj_num in zip(stats_meter.values(), zip(*all_meters_values), zip(*all_meters_agent_traj_nums)):
             meter.update((np.sum(np.array(values) * np.array(agent_traj_num)) / np.sum(agent_traj_num)).item(),
                          n=np.sum(agent_traj_num).item())

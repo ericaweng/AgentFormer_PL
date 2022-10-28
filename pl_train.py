@@ -76,10 +76,13 @@ def main(args):
         resume_from_checkpoint = None
         print("STARTING new run from scratch")
     # Initialize trainer
-    logger = TensorBoardLogger(args.logs_root, name=cfg.id)#cfg.result_dir, name='tb')#, version=args.experiment_name)
+    if args.mode == 'train':
+        logger = TensorBoardLogger(args.logs_root, name=cfg.id)#cfg.result_dir, name='tb')#, version=args.experiment_name)
+    else:
+        logger = None
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE')
     checkpoint_callback = ModelCheckpoint(monitor='val/ADE', save_top_k=3, mode='min', save_last=True,
-                                          every_n_epochs=1, dirpath=default_root_dir, filename='h_{epoch:04d}')
+                                          every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
 
     print("LOGGING TO:", default_root_dir)
     print("\n\n")
@@ -90,10 +93,16 @@ def main(args):
                          max_epochs=cfg.num_epochs, default_root_dir=default_root_dir,
                          logger=logger, callbacks=[early_stop_cb, checkpoint_callback],)
 
+    trainer.set_devices(None)
     if 'train' in args.mode:
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
+        trainer.set_devices(None)
+        trainer.set_logger(None)
+        # trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
     elif 'test' in args.mode or 'val' in args.mode or 'cond' in args.mode:
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
+    elif 'tune' in args.mode:
+        trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
     else:
         raise NotImplementedError
 

@@ -5,7 +5,7 @@ from functools import partial
 from eval import eval_one_seq
 from metrics import stats_func
 import multiprocessing
-from model.agentformer import AgentFormer
+from model.model_lib import model_dict
 from utils.torch import get_scheduler
 
 from viz_utils import plot_fig
@@ -14,7 +14,8 @@ from viz_utils import plot_fig
 class AgentFormerTrainer(pl.LightningModule):
     def __init__(self, cfg, args):
         super().__init__()
-        self.model = AgentFormer(cfg)
+        model_id = cfg.get('model_id', 'agentformer')
+        self.model = model_dict[model_id](cfg)
         self.cfg = cfg
         self.args = args
         self.num_workers = min(args.num_workers, int(multiprocessing.cpu_count() / args.devices))
@@ -50,14 +51,16 @@ class AgentFormerTrainer(pl.LightningModule):
         data, loss_dict = self._step(batch, 'test')
         gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
         pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
+        obs_motion = self.cfg.traj_scale * data[f'pre_motion'].transpose(1, 0).cpu()
         # self.stats.update(gt_motion, pred_motion)
-        return {**loss_dict, 'gt_motion': gt_motion, 'pred_motion': pred_motion, 'frame': batch['frame'], 'seq': batch['seq']}
+        return {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
+                'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion,}
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
 
     def _epoch_end(self, outputs, mode):
-        args_list = [(output['gt_motion'].numpy(), output['pred_motion'].numpy()) for output in outputs]
+        args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]
         with multiprocessing.Pool(self.num_workers) as pool:
             all_meters_values = pool.starmap(partial(eval_one_seq,
                                                      collision_rad=self.collision_rad,
@@ -90,11 +93,12 @@ class AgentFormerTrainer(pl.LightningModule):
         self.log(f'{mode}/total_num_agents', float(np.sum(total_num_agents)), sync_dist=True, logger=True)
         # for key, metric in zip(stats_func.keys(), self.stats):
         #     self.log(f'{mode}/{key}-torchmetric', metric.compute(), sync_dist=True, prog_bar=True, logger=True)
-        print("all_meters_values:", len(all_meters_values))
-        print("all_meters_values:", len(all_meters_values[0]))
+        to_print = ['\n', f"{self.current_epoch}"]
         for key, values in zip(stats_func.keys(), zip(*all_meters_values)):
             value = np.sum(values * total_num_agents) / np.sum(total_num_agents)
             self.log(f'{mode}/{key}', value, sync_dist=True, prog_bar=True, logger=True)
+            to_print.append(f"{value:.4f}")
+        return to_print
 
     def train_epoch_end(self, outputs):
         self.model.step_annealer()
@@ -103,7 +107,7 @@ class AgentFormerTrainer(pl.LightningModule):
         self._epoch_end(outputs, 'val')
 
     def test_epoch_end(self, outputs):
-        self._epoch_end(outputs, 'test')
+        print("\n".join(self._epoch_end(outputs, 'test')))
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.cfg.lr)#, weight_decay=self.hparams.weight_decay)
