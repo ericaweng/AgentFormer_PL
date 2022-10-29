@@ -14,7 +14,7 @@ from data.dataloader import data_generator
 from utils.config import Config
 from model.model_lib import model_dict
 from utils.utils import prepare_seed, print_log, mkdir_if_missing, AverageMeter
-from metrics import check_collision_per_sample_no_gt, get_collisions_mat_old
+from metrics import _check_collision_per_sample_no_gt, get_collisions_mat_old
 from eval import eval_one_seq, stats_func, write_metrics_to_csv
 
 

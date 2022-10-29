@@ -112,6 +112,7 @@ if __name__ == '__main__':
     parser.add_argument('--dont_resume', '-dr', dest='resume', action='store_false', default=True)
     parser.add_argument('--checkpoint_path', '-cp', default=None)
     parser.add_argument('--test', action='store_true', default=False)
+    parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
     parser.add_argument('--logs_root', default='results2')
     args = parser.parse_args()

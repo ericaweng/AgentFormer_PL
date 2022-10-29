@@ -1,6 +1,7 @@
 import torch
 import pytorch_lightning as pl
 import numpy as np
+from itertools import starmap
 from functools import partial
 from eval import eval_one_seq
 from metrics import stats_func
@@ -61,11 +62,19 @@ class AgentFormerTrainer(pl.LightningModule):
 
     def _epoch_end(self, outputs, mode):
         args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]
-        with multiprocessing.Pool(self.num_workers) as pool:
-            all_meters_values = pool.starmap(partial(eval_one_seq,
-                                                     collision_rad=self.collision_rad,
-                                                     return_agent_traj_nums=False,
-                                                     return_sample_vals=self.args.save_viz), args_list)
+        # print(outputs[0]['pred_motion'].numpy().shape)  # num_peds, num_samples, ts, 2
+        # print(outputs[0]['gt_motion'].numpy().shape)  # num_peds, ts, 2
+        if self.args.mp:
+            with multiprocessing.Pool(self.num_workers) as pool:
+                all_meters_values = pool.starmap(partial(eval_one_seq,
+                                                         collision_rad=self.collision_rad,
+                                                         return_agent_traj_nums=False,
+                                                         return_sample_vals=self.args.save_viz), args_list)
+        else:
+            all_meters_values = starmap(partial(eval_one_seq,
+                                                collision_rad=self.collision_rad,
+                                                return_agent_traj_nums=False,
+                                                return_sample_vals=self.args.save_viz), args_list)
         if self.args.save_viz:
             all_meters_values, all_sample_vals = zip(*all_meters_values)
             args_list = []
@@ -74,7 +83,7 @@ class AgentFormerTrainer(pl.LightningModule):
                 frame = output['frame']
                 seq = output['seq']
                 pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
-                pred_fake_traj = output['pred_motion'].numpy().transpose(1,2,0,3)
+                pred_fake_traj = output['pred_motion'].numpy().transpose(1,2,0,3)  # (samples, ts, n_peds, 2)
                 anim_save_fn = f'viz/{seq}_frame-{frame}.mp4'
                 args_dicts = [anim_save_fn, f"Seq: {seq} frame: {frame}", (5, 4)]
                 for sample_i, sample_vals in enumerate(sample_vals):
@@ -95,7 +104,10 @@ class AgentFormerTrainer(pl.LightningModule):
         #     self.log(f'{mode}/{key}-torchmetric', metric.compute(), sync_dist=True, prog_bar=True, logger=True)
         to_print = ['\n', f"{self.current_epoch}"]
         for key, values in zip(stats_func.keys(), zip(*all_meters_values)):
-            value = np.sum(values * total_num_agents) / np.sum(total_num_agents)
+            if '_seq' in key:  # sequence-based metric
+                value = np.mean(values)
+            else:  # agent-based metric
+                value = np.sum(values * total_num_agents) / np.sum(total_num_agents)
             self.log(f'{mode}/{key}', value, sync_dist=True, prog_bar=True, logger=True)
             to_print.append(f"{value:.4f}")
         return to_print

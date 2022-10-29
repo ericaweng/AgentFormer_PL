@@ -4,99 +4,6 @@ from scipy.spatial.distance import pdist, squareform, cdist
 from functools import partial
 
 
-def point_to_segment_dist_old(x1, y1, x2, y2, p1, p2):
-    """
-    Calculate the closest distance between start(p1, p2) and a line segment with two endpoints (x1, y1), (x2, y2)
-    """
-    px = x2 - x1
-    py = y2 - y1
-
-    if px == 0 and py == 0:
-        return np.linalg.norm((p1 - x1, p2 - y1), axis=-1)
-
-    u = ((p1 - x1) * px + (p2 - y1) * py) / (px * px + py * py)
-
-    if u > 1:
-        u = 1
-    elif u < 0:
-        u = 0
-
-    # (x, y) is the closest start to (p1, p2) on the line segment
-    x = x1 + u * px
-    y = y1 + u * py
-    return np.linalg.norm((x - p1, y - p2), axis=-1)
-
-
-def get_collisions_mat_old_torch(pred_traj_fake, threshold):
-    """threshold: radius + discomfort distance of agents"""
-    pred_traj_fake = pred_traj_fake.transpose(1, 0)
-    ts, num_peds, _ = pred_traj_fake.shape
-    collision_mat = torch.full((ts, num_peds, num_peds), False)
-    collision_mat_vals = torch.full((ts, num_peds, num_peds), np.inf)
-    # test initial timesteps
-    for ped_i, x_i in enumerate(pred_traj_fake[0]):
-        for ped_j, x_j in enumerate(pred_traj_fake[0]):
-            if ped_i == ped_j:
-                continue
-            closest_dist = torch.norm(x_i - x_j) - threshold * 2
-            if closest_dist < 0:
-                collision_mat[0, ped_i, ped_j] = True
-            collision_mat_vals[0, ped_i, ped_j] = closest_dist
-
-    # test t-1 later timesteps
-    for t in range(ts - 1):
-        for ped_i, ((ped_ix, ped_iy), (ped_ix1, ped_iy1)) in enumerate(zip(pred_traj_fake[t], pred_traj_fake[t+1])):
-            for ped_j, ((ped_jx, ped_jy), (ped_jx1, ped_jy1)) in enumerate(zip(pred_traj_fake[t], pred_traj_fake[t+1])):
-                if ped_i == ped_j:
-                    continue
-                px = ped_ix - ped_jx
-                py = ped_iy - ped_jy
-                ex = ped_ix1 - ped_jx1
-                ey = ped_iy1 - ped_jy1
-                closest_dist = point_to_segment_dist_old(px, py, ex, ey, 0, 0) - threshold * 2
-                if closest_dist < 0:
-                    collision_mat[t+1, ped_i, ped_j] = True
-                collision_mat_vals[t + 1, ped_i, ped_j] = closest_dist
-
-    return torch.any(torch.any(collision_mat, dim=0), dim=0), collision_mat
-
-
-def get_collisions_mat_old(pred_traj_fake, threshold):
-    """pred_traj_fake: shape (num_peds, num_samples, ts, 2)
-    threshold: radius + discomfort distance of agents"""
-    pred_traj_fake = pred_traj_fake.transpose(1, 0, 2)
-    ts, num_peds, _ = pred_traj_fake.shape
-    collision_mat = np.full((ts, num_peds, num_peds), False)
-    collision_mat_vals = np.full((ts, num_peds, num_peds), np.inf)
-    # test initial timesteps
-    for ped_i, x_i in enumerate(pred_traj_fake[0]):
-        for ped_j, x_j in enumerate(pred_traj_fake[0]):
-            if ped_i == ped_j:
-                continue
-            closest_dist = np.linalg.norm(x_i - x_j) - threshold * 2
-            if closest_dist < 0:
-                collision_mat[0, ped_i, ped_j] = True
-            collision_mat_vals[0, ped_i, ped_j] = closest_dist
-
-    # test t-1 later timesteps
-    for t in range(ts - 1):
-        for ped_i, ((ped_ix, ped_iy), (ped_ix1, ped_iy1)) in enumerate(zip(pred_traj_fake[t], pred_traj_fake[t+1])):
-            for ped_j, ((ped_jx, ped_jy), (ped_jx1, ped_jy1)) in enumerate(zip(pred_traj_fake[t], pred_traj_fake[t+1])):
-                if ped_i == ped_j:
-                    continue
-                px = ped_ix - ped_jx
-                py = ped_iy - ped_jy
-                ex = ped_ix1 - ped_jx1
-                ey = ped_iy1 - ped_jy1
-                # closest distance between boundaries of two agents
-                closest_dist = point_to_segment_dist_old(px, py, ex, ey, 0, 0) - threshold * 2
-                if closest_dist < 0:
-                    collision_mat[t+1, ped_i, ped_j] = True
-                collision_mat_vals[t + 1, ped_i, ped_j] = closest_dist
-
-    return np.any(np.any(collision_mat, axis=0), axis=0), collision_mat  # collision_mat_pred_t_bool
-
-
 def compute_ADE_sequence(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
     pred_arr = np.array(pred_arr)
     gt_arr = np.array(gt_arr)
@@ -107,8 +14,8 @@ def compute_ADE_sequence(pred_arr, gt_arr, return_sample_vals=False, return_argm
     return_vals = [ade]
     if return_sample_vals:  # for each sample: the avg ped ADE
         return_vals.append(ade_per_sample)
-    if return_argmin:  # for each ped: index of sample that is argmin
-        return_vals.append(ade_per_sample.argmin(axis=0))
+    if return_argmin:  # index of sample that has min sequence ADE (1,)
+        return_vals.append(ade_per_sample[:, np.newaxis].argmin(axis=0))
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
@@ -120,15 +27,16 @@ def compute_FDE_sequence(pred_arr, gt_arr, return_sample_vals=False, return_argm
     fde_per_sample = dist[..., -1].mean(axis=0)  # samples
     fde = fde_per_sample.min(axis=0)  # (1, )
     return_vals = [fde]
-    if return_sample_vals:  # for each sample: the avg ped ADE
+    if return_sample_vals:  # for each sample: the avg ped ADE (n_samples,)
         return_vals.append(fde_per_sample)
-    if return_argmin:  # for each ped: index of sample that is argmin
-        return_vals.append(fde_per_sample.argmin(axis=0))
+    if return_argmin:  # index of sample that has min sequence FDE (1,)
+        return_vals.append(fde_per_sample[:, np.newaxis].argmin(axis=0))
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
 def compute_ADE_fast(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
     """about 4 times faster due to numpy vectorization"""
+    assert pred_arr.shape[1] == 20, pred_arr.shape
     pred_arr = np.array(pred_arr)
     gt_arr = np.array(gt_arr)
     diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
@@ -144,30 +52,6 @@ def compute_ADE_fast(pred_arr, gt_arr, return_sample_vals=False, return_argmin=F
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
-def compute_ADE(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
-    ade = 0.0
-    ped_ades_per_sample = 0
-    argmins = []
-    for pred, gt in zip(pred_arr, gt_arr):
-        diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
-        dist = np.linalg.norm(diff, axis=-1)  # samples x frames
-        dist = dist.mean(axis=-1)  # samples
-        ped_ades_per_sample += dist
-        ade += dist.min(axis=0)  # (1, )
-        argmins.append(dist.argmin(axis=0))
-    ade /= len(pred_arr)
-    return_vals = [ade]
-    if return_sample_vals:  # for each sample: the avg ped ADE
-        return_vals.append(ped_ades_per_sample / len(pred_arr))
-    if return_argmin:  # for each ped: index of sample that is argmin
-        return_vals.append(np.array(argmins))
-    # ade2, ped_ades_per_sample2, argmin2 = compute_ADE_fast(pred_arr, gt_arr, True, True)
-    # assert np.all(np.abs(ade2 - ade) < 1e-6), f"ade not equal\n{ade}\n\n{ade2}"
-    # assert np.all(np.abs(ped_ades_per_sample / len(pred_arr) - ped_ades_per_sample2) < 1e-6), f"ped_ades_per_sample not equal\n{ped_ades_per_sample}\n\n{ped_ades_per_sample2}"
-    # assert np.all(np.abs(np.array(argmins) - argmin2) < 1e-6), f"argmins not equal\n{argmins}\n\n{argmin2}"
-    return return_vals[0] if len(return_vals) == 1 else return_vals
-
-
 def compute_FDE_fast(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
     """about 4 times faster due to numpy vectorization"""
     pred_arr = np.array(pred_arr)
@@ -178,29 +62,11 @@ def compute_FDE_fast(pred_arr, gt_arr, return_sample_vals=False, return_argmin=F
     mfde_per_ped = fdes_per_sample.min(axis=-1)  # num_peds
     avg_mfde = mfde_per_ped.mean(axis=-1)  # (1,)
     return_vals = [avg_mfde]
-    if return_sample_vals:  # for each sample: the avg ped ADE
+    if return_sample_vals:  # for each sample: the avg ped ADE (n_samples,)
         return_vals.append(fdes_per_sample.mean(axis=0))
-    if return_argmin:  # for each ped: index of sample that is argmin
+    if return_argmin:  # for each ped: index of sample that is argmin (n_ped,)
         return_vals.append(fdes_per_sample.argmin(axis=-1))
     return return_vals[0] if len(return_vals) == 1 else return_vals
-
-
-def compute_FDE(pred_arr, gt_arr, return_sample_vals=False, **kwargs):
-    """pred_arr (num_peds, num_samples): """
-    fde = 0.0
-    peds = 0
-    for pred, gt in zip(pred_arr, gt_arr):
-        diff = pred - np.expand_dims(gt, axis=0)  # samples x frames x 2
-        dist = np.linalg.norm(diff, axis=-1)  # samples x frames
-        dist = dist[..., -1]  # samples
-        peds += dist
-        fde += dist.min(axis=0)  # (1, )
-    fde /= len(pred_arr)
-    fde2 = compute_FDE_fast(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False)
-    assert np.all(np.abs(fde2 - fde) < 1e-6), f"ade not equal\n{fde}\n\n{fde2}"
-    if return_sample_vals:
-        return fde, peds / len(pred_arr)
-    return fde
 
 
 def _lineseg_dist(a, b):
@@ -255,7 +121,27 @@ def _get_diffs_gt(traj, gt_traj):
             axis=1)
 
 
-def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
+def _check_collision_per_sample_no_gt(sample, ped_radius=0.1):
+    """sample: (num_peds, ts, 2)"""
+
+    sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
+    ts, num_peds, _ = sample.shape
+    num_ped_pairs = (num_peds * (num_peds - 1)) // 2
+
+    collision_0_pred = pdist(sample[0]) < ped_radius * 2
+    # Get difference between each pair. (ts, n_ped_pairs, 2)
+    ped_pair_diffs_pred = _get_diffs_pred(sample)
+    pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
+    exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
+    collision_t_pred = _lineseg_dist(pxy, exy).reshape(ts - 1, num_ped_pairs) < ped_radius * 2
+    collision_mat_pred_t_bool = np.stack([squareform(cm) for cm in np.concatenate([collision_0_pred[np.newaxis,...], collision_t_pred])])
+    collision_mat_pred = squareform(np.any(collision_t_pred, axis=0) | collision_0_pred)
+    n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
+
+    return n_ped_with_col_pred_per_sample, collision_mat_pred_t_bool
+
+
+def _check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
     """sample: (num_peds, ts, 2) and same for gt_arr"""
 
     sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
@@ -289,7 +175,7 @@ def check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
 
 
 def compute_CR(pred_arr,
-               gt_arr=None,
+               gt_arr,
                aggregation='max',
                return_sample_vals=False,
                return_collision_mat=False,
@@ -302,9 +188,22 @@ def compute_CR(pred_arr,
         Collision rates
     """
     # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
-    pred_arr = np.array(pred_arr).swapaxes(1, 0)
-    n_sample, n_ped, _, _ = pred_arr.shape
+    n_ped, n_sample, _, _ = pred_arr.shape
 
+    # if evaluating different indices
+    if callable(aggregation):
+        indices = aggregation(pred_arr, gt_arr, return_argmin=True)[-1]
+        n_sample = 1
+        if indices.shape[0] == 1:
+            pred_arr = pred_arr[:, indices]
+        elif indices.shape[0] == n_ped:
+            assert len(indices.shape) == 1
+            pred_arr = pred_arr[np.arange(n_ped), indices][:, np.newaxis]  # only 1 sample per ped
+        else:
+            raise RuntimeError(f'indices is wrong shape: is {indices.shape} but should be (1,) or ({n_ped},)')
+        assert len(pred_arr.shape) == 4
+
+    pred_arr = np.array(pred_arr).swapaxes(1, 0)
     col_pred = np.zeros((n_sample))
     col_mats = []
     if n_ped > 1:
@@ -312,17 +211,10 @@ def compute_CR(pred_arr,
         #     r = pool.starmap(
         #             partial(check_collision_per_sample, gt_arr=gt_arr),
         #             enumerate(pred_arr))
-        if isinstance(aggregation, int):  # is index to get
-            n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pred_arr[aggregation], collision_rad)
-            col_pred[aggregation] += n_ped_with_col_pred.sum()
-        else:
-            for sample_idx, pa in enumerate(pred_arr):
-                # n_ped_with_col_pred, col_mat = get_collisions_mat_old(pred_arr[:, sample_idx], collision_rad)
-                n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pa, collision_rad)
-                # assert np.all(n_ped_with_col_pred == n_ped_with_col_pred2), f'{n_ped_with_col_pred}\nshould equal\n{n_ped_with_col_pred2}'
-                # assert np.all(col_mat2 == col_mat), f'{col_mat} \nshould equal\n{col_mat2}'
-                col_mats.append(col_mat)
-                col_pred[sample_idx] += n_ped_with_col_pred.sum()
+        for sample_idx, pa in enumerate(pred_arr):
+            n_ped_with_col_pred, col_mat = _check_collision_per_sample_no_gt(pa, collision_rad)
+            col_mats.append(col_mat)
+            col_pred[sample_idx] += n_ped_with_col_pred.sum()
 
     if aggregation == 'mean':
         cr_pred = col_pred.mean(axis=0)
@@ -330,11 +222,11 @@ def compute_CR(pred_arr,
         cr_pred = col_pred.min(axis=0)
     elif aggregation == 'max':
         cr_pred = col_pred.max(axis=0)
+    elif callable(aggregation):
+        cr_pred = col_pred[0]
     else:
         raise NotImplementedError()
 
-    # Multiply by 100 to make it percentage
-    # cr_pred *= 100
     crs = [cr_pred / n_ped]
     if return_sample_vals:
         crs.append(col_pred / n_ped)
@@ -343,35 +235,15 @@ def compute_CR(pred_arr,
     return tuple(crs) if len(crs) > 1 else crs[0]
 
 
-def check_collision_per_sample_no_gt(sample, ped_radius=0.1):
-    """sample: (num_peds, ts, 2)"""
-
-    sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
-    ts, num_peds, _ = sample.shape
-    num_ped_pairs = (num_peds * (num_peds - 1)) // 2
-
-    collision_0_pred = pdist(sample[0]) < ped_radius * 2
-    # Get difference between each pair. (ts, n_ped_pairs, 2)
-    ped_pair_diffs_pred = _get_diffs_pred(sample)
-    pxy = ped_pair_diffs_pred[:-1].reshape(-1, 2)
-    exy = ped_pair_diffs_pred[1:].reshape(-1, 2)
-    collision_t_pred = _lineseg_dist(pxy, exy).reshape(ts - 1, num_ped_pairs) < ped_radius * 2
-    collision_mat_pred_t_bool = np.stack([squareform(cm) for cm in np.concatenate([collision_0_pred[np.newaxis,...], collision_t_pred])])
-    collision_mat_pred = squareform(np.any(collision_t_pred, axis=0) | collision_0_pred)
-    n_ped_with_col_pred_per_sample = np.any(collision_mat_pred, axis=0)
-
-    return n_ped_with_col_pred_per_sample, collision_mat_pred_t_bool
-
-
 stats_func = {
         'ADE': compute_ADE_fast,
-        # 'ADE_seq': compute_ADE_sequence,
         'FDE': compute_FDE_fast,
-        # 'FDE_seq': compute_FDE_sequence,
         'CR_max': partial(compute_CR, aggregation='max'),
         'CR_mean': partial(compute_CR, aggregation='mean'),
-        'CR_mADE': partial(compute_CR),
-        'CR_mADE_seq': partial(compute_CR),
+        'ADE_seq': compute_ADE_sequence,
+        'FDE_seq': compute_FDE_sequence,
+        'CR_mADE': partial(compute_CR, aggregation=compute_ADE_fast),
+        'CR_mADEseq': partial(compute_CR, aggregation=compute_ADE_sequence),
 }
 
 
@@ -382,18 +254,18 @@ def main():
     pred_arr = np.zeros((2, 12, 2))
     pred_arr[1] = np.ones((1, 12, 2))
     pred_arr[1, -1] = 0.15 * np.ones(2)
-    _, cols_old, col_mats_old = get_collisions_mat_old(None, pred_arr, cr)
-    _, cols, col_mats = check_collision_per_sample_no_gt(None, pred_arr, cr)
-    print("col_mats_old:", col_mats_old)
+    # _, cols_old, col_mats_old = get_collisions_mat_old(None, pred_arr, cr)
+    cols, col_mats = _check_collision_per_sample_no_gt(pred_arr, cr)
+    # print("col_mats_old:", col_mats_old)
     print("col_mats:", col_mats)
-    print("cols_old:\n", cols_old)
+    # print("cols_old:\n", cols_old)
     print("cols:\n", cols)
     from viz_utils import plot_traj_anim
     save_fn_old = 'viz/old.mp4'
     save_fn = 'viz/new.mp4'
     plot_traj_anim(save_fn=save_fn_old, pred_traj_fake=pred_arr.swapaxes(0,1), collision_mats=col_mats_old, ped_radius=cr)
     plot_traj_anim(save_fn=save_fn, pred_traj_fake=pred_arr.swapaxes(0,1), collision_mats=col_mats, ped_radius=cr)
-    assert np.all(cols) == np.all(cols_old)
+    # assert np.all(cols) == np.all(cols_old)
 
 
 if __name__ == "__main__":
