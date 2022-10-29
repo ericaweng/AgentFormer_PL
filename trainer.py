@@ -105,6 +105,7 @@ class AgentFormerTrainer(pl.LightningModule):
         to_print = ['\n', f"{self.current_epoch}"]
         for key, values in zip(stats_func.keys(), zip(*all_meters_values)):
             if '_seq' in key:  # sequence-based metric
+                print("key:", key)
                 value = np.mean(values)
             else:  # agent-based metric
                 value = np.sum(values * total_num_agents) / np.sum(total_num_agents)
@@ -120,6 +121,13 @@ class AgentFormerTrainer(pl.LightningModule):
 
     def test_epoch_end(self, outputs):
         print("\n".join(self._epoch_end(outputs, 'test')))
+
+    def on_load_checkpoint(self, checkpoint):
+        if 'model_dict' in checkpoint and 'epoch' in checkpoint:
+            checkpoint['state_dict'] = {f'model.{k}': v for k, v in checkpoint['model_dict'].items()}
+            checkpoint['global_step'] = None  # checkpoint['epoch'] * jb
+            checkpoint['lr_schedulers'] = [checkpoint['scheduler_dict']]
+            checkpoint['optimizer_states'] = [checkpoint['opt_dict']]
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.cfg.lr)#, weight_decay=self.hparams.weight_decay)

@@ -121,7 +121,7 @@ def _get_diffs_gt(traj, gt_traj):
             axis=1)
 
 
-def _check_collision_per_sample_no_gt(sample, ped_radius=0.1):
+def check_collision_per_sample_no_gt(sample, ped_radius=0.1):
     """sample: (num_peds, ts, 2)"""
 
     sample = sample.transpose(1, 0, 2)  # (ts, n_ped, 2)
@@ -212,7 +212,7 @@ def compute_CR(pred_arr,
         #             partial(check_collision_per_sample, gt_arr=gt_arr),
         #             enumerate(pred_arr))
         for sample_idx, pa in enumerate(pred_arr):
-            n_ped_with_col_pred, col_mat = _check_collision_per_sample_no_gt(pa, collision_rad)
+            n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pa, collision_rad)
             col_mats.append(col_mat)
             col_pred[sample_idx] += n_ped_with_col_pred.sum()
 
@@ -255,7 +255,7 @@ def main():
     pred_arr[1] = np.ones((1, 12, 2))
     pred_arr[1, -1] = 0.15 * np.ones(2)
     # _, cols_old, col_mats_old = get_collisions_mat_old(None, pred_arr, cr)
-    cols, col_mats = _check_collision_per_sample_no_gt(pred_arr, cr)
+    cols, col_mats = check_collision_per_sample_no_gt(pred_arr, cr)
     # print("col_mats_old:", col_mats_old)
     print("col_mats:", col_mats)
     # print("cols_old:\n", cols_old)

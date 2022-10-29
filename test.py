@@ -14,7 +14,7 @@ from data.dataloader import data_generator
 from utils.config import Config
 from model.model_lib import model_dict
 from utils.utils import prepare_seed, print_log, mkdir_if_missing, AverageMeter
-from metrics import _check_collision_per_sample_no_gt, get_collisions_mat_old
+from metrics import check_collision_per_sample_no_gt
 from eval import eval_one_seq, stats_func, write_metrics_to_csv
 
 
@@ -78,6 +78,7 @@ def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok, collision_rad
         with torch.no_grad():
             num_samples = 40 if num_tries == 0 and not collisions_ok else 20
             sample_motion_3D = get_model_prediction(data, num_samples, return_recon=return_recon)
+            # (num_peds, n_samples, timesteps, 2)
             if return_recon:
                 sample_motion_3D, recon_motion_3D = sample_motion_3D
                 recon_motion_3D *= recon_motion_3D
@@ -89,11 +90,9 @@ def run_model_w_col_rej(data, traj_scale, sample_k, collisions_ok, collision_rad
         if collisions_ok or pred_arr.shape[0] == 1:
             break
 
-        # with multiprocessing.Pool(processes=multiprocessing.cpu_count() - 1) as pool:
-        #     mask = pool.starmap(check_collision_per_sample_no_gt, enumerate(pred_arr))
-        args_list = list(zip(np.arange(len(pred_arr)), pred_arr, [collision_rad for _ in range(len(pred_arr))]))
-        mask = itertools.starmap(get_collisions_mat_old, args_list)
-        # mask = itertools.starmap(check_collision_per_sample_no_gt, args_list)
+        with multiprocessing.Pool(processes=20) as pool:
+            mask = pool.starmap(partial(check_collision_per_sample_no_gt, ped_radius=collision_rad), pred_arr.transpose(0, 1))
+        # mask = itertools.starmap(partial(check_collision_per_sample_no_gt, ped_radius=collision_rad), pred_arr.transpose(0, 1))
         maskk = np.where(~np.any(np.array(list(zip(*mask))[1]).astype(np.bool), axis=-1))[0]  # get indices of samples that have 0 collisions
         if maskk.shape[0] == 0:
             num_zeros += 1
