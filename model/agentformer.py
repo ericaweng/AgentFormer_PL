@@ -348,6 +348,124 @@ class FutureDecoder(nn.Module):
             self.p_z_net = nn.Linear(self.model_dim, num_dist_params)
             initialize_weights(self.p_z_net.modules())
 
+    def decode_traj_ar_ped_one_at_a_time(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num, need_weights=False):
+        agent_num = data['agent_num']
+        if self.pred_type == 'vel':
+            dec_in = pre_vel[[-1]]
+        elif self.pred_type == 'pos':
+            dec_in = pre_motion[[-1]]
+        elif self.pred_type == 'scene_norm':
+            dec_in = pre_motion_scene_norm[[-1]]
+        else:
+            dec_in = torch.zeros_like(pre_motion[[-1]])
+        dec_in = dec_in.view(-1, sample_num, dec_in.shape[-1])
+        z_in = z.view(-1, sample_num, z.shape[-1])
+        in_arr = [dec_in, z_in]
+        for key in self.input_type:
+            if key == 'heading':
+                heading = data['heading_vec'].unsqueeze(1).repeat((1, sample_num, 1))
+                in_arr.append(heading)
+            elif key == 'map':
+                map_enc = data['map_enc'].unsqueeze(1).repeat((1, sample_num, 1))
+                in_arr.append(map_enc)
+            else:
+                raise ValueError('wrong decode input type!')
+        if self.use_sfm:
+            sf_feat = data['pre_sf_feat'][-1].unsqueeze(1).repeat((1, sample_num, 1))
+            in_arr.append(sf_feat)
+        dec_in_z = torch.cat(in_arr, dim=-1)
+
+        mem_agent_mask = data['agent_mask'].clone()
+        tgt_agent_mask = data['agent_mask'].clone()
+
+        for i in range(self.future_frames):
+            for a_i in range(agent_num):
+                traj_in = dec_in_z.view(-1, dec_in_z.shape[-1])
+                print("traj_in.shape:", traj_in.shape)
+                # if self.input_norm is not None:
+                #     traj_in = self.input_norm(traj_in)
+                tf_in = self.input_fc(traj_in).view(dec_in_z.shape[0], -1, self.model_dim)
+                print("tf_in.shape:", tf_in.shape)
+                agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
+                tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle, t_offset=self.past_frames-1 if self.pos_offset else 0)
+                print("tf_in_pos.shape:", tf_in_pos.shape)
+                # tf_in_pos = tf_in
+                mem_mask = generate_mask(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
+                print("mem_mask.shape:", mem_mask.shape)
+                tgt_mask = generate_ar_mask(tf_in_pos.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
+                print("tgt_mask.shape:", tgt_mask.shape)
+                print("before tf decoder")
+
+                tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
+                print("tf_out.shape:", tf_out.shape)
+
+                out_tmp = tf_out.view(-1, tf_out.shape[-1])
+                print("out_tmp.shape:", out_tmp.shape)
+                # if self.out_mlp_dim is not None:
+                #     out_tmp = self.out_mlp(out_tmp)
+                seq_out = self.out_fc(out_tmp).view(tf_out.shape[0], -1, self.forecast_dim)
+                print("seq_out.shape:", seq_out.shape)
+                if self.pred_type == 'scene_norm' and self.sn_out_type in {'vel', 'norm'}:
+                    norm_motion = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
+                    # if self.sn_out_type == 'vel':
+                    #     norm_motion = torch.cumsum(norm_motion, dim=0)
+                    # if self.sn_out_heading:
+                    #     angles = data['heading'].repeat_interleave(sample_num)
+                    #     norm_motion = rotation_2d_torch(norm_motion, angles)[0]
+                    seq_out = norm_motion + pre_motion_scene_norm[[-1]]
+                    seq_out = seq_out.view(tf_out.shape[0], -1, seq_out.shape[-1])
+                if self.ar_detach:
+                    out_in = seq_out[-agent_num:].clone().detach()
+                    # out_in = seq_out[-agent_num+a_i:-agent_num+a_i+1].clone().detach()
+                else:
+                    out_in = seq_out[-agent_num:]
+                # create dec_in_z
+                in_arr = [out_in, z_in]
+                print("out_in.shape:", out_in.shape)
+                print("seq_out.shape:", seq_out.shape)
+                # for key in self.input_type:
+                #     if key == 'heading':
+                #         in_arr.append(heading)
+                #     elif key == 'map':
+                #         in_arr.append(map_enc)
+                #     else:
+                #         raise ValueError('wrong decoder input type!')
+                # if self.use_sfm:
+                #     assert self.pred_type == 'scene_norm'
+                #     pos = out_in + data['scene_orig']
+                #     tmp_pos = pre_motion_scene_norm[-1].view(-1, sample_num, self.forecast_dim) if i == 0 else last_pos
+                #     vel = pos - tmp_pos
+                #     state = torch.cat([pos, vel], dim=-1)
+                #     sf_feat = compute_grad_feature(state, self.sfm_params, self.sfm_learnable_hparams)
+                #     in_arr.append(sf_feat)
+                #     last_pos = pos
+                out_in_z = torch.cat(in_arr, dim=-1)
+                print("out_in_z.shape:", out_in_z.shape)
+                dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
+                print("dec_in_z.shape:", dec_in_z.shape)
+
+                import ipdb; ipdb.set_trace()
+
+        seq_out = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
+        data[f'{mode}_seq_out'] = seq_out
+
+        if self.pred_type == 'vel':
+            dec_motion = torch.cumsum(seq_out, dim=0)
+            dec_motion += pre_motion[[-1]]
+        elif self.pred_type == 'pos':
+            dec_motion = seq_out.clone()
+        elif self.pred_type == 'scene_norm':
+            dec_motion = seq_out + data['scene_orig']
+        else:
+            dec_motion = seq_out + pre_motion[[-1]]
+
+        dec_motion = dec_motion.transpose(0, 1).contiguous()       # M x frames x 7
+        if mode == 'infer':
+            dec_motion = dec_motion.view(-1, sample_num, *dec_motion.shape[1:])        # M x Samples x frames x 3
+        data[f'{mode}_dec_motion'] = dec_motion
+        if need_weights:
+            data['attn_weights'] = attn_weights
+
     def decode_traj_ar(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num, need_weights=False):
         agent_num = data['agent_num']
         if self.pred_type == 'vel':
@@ -452,7 +570,7 @@ class FutureDecoder(nn.Module):
     def decode_traj_batch(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num):
         raise NotImplementedError
 
-    def forward(self, data, mode, sample_num=1, autoregress=True, z=None, need_weights=False):
+    def forward(self, data, mode, sample_num=1, ped_one_at_a_time=False, autoregress=True, z=None, need_weights=False):
         context = data['context_enc'].repeat_interleave(sample_num, dim=1)       # 80 x 64
         pre_motion = data['pre_motion'].repeat_interleave(sample_num, dim=1)             # 10 x 80 x 2
         pre_vel = data['pre_vel'].repeat_interleave(sample_num, dim=1) if self.pred_type == 'vel' else None
@@ -481,7 +599,9 @@ class FutureDecoder(nn.Module):
             else:
                 raise ValueError('Unknown Mode!')
 
-        if autoregress:
+        if ped_one_at_a_time:
+            self.decode_traj_ar_ped_one_at_a_time(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num, need_weights=need_weights)
+        elif autoregress:
             self.decode_traj_ar(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num, need_weights=need_weights)
         else:
             self.decode_traj_batch(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num)
@@ -542,6 +662,7 @@ class AgentFormer(nn.Module):
         self.discrete_rot = cfg.get('discrete_rot', False)
         self.map_global_rot = cfg.get('map_global_rot', False)
         self.ar_train = cfg.get('ar_train', True)
+        self.ped_one_at_a_time = cfg.get('ped_one_at_a_time', False)
         self.max_train_agent = cfg.get('max_train_agent', 100)
         self.loss_cfg = self.cfg.loss_cfg
         self.loss_names = list(self.loss_cfg.keys())
@@ -705,8 +826,6 @@ class AgentFormer(nn.Module):
                 sf_feat.append(grad)
             sf_feat = torch.stack(sf_feat)
             self.data['fut_sf_feat'] = sf_feat
-        
-
 
     def step_annealer(self):
         for anl in self.param_annealers:
@@ -717,7 +836,7 @@ class AgentFormer(nn.Module):
             self.data['map_enc'] = self.map_encoder(self.data['agent_maps'])
         self.context_encoder(self.data)
         self.future_encoder(self.data)
-        self.future_decoder(self.data, mode='train', autoregress=self.ar_train)
+        self.future_decoder(self.data, mode='train', ped_one_at_a_time=self.ped_one_at_a_time, autoregress=self.ar_train)
         if self.compute_sample:
             self.inference(sample_num=self.loss_cfg['sample']['k'])
         return self.data
@@ -730,7 +849,7 @@ class AgentFormer(nn.Module):
         if mode == 'recon':
             sample_num = 1
             self.future_encoder(self.data)
-        self.future_decoder(self.data, mode=mode, sample_num=sample_num, autoregress=True, need_weights=need_weights)
+        self.future_decoder(self.data, mode=mode, sample_num=sample_num, ped_one_at_a_time=self.ped_one_at_a_time, autoregress=True, need_weights=need_weights)
         return self.data[f'{mode}_dec_motion'], self.data
 
     def compute_loss(self):
