@@ -111,14 +111,17 @@ def eval_one_seq(data_file, gt_raw, collision_rad, return_agent_traj_nums=False,
     """compute stats"""
     values = []
     agent_traj_nums = []
-    all_sample_vals = []
+    all_sample_vals = {}
+    # all_sample_vals = []
     for stats_name in stats_func:
         func = stats_func[stats_name]
-        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad, 'return_sample_vals': return_sample_vals}
+        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad,
+                           'return_sample_vals': return_sample_vals if stats_name not in 'ADE,FDE,CR_mADE,CR_mADEseq' else False,
+                           'return_argmin': return_sample_vals if stats_name == 'ADE' else False}
         value = func(**stats_func_args)
         if return_sample_vals:
             value, sample_vals = value
-            all_sample_vals.append(sample_vals)
+            all_sample_vals[stats_name] = sample_vals
         values.append(value)
         agent_traj_nums.append(len(agent_traj))
 

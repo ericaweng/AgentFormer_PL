@@ -31,7 +31,7 @@ def main(args):
         print("not in ipdb")
 
     if not in_ipdb and not args.mode == 'test':
-        plugin = DDPStrategy(find_unused_parameters=False)
+        plugin = DDPStrategy(find_unused_parameters=args.find_unused_params)
         args.devices = torch.cuda.device_count()
         accelerator = 'gpu'
     else:
@@ -43,8 +43,8 @@ def main(args):
 
     if args.test:
         sanity_val_steps = 0
-        lim_train_batch = 2
-        lim_val_batch = 2
+        lim_train_batch = 5
+        lim_val_batch = 5
     else:
         sanity_val_steps = 1
         lim_train_batch = None
@@ -52,7 +52,11 @@ def main(args):
 
     # Initialize data module
     dm = AgentFormerDataModule(cfg, args)
-    model = AgentFormerTrainer(cfg, args)
+    if args.log_graph:
+        example_input_array = [next(iter(dm.train_dataloader()))]
+    else:
+        example_input_array = None
+    model = AgentFormerTrainer(cfg, args, example_input_array)
     model.model.set_device(model.device)
 
     # Initialize trainer
@@ -62,7 +66,10 @@ def main(args):
         if len(models) == 0:
             models = sorted(glob.glob(os.path.join(default_root_dir, 'last*.ckpt')))
     elif args.mode == 'test' or args.mode == 'val':
-        models = sorted(glob.glob(os.path.join(default_root_dir, '*epoch=*.ckpt')))
+        if args.checkpoint_str is not None:
+            models = sorted(glob.glob(os.path.join(default_root_dir, f'*{args.checkpoint_str}*.ckpt')))
+        else:
+            models = sorted(glob.glob(os.path.join(default_root_dir, f'*epoch=*{args.checkpoint_str}*.ckpt')))
     else:
         raise NotImplementedError
     print("models:", models)
@@ -76,8 +83,8 @@ def main(args):
         resume_from_checkpoint = None
         print("STARTING new run from scratch")
     # Initialize trainer
-    if args.mode == 'train' and not args.test:
-        logger = TensorBoardLogger(args.logs_root, name=cfg.id)#cfg.result_dir, name='tb')#, version=args.experiment_name)
+    if args.mode == 'train' and (not args.test or args.log_on_test):
+        logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
     else:
         logger = None
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE')
@@ -94,9 +101,10 @@ def main(args):
                          logger=logger, callbacks=[early_stop_cb, checkpoint_callback],)
 
     if 'train' in args.mode:
-        trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
-        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir)
-        trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
+        n = trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
+        if n:
+            trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir)
+            trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
     elif 'test' in args.mode or 'val' in args.mode or 'cond' in args.mode:
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
     else:
@@ -109,12 +117,19 @@ if __name__ == '__main__':
     parser.add_argument('--mode', '-m', default='train')
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_workers', type=int, default=32)
-    parser.add_argument('--dont_resume', '-dr', dest='resume', action='store_false', default=True)
+    parser.add_argument('--dont_resume', '-dr', '-nc', dest='resume', action='store_false', default=True)
     parser.add_argument('--checkpoint_path', '-cp', default=None)
+    parser.add_argument('--checkpoint_str', '-c', default=None)
     parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
     parser.add_argument('--logs_root', default='results2')
+    parser.add_argument('--log_on_test', '-l', action='store_true', default=False)
+    parser.add_argument('--log_graph', '-g', action='store_true', default=False)
+    parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
+    parser.add_argument('--test_ds_size', '-t', default=10, type=int,
+                        help='max size of dataset to load when using the --test flag')
+    parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     args = parser.parse_args()
 
     time_str = get_timestring()

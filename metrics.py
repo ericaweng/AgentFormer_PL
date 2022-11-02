@@ -179,7 +179,7 @@ def compute_CR(pred_arr,
                aggregation='max',
                return_sample_vals=False,
                return_collision_mat=False,
-               collision_rad=None):
+               collision_rad=None, **kwargs):
     """Compute collision rate and collision-free likelihood.
     Input:
         - pred_arr: (np.array) (n_pedestrian, n_samples, timesteps, 4)

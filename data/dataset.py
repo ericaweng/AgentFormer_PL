@@ -16,7 +16,7 @@ from .ethucy_split import get_ethucy_split, get_ethucy_split_dagger
 class AgentFormerDataset(Dataset):
     """ torch Dataset """
 
-    def __init__(self, parser, split='train', phase='training', is_test_mode=False):
+    def __init__(self, parser, split='train', phase='training', test_ds_size=None):
         self.past_frames = parser.past_frames
         self.dagger = parser.get('dagger', False)
         self.dagger_data = parser.get('dagger_data', None)
@@ -24,7 +24,7 @@ class AgentFormerDataset(Dataset):
         self.frame_skip = parser.get('frame_skip', 1)
         self.phase = phase
         self.split = split
-        self.is_test_mode = is_test_mode
+        self.test_ds_size = test_ds_size
         assert phase in ['training', 'testing'], 'error'
         assert split in ['train', 'val', 'test'], 'error'
 
@@ -87,10 +87,10 @@ class AgentFormerDataset(Dataset):
             data = seq(frame)
             if data is None:
                 continue
-            if self.is_test_mode and idx == 5:
-                print("test mode: limiting to ds of size 5")
-                break
             datas.append(data)
+            if self.test_ds_size is not None and len(datas) == self.test_ds_size:
+                print(f"test mode: limiting to ds of size {self.test_ds_size}")
+                break
         self.sample_list = datas
 
         print(f'num valid samples: {len(self.sample_list)}')

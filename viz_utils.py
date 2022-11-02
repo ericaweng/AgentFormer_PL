@@ -6,6 +6,14 @@ import matplotlib.animation as animation
 import matplotlib.patches as patches
 
 
+def get_metrics_str(sample_vals):
+    stats = []
+    for k, v in sample_vals.items():
+        if 'CR_mADE' not in k and '_seq' not in k:
+            stats.append(f"{k} {v:0.4f}")
+    stats = "\n".join(stats)
+    return stats
+
 def plot_fig(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
     if plot_size is None:
         if len(list_of_arg_dicts) > 4:
