@@ -296,9 +296,25 @@ def agent_aware_attention(query: Tensor,
         ==================================
         """
         attn_output_weights_inter = attn_output_weights
+        # print("attn_output_weights.shape:", attn_output_weights.shape)
         attn_weight_self_mask = torch.eye(num_agent).to(q.device)
-        attn_weight_self_mask = attn_weight_self_mask.repeat([attn_output_weights.shape[1] // num_agent, attn_output_weights.shape[2] // num_agent]).unsqueeze(0)
+        # import ipdb; ipdb.set_trace()
+        _, future_agent_num, past_agent_num = attn_output_weights.shape
+        # repeat0 = attn_output_weights.shape[1] // num_agent
+        # repeat1 = attn_output_weights.shape[2] // num_agent
+        repeat1 = torch.ceil(torch.tensor(attn_output_weights.shape[1] / num_agent)).to(torch.int)
+        repeat2 = torch.ceil(torch.tensor(attn_output_weights.shape[2] / num_agent)).to(torch.int)
+        attn_weight_self_mask_repeated = attn_weight_self_mask.repeat([repeat1, repeat2]).unsqueeze(0)
+        # print("attn_weight_self_mask_repeated.shape:", attn_weight_self_mask_repeated.shape)
+        attn_weight_self_mask = attn_weight_self_mask_repeated[:, :attn_output_weights.shape[1], :attn_output_weights.shape[2]]
+        # if repeat1 != repeat2:
+        #     assert repeat1 == attn_output_weights.shape[1] // num_agent
+        #     assert repeat2 == attn_output_weights.shape[2] // num_agent
+        # print("attn_weight_self_mask.shape:", attn_weight_self_mask.shape)
         attn_output_weights_self = torch.bmm(q_self, k_self.transpose(1, 2))
+        # print("q_self.shape:", q_self.shape)
+        # print("k_self.shape:", k_self.shape)
+        # import ipdb; ipdb.set_trace()
 
         attn_output_weights = attn_output_weights_inter * (1 - attn_weight_self_mask) + attn_output_weights_self * attn_weight_self_mask
         if attn_mask is not None:

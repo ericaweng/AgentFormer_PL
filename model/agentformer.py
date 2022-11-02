@@ -15,64 +15,39 @@ from model.sfm import *
 from model.running_norm import RunningNorm
 
 
-# def generate_ar_mask(sz, agent_num, agent_mask, a_i=None):
-#     if a_i is not None:
-#         assert sz - a_i - 1 % agent_num == 0
-#     else:
-#         assert sz % agent_num == 0
-#     T = int(np.ceil(sz / agent_num))
-#     mask = agent_mask.repeat(T, T)
-#     for t in range(T-1):
-#         i1 = t * agent_num
-#         i2 = (t+1) * agent_num
-#         mask[i1:i2, i2:] = float('-inf')
-#
-#     if a_i is not None:
-#         cut = sz // agent_num + a_i + 1
-#         return mask[:cut, :cut]
-#     return mask
-
-def generate_ar_mask(sz, agent_num, agent_mask):
+def generate_ar_mask_1aaat(sz, agent_num, agent_mask):
     # assert sz % agent_num == 0
     T = np.ceil(sz / agent_num).astype(np.int)
     mask = agent_mask.repeat(T, T)[:sz,:sz]
     indexer = torch.arange(sz).to(mask.device)
-    time_mask = ((indexer[:, None] >= indexer) | (indexer[None, :] <= agent_num) & (indexer[:, None] <= agent_num))
-    joint_mask = mask * time_mask
-    # torch.triu(sz)
-    # for t in range(T-1):
-    #     i1 = t * agent_num
-    #     i2 = (t+1) * agent_num
-    #     mask[i1:i2, i2:] = float('-inf')
+    time_mask = (indexer[:, None] > indexer - agent_num)  # | (indexer[None, :] < agent_num) & (indexer[:, None] < agent_num))
+    joint_mask = ~(mask.to(bool) | time_mask)
+    print("joint_mask:", joint_mask)
+    # import ipdb; ipdb.set_trace()
     return joint_mask
 
-# def generate_ar_mask(sz, agent_num, agent_mask):
-#     assert sz % agent_num == 0
-#     T = sz // agent_num
-#     mask = agent_mask.repeat(T, T)
-#     for t in range(T-1):
-#         i1 = t * agent_num
-#         i2 = (t+1) * agent_num
-#         mask[i1:i2, i2:] = float('-inf')
-#     return mask
+
+def generate_ar_mask(sz, agent_num, agent_mask):
+    assert sz % agent_num == 0
+    T = sz // agent_num
+    mask = agent_mask.repeat(T, T)
+    for t in range(T-1):
+        i1 = t * agent_num
+        i2 = (t+1) * agent_num
+        mask[i1:i2, i2:] = float('-inf')
+    return mask
 
 
-# def generate_mask(tgt_sz, src_sz, agent_num, agent_mask, a_i=None):
-#     assert src_sz % agent_num == 0
-#     if a_i is not None:
-#         assert (tgt_sz - a_i - 1) % agent_num == 0
-#     else:
-#         assert tgt_sz % agent_num == 0
-#     mask = agent_mask.repeat(int(np.ceil(tgt_sz / agent_num)), src_sz // agent_num)
-#     if a_i is not None:
-#         mask = mask[:-agent_num+a_i+1]
-#     return mask
+def generate_mask(tgt_sz, src_sz, agent_num, agent_mask):
+    assert tgt_sz % agent_num == 0 and src_sz % agent_num == 0
+    mask = agent_mask.repeat(tgt_sz // agent_num, src_sz // agent_num)
+    return mask
 
 
-# def generate_mask(tgt_sz, src_sz, agent_num, agent_mask):
-#     assert tgt_sz % agent_num == 0 and src_sz % agent_num == 0
-#     mask = agent_mask.repeat(tgt_sz // agent_num, src_sz // agent_num)
-#     return mask
+def generate_mask_1aaat(tgt_sz, src_sz, agent_num, agent_mask):
+    assert src_sz % agent_num == 0
+    mask = agent_mask.repeat(np.ceil(tgt_sz / agent_num).astype(np.int), src_sz // agent_num)[:tgt_sz]
+    return mask
 
 
 """ Positional Encoding """
@@ -113,7 +88,7 @@ class PositionalAgentEncoding(nn.Module):
         ae[:, 1::2] = torch.cos(position * div_term)
         ae = ae.unsqueeze(0).transpose(0, 1)
         return ae
-    
+
     def get_pos_enc(self, num_t, num_a, t_offset):
         pe = self.pe[t_offset: num_t + t_offset, :]
         pe = pe.repeat_interleave(num_a, dim=0)
@@ -128,8 +103,8 @@ class PositionalAgentEncoding(nn.Module):
         return ae
 
     def forward(self, x, num_a, agent_enc_shuffle=None, t_offset=0, a_offset=0):
-        num_t = x.shape[0] // num_a
-        pos_enc = self.get_pos_enc(num_t, num_a, t_offset)
+        num_t = np.ceil(x.shape[0] / num_a).astype(np.int)  # x.shape[0] // num_a
+        pos_enc = self.get_pos_enc(num_t, num_a, t_offset)[:x.shape[0]]
         if self.use_agent_enc:
             agent_enc = self.get_agent_enc(num_t, num_a, a_offset, agent_enc_shuffle)
         if self.concat:
@@ -205,7 +180,7 @@ class ContextEncoder(nn.Module):
                 traj_in.append(data['pre_sf_feat'])
             else:
                 raise ValueError('unknown input_type!')
-        
+
         traj_in = torch.cat(traj_in, dim=-1)
         traj_in = traj_in.view(-1, traj_in.shape[-1])
         if self.input_norm is not None:
@@ -213,12 +188,12 @@ class ContextEncoder(nn.Module):
         tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
         tf_in_pos = self.pos_encoder(tf_in, num_a=data['agent_num'], agent_enc_shuffle=agent_enc_shuffle)
-        
+
         src_agent_mask = data['agent_mask'].clone()
         src_mask = generate_mask(tf_in.shape[0], tf_in.shape[0], data['agent_num'], src_agent_mask).to(tf_in.device)
-        
+
         data['context_enc'] = self.tf_encoder(tf_in_pos, mask=src_mask, num_agent=data['agent_num'])
-        
+
         context_rs = data['context_enc'].view(-1, data['agent_num'], self.model_dim)
         # compute per agent context
         if self.pooling == 'mean':
@@ -311,7 +286,7 @@ class FutureEncoder(nn.Module):
         tgt_agent_mask = data['agent_mask'].clone()
         mem_mask = generate_mask(tf_in.shape[0], data['context_enc'].shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
         tgt_mask = generate_mask(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask).to(tf_in.device)
-        
+
         tf_out, _ = self.tf_decoder(tf_in_pos, data['context_enc'], memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'])
         tf_out = tf_out.view(batch_size, -1, self.model_dim)
 
@@ -423,6 +398,7 @@ class FutureDecoder(nn.Module):
         mem_agent_mask = data['agent_mask'].clone()
         tgt_agent_mask = data['agent_mask'].clone()
 
+        seq_outs = []
         for i in range(self.future_frames):
             for a_i in range(agent_num):
                 print("dec_in_z.shape (raw context + latent + other info. input into the decoder, each round of preds):", dec_in_z.shape)
@@ -437,14 +413,14 @@ class FutureDecoder(nn.Module):
                 # tf_in = self.input_fc(traj_in).view(dec_in_z_relevant_agents.shape[0], -1, self.model_dim)
                 print("tf_in.shape:", tf_in.shape)
                 agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
-                tf_in_pos = self.pos_encoder(tf_in, num_a=a_i+1, agent_enc_shuffle=agent_enc_shuffle, t_offset=self.past_frames-1 if self.pos_offset else 0)
+                tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle, t_offset=self.past_frames-1 if self.pos_offset else 0)
                 print("tf_in_pos.shape:", tf_in_pos.shape)
                 # tf_in_pos = tf_in
-                mem_mask = generate_mask(tf_in.shape[0], context.shape[0], agent_num, mem_agent_mask).to(tf_in.device)
+                mem_mask = generate_mask_1aaat(tf_in.shape[0], context.shape[0], agent_num, mem_agent_mask).to(tf_in.device)
                 # print("mem_mask0.shape:", mem_mask0.shape)
                 # mem_mask = generate_mask(tf_in.shape[0], context.shape[0], agent_num, mem_agent_mask, a_i).to(tf_in.device)
                 print("mem_mask.shape:", mem_mask.shape)
-                tgt_mask = generate_ar_mask(tf_in_pos.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
+                tgt_mask = generate_ar_mask_1aaat(tf_in_pos.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
                 # print("tgt_mask0.shape:", tgt_mask0.shape)
                 # tgt_mask = generate_ar_mask(tf_in_pos.shape[0], agent_num, tgt_agent_mask, a_i).to(tf_in.device)
                 print("tgt_mask.shape:", tgt_mask.shape)
@@ -458,31 +434,44 @@ class FutureDecoder(nn.Module):
                 print("out_tmp.shape:", out_tmp.shape)
                 # if self.out_mlp_dim is not None:
                 #     out_tmp = self.out_mlp(out_tmp)
-                seq_out = self.out_fc(out_tmp).view(tf_out.shape[0], -1, self.forecast_dim)
-                print("seq_out.shape:", seq_out.shape)
+                seq_out_all = self.out_fc(out_tmp).view(tf_out.shape[0], -1, self.forecast_dim)
+                print("seq_out_all:\n", seq_out_all)
+                # get only the agent being predicted.
+                # past agents should be the same; but we already have them in dec_in_z.
+                # future agents are useless. maybe use them as loss in the future.
+                # num_agent_ts = seq_out_all.shape[0]
+                seq_out = seq_out_all[-agent_num: -agent_num + 1]
+                # seq_out = seq_out_all[num_agent_ts - agent_num + a_i: num_agent_ts - agent_num + a_i + 1]
+                print("seq_out:\n", seq_out)
+                print("seq_out.shape (after taking just the current timestep predictions and relevant agents "
+                      "for the next prediction):", seq_out.shape)
                 if self.pred_type == 'scene_norm' and self.sn_out_type in {'vel', 'norm'}:
-                    norm_motion = seq_out.view(-1, (a_i + 1) * sample_num, seq_out.shape[-1])
-                    print("norm_motion.shape:", norm_motion.shape)
+                    norm_motion = seq_out.view(-1, sample_num * 1, seq_out.shape[-1])
                     # norm_motion = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
+                    print("norm_motion.shape:", norm_motion.shape)
                     # if self.sn_out_type == 'vel':
                     #     norm_motion = torch.cumsum(norm_motion, dim=0)
                     # if self.sn_out_heading:
                     #     angles = data['heading'].repeat_interleave(sample_num)
                     #     norm_motion = rotation_2d_torch(norm_motion, angles)[0]
-                    # seq_out = norm_motion + pre_motion_scene_norm[[-1]]
-                    seq_out = norm_motion + pre_motion_scene_norm[-1:, :a_i+1]
-                    seq_out = seq_out.view(tf_out.shape[0], -1, seq_out.shape[-1])
+                    # seq_out = norm_motion + pre_motion_scene_norm.repeat()#[-1:, a_i:a_i+1]
+                    seq_out = norm_motion + pre_motion_scene_norm[-1:, a_i:a_i+1]
+                    seq_out = seq_out.view(-1, sample_num, seq_out.shape[-1])
+                    # seq_out = seq_out.view(tf_out.shape[0], -1, seq_out.shape[-1])
                     print("seq_out.shape after adding norm motion:", seq_out.shape)
+                seq_outs.append(seq_out)
+                print("seq_outs:\n", seq_outs)
+                print("dec_in:\n", dec_in_z[...,:2])
+                # print("seq_out:", seq_out)
                 # get just the next ts's predictions, because the rest is previous predictions (dec_in_z),
                 # which we already have (and it's identical to seq_out)
-                # out_in = seq_out[-a_i-1:].clone().detach()
-                out_in = seq_out[-agent_num:-agent_num+a_i+1].clone().detach()
+                # out_in = seq_out[-1:].clone().detach()
+                # out_in = seq_out[-agent_num:-agent_num+a_i+1].clone().detach()
+                out_in = seq_out
                 if self.ar_detach:
                     out_in = out_in.clone().detach()
                     # out_in = seq_out[-agent_num:].clone().detach()
                     # out_in = seq_out[-agent_num+a_i:-agent_num+a_i+1].clone().detach()
-                print("out_in.shape (after taking just the current timestep predictions and relevant agents "
-                      "for the next prediction):", out_in.shape)
                 # create dec_in_z
                 # out_ins.append(out_in)
 
@@ -508,9 +497,13 @@ class FutureDecoder(nn.Module):
                 out_in_z = torch.cat(in_arr, dim=-1)
                 print("out_in_z.shape (to be concatted with context + previous predicted agent-ts, for next round):", out_in_z.shape)
                 dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
+                print("dec_in_z:", dec_in_z[...,:2])
                 print("dec_in_z.shape:", dec_in_z.shape)
                 import ipdb; ipdb.set_trace()
+                print()
+                print()
 
+        seq_out = torch.cat(seq_outs)
         seq_out = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
         print("seq_out.shape:", seq_out.shape)
         data[f'{mode}_seq_out'] = seq_out
@@ -662,7 +655,7 @@ class FutureDecoder(nn.Module):
         pre_motion = data['pre_motion'].repeat_interleave(sample_num, dim=1)             # 10 x 80 x 2
         pre_vel = data['pre_vel'].repeat_interleave(sample_num, dim=1) if self.pred_type == 'vel' else None
         pre_motion_scene_norm = data['pre_motion_scene_norm'].repeat_interleave(sample_num, dim=1)
-        
+
         # p(z)
         prior_key = 'p_z_dist' + ('_infer' if mode == 'infer' else '')
         if self.learn_prior:
@@ -692,7 +685,7 @@ class FutureDecoder(nn.Module):
             self.decode_traj_ar(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num, need_weights=need_weights)
         else:
             self.decode_traj_batch(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num)
-        
+
 
 
 """ AgentFormer """
@@ -761,7 +754,7 @@ class AgentFormer(nn.Module):
 
         # save all computed variables
         self.data = None
-        
+
         # map encoder
         if self.use_map:
             self.map_encoder = MapEncoder(cfg.map_encoder)
