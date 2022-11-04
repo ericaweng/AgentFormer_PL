@@ -187,7 +187,6 @@ def compute_CR(pred_arr,
     Return:
         Collision rates
     """
-    # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
     n_ped, n_sample, _, _ = pred_arr.shape
 
     # if evaluating different indices
@@ -204,6 +203,7 @@ def compute_CR(pred_arr,
         assert len(pred_arr.shape) == 4
 
     pred_arr = np.array(pred_arr).swapaxes(1, 0)
+    # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
     col_pred = np.zeros((n_sample))
     col_mats = []
     if n_ped > 1:

@@ -90,7 +90,7 @@ def get_gt_from_raw_and_preds_from_file(gt_raw, data_file):
     return np.array(gt_traj), np.array(agent_traj)
 
 
-def eval_one_seq(data_file, gt_raw, collision_rad, return_agent_traj_nums=False, return_sample_vals=False):
+def eval_one_seq(data_file, gt_raw, collision_rad, return_agent_traj_nums=False):
     """"""
     if len(gt_raw.shape) == 2 and isinstance(data_file, str):
         gt_traj, agent_traj = get_gt_from_raw_and_preds_from_file(gt_raw, data_file)
@@ -111,26 +111,73 @@ def eval_one_seq(data_file, gt_raw, collision_rad, return_agent_traj_nums=False,
     """compute stats"""
     values = []
     agent_traj_nums = []
-    all_sample_vals = {}
-    # all_sample_vals = []
     for stats_name in stats_func:
         func = stats_func[stats_name]
-        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad,
-                           'return_sample_vals': return_sample_vals if stats_name not in 'ADE,FDE,CR_mADE,CR_mADEseq' else False,
-                           'return_argmin': return_sample_vals if stats_name == 'ADE' else False}
+        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad}
         value = func(**stats_func_args)
-        if return_sample_vals:
-            value, sample_vals = value
-            all_sample_vals[stats_name] = sample_vals
         values.append(value)
         agent_traj_nums.append(len(agent_traj))
 
     return_vals = [values]
     if return_agent_traj_nums:
         return_vals.append(agent_traj_nums)
-    if return_sample_vals:
-        return_vals.append(all_sample_vals)
     return return_vals[0] if len(return_vals) == 1 else return_vals
+
+
+def eval_one_seq2(data_file, gt_raw, collision_rad, return_sample_vals=False):
+    """new function, for returning necessary vals for plotting"""
+    if len(gt_raw.shape) == 2 and isinstance(data_file, str):
+        gt_traj, agent_traj = get_gt_from_raw_and_preds_from_file(gt_raw, data_file)
+    else:
+        assert isinstance(gt_raw, np.ndarray)
+        assert isinstance(data_file, np.ndarray)
+        gt_traj = gt_raw
+        agent_traj = data_file
+    # assert isinstance(gt_traj, list) and len(gt_traj[0].shape) == 2 or len(gt_traj.shape) == 3, \
+    assert isinstance(gt_traj, np.ndarray) and len(gt_traj.shape) == 3, \
+        f"len(gt_traj.shape) should be 3 but is {len(gt_traj.shape)}"
+    # assert isinstance(agent_traj, list) and len(agent_traj[0].shape) == 3 or len(agent_traj.shape) == 4, \
+    assert isinstance(agent_traj, np.ndarray) and len(agent_traj.shape) == 4, \
+        f"len(agent_traj.shape) should be 4 but is {len(agent_traj.shape)}"
+    assert agent_traj.shape[0] == gt_traj.shape[0]
+    assert agent_traj.shape[1] == 20
+
+    """compute stats"""
+    values = []
+    all_sample_vals = {}
+    argmins = None
+    collision_mats = None
+    for stats_name in stats_func:
+        func = stats_func[stats_name]
+        return_sample_vals_this_stat = return_sample_vals if stats_name in ['ADE_seq', 'FDE_seq', 'CR_mean'] else False
+        return_argmins_this_stat = return_sample_vals if stats_name == 'ADE' else False
+        return_collision_mats_this_stat = return_sample_vals if stats_name == 'CR_max' else False
+        stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad,
+                           'return_sample_vals': return_sample_vals_this_stat,
+                           'return_argmin': return_argmins_this_stat,
+                           'return_collision_mat': return_collision_mats_this_stat}
+        value = func(**stats_func_args)
+        if return_sample_vals_this_stat:
+            value, sample_vals = value
+            all_sample_vals[stats_name.split('_')[0]] = sample_vals
+        if return_argmins_this_stat:
+            value, argmins = value
+        if return_collision_mats_this_stat:
+            value, collision_mats = value
+        # if isinstance(return_sample_vals, tuple):
+        #     value, sample_vals = value
+        #     all_sample_vals[stats_name] = sample_vals
+        values.append(value)
+
+    return values, all_sample_vals, argmins, collision_mats
+    # return_vals = [values]
+    # if return_agent_traj_nums:
+    #     return_vals.append(agent_traj_nums)
+    # if return_sample_vals:
+    #     return_vals.append(all_sample_vals)
+    # if argmins is not None:
+    #     return_vals.append(argmins)
+    # return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
 if __name__ == '__main__':

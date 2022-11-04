@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 import numpy as np
 from itertools import starmap
 from functools import partial
-from eval import eval_one_seq
+from eval import eval_one_seq2
 from metrics import stats_func
 import multiprocessing
 from model.model_lib import model_dict
@@ -74,19 +74,15 @@ class AgentFormerTrainer(pl.LightningModule):
         # pred_motion: num_peds, num_samples, ts, 2       # gt_motion: num_peds, ts, 2
         if self.args.mp:
             with multiprocessing.Pool(self.num_workers) as pool:
-                all_metrics = pool.starmap(partial(eval_one_seq,
+                all_metrics = pool.starmap(partial(eval_one_seq2,
                                                    collision_rad=self.collision_rad,
-                                                   return_agent_traj_nums=False,
                                                    return_sample_vals=self.args.save_viz), args_list)
         else:
-            all_metrics = starmap(partial(eval_one_seq,
+            all_metrics = starmap(partial(eval_one_seq2,
                                           collision_rad=self.collision_rad,
-                                          return_agent_traj_nums=False,
                                           return_sample_vals=self.args.save_viz), args_list)
-        if self.args.save_viz:
-            all_metrics, all_sample_vals = zip(*all_metrics)
-        else:
-            all_sample_vals = None
+
+        all_metrics, all_sample_vals, argmins, collision_mats = zip(*all_metrics)
 
         num_agent_per_seq = np.array([output['gt_motion'].shape[0] for output in outputs])
         total_num_agents = np.sum(num_agent_per_seq)
@@ -97,26 +93,64 @@ class AgentFormerTrainer(pl.LightningModule):
             else:  # agent-based metric
                 value = np.sum(values * num_agent_per_seq) / np.sum(num_agent_per_seq)
             results_dict[key] = value
-        return results_dict, total_num_agents, all_metrics, all_sample_vals
+
+        # log and print results
+        print(f"\n\n\n{self.current_epoch}")
+        self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
+        for key, value in results_dict.items():
+            print(f"{value:.4f}")
+            self.log(f'val/{key}', value, sync_dist=True, prog_bar=True, logger=True)
+        print(total_num_agents)
+
+        if self.args.save_viz:
+            self._save_viz(outputs, all_sample_vals, all_metrics, argmins, collision_mats)
+
+    def _save_viz(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats):
+        seq_to_plot_args = []
+        for frame_i, (output, seq_to_sample_metrics) in enumerate(zip(outputs, all_sample_vals)):
+            frame = output['frame']
+            seq = output['seq']
+            pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
+            pred_fake_traj = output['pred_motion'].numpy().transpose(1, 2, 0, 3)  # (samples, ts, n_peds, 2)
+
+            num_samples, _, n_ped, _ = pred_fake_traj.shape
+
+            anim_save_fn = f'viz/{seq}_frame-{frame}.mp4'
+            plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame}", (5, 4)]
+
+            pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
+            min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
+            args_dict = {'plot_title': f"best mADE sample",
+                         'pred_traj_gt': pred_gt_traj,
+                         'pred_traj_fake': pred_fake_traj_min,
+                         'text_fixed': min_ADE_stats}
+            plot_args_list.append(args_dict)
+
+            for sample_i in range(num_samples - 1):
+                stats = get_metrics_str(seq_to_sample_metrics, sample_i)
+                args_dict = {'plot_title': f"Sample {sample_i}",
+                             'pred_traj_gt': pred_gt_traj,
+                             'pred_traj_fake': pred_fake_traj[sample_i],
+                             'text_fixed': stats,
+                             'highlight_peds': argmins[frame_i],
+                             'collision_mats': collision_mats[frame_i][sample_i]}
+                plot_args_list.append(args_dict)
+            seq_to_plot_args.append(plot_args_list)
+
+        if self.args.mp:
+            with multiprocessing.Pool(self.num_workers) as pool:
+                pool.starmap(plot_fig, seq_to_plot_args)
+        else:
+            list(starmap(plot_fig, seq_to_plot_args))
 
     def train_epoch_end(self, outputs):
         self.model.step_annealer()
 
     def validation_epoch_end(self, outputs):
-        results_dict, total_num_agents, _, _ = self._epoch_end(outputs)
-        self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
-        for key, value in results_dict.items():
-            self.log(f'val/{key}', value, sync_dist=True, prog_bar=True, logger=True)
+        self._epoch_end(outputs)
 
     def test_epoch_end(self, outputs):
-        results_dict, total_num_agents, all_meters_values, all_sample_vals = self._epoch_end(outputs)
-        print(f"\n\n\n{self.current_epoch}")
-        for key, value in results_dict.items():
-            print(f"{value:.4f}")
-        print(total_num_agents)
-
-        if self.args.save_viz:
-            _save_viz(outputs, all_sample_vals, all_meters_values)
+        self._epoch_end(outputs)
 
     def on_load_checkpoint(self, checkpoint):
         if 'model_dict' in checkpoint and 'epoch' in checkpoint:
@@ -139,31 +173,3 @@ class AgentFormerTrainer(pl.LightningModule):
             raise ValueError('unknown scheduler type!')
 
         return [optimizer], [scheduler]
-
-    def _save_viz(self, outputs, all_sample_vals, all_meters_values):
-        seq_to_plot_args = []
-        for frame_i, (output, seq_to_sample_metrics) in enumerate(zip(outputs, all_sample_vals)):
-            frame = output['frame']
-            seq = output['seq']
-            pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
-            pred_fake_traj = output['pred_motion'].numpy().transpose(1, 2, 0, 3)  # (samples, ts, n_peds, 2)
-            anim_save_fn = f'viz/{seq}_frame-{frame}.mp4'
-            plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame}", (5, 4)]
-            min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
-            args_dict = {'plot_title': f"best mADE sample",
-                         'pred_traj_gt': pred_gt_traj,
-                         'pred_traj_fake': pred_fake_traj,
-                         'text_fixed': min_ADE_stats}
-            plot_args_list.append(args_dict)
-            seq_to_sample_metrics = np.array(seq_to_sample_metrics).swapaxes(0, 1)
-            for sample_i, sample_metrics in enumerate(seq_to_sample_metrics[:19]):
-                stats = get_metrics_str(sample_metrics)
-                args_dict = {'plot_title': f"Sample {sample_i}",
-                             'pred_traj_gt': pred_gt_traj,
-                             'pred_traj_fake': pred_fake_traj[sample_i],
-                             'text_fixed': stats}
-                plot_args_list.append(args_dict)
-            seq_to_plot_args.append(plot_args_list)
-
-        with multiprocessing.Pool(self.num_workers) as pool:
-            pool.starmap(plot_fig, seq_to_plot_args)

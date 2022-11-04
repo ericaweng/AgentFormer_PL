@@ -43,8 +43,8 @@ def main(args):
 
     if args.test:
         sanity_val_steps = 0
-        lim_train_batch = 5
-        lim_val_batch = 5
+        lim_train_batch = int(args.test_ds_size / args.batch_size)
+        lim_val_batch = int(args.test_ds_size / args.batch_size)
     else:
         sanity_val_steps = 1
         lim_train_batch = None
@@ -69,7 +69,7 @@ def main(args):
         if args.checkpoint_str is not None:
             models = sorted(glob.glob(os.path.join(default_root_dir, f'*{args.checkpoint_str}*.ckpt')))
         else:
-            models = sorted(glob.glob(os.path.join(default_root_dir, f'*epoch=*{args.checkpoint_str}*.ckpt')))
+            models = sorted(glob.glob(os.path.join(default_root_dir, f'*epoch=*.ckpt')))
     else:
         raise NotImplementedError
     print("models:", models)
@@ -123,7 +123,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
-    parser.add_argument('--logs_root', default='results2')
+    parser.add_argument('--logs_root', '-lr', default='results3')
     parser.add_argument('--log_on_test', '-l', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)

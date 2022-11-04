@@ -6,13 +6,16 @@ import matplotlib.animation as animation
 import matplotlib.patches as patches
 
 
-def get_metrics_str(sample_vals):
+def get_metrics_str(sample_vals, i=None):
     stats = []
     for k, v in sample_vals.items():
-        if 'CR_mADE' not in k and '_seq' not in k:
+        if i is None:
             stats.append(f"{k} {v:0.4f}")
+        else:
+            stats.append(f"{k} {v[i]:0.4f}")
     stats = "\n".join(stats)
     return stats
+
 
 def plot_fig(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
     if plot_size is None:
@@ -45,19 +48,17 @@ def plot_fig(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
     pred_len = 12
 
     bounds = []
+    for graph in list_of_arg_dicts:
+        for key, val in graph.items():
+            if 'traj' in key:
+                bounds.append(np.array(val).reshape(-1, 2))
+    bounds = np.concatenate(bounds)
+    bounds = [*np.min(bounds, axis=0), *np.max(bounds, axis=0)]
+
     for ax_i, (arg_dict,ax) in enumerate(zip(list_of_arg_dicts, axes)):
         ao = AnimObj()
         anim_graphs.append(ao)
-        ao.plot_traj_anim(**arg_dict, ax=ax)
-        bounds.append(ao.bounds)
-
-    # reset bounds to be equal across all graphs, now that they are calculated
-    bounds = np.stack(bounds)
-    x_low, y_low = np.min(bounds[:, [0,2]], axis=0)
-    x_high, y_high = np.max(bounds[:, [1,3]], axis=0)
-    for ax_i, (arg_dict,ax) in enumerate(zip(list_of_arg_dicts, axes)):
-        ax.set_xlim(x_low, x_high)
-        ax.set_ylim(y_low, y_high)
+        ao.plot_traj_anim(**arg_dict, ax=ax, bounds=bounds)
 
     anim = animation.FuncAnimation(fig, lambda frame_i: [ag.update(frame_i) for ag in anim_graphs],
                                    frames=obs_len + pred_len, interval=500)
@@ -78,14 +79,13 @@ class AnimObj:
 
     def __init__(self):
         self.update = None
-        self.bounds = None
 
     def plot_traj_anim(self, obs_traj=None, save_fn=None, ped_radius=0.1, ped_discomfort_dist=0.2, pred_traj_gt=None,
                        pred_traj_fake=None, ped_num_label_on='gt',
                        bounds=None, int_cat_abbv=None, scene_stats=None, cfg_names=None,
                        collision_mats=None, cmap_name='tab10', extend_last_frame=3, show_ped_stats=False,
                        text_time=None, text_fixed=None, grid_values=None, plot_collisions_all=False, plot_title=None,
-                       ax=None, update=None, pred_alpha=None):
+                       ax=None, update=None, pred_alpha=None, highlight_peds=[]):
         """
         obs_traj: shape (8, num_peds, 2) observation input to model, first 8 timesteps of the scene
         save_fn: file name where to save animation
@@ -94,7 +94,7 @@ class AnimObj:
                         or tensor of shape (num_samples, 8 or 12 pred timesteps, num_peds, 2)
                         or list of tensors of shape (8 or 12, num_peds, 2)  (where each item are the samples predicted by a different model)
                         or list of tensors of shape (num_samples, 8 or 12 pred timesteps, num_peds, 2)
-        bounds: x_low, x_high, y_low, y_high: plotting bounds
+        bounds: x_low, y_low, x_high, y_high: plotting bounds
                 if not specified the min and max bounds of whichever trajectories are present are used
         pred_traj_gt: shape (8 or 12, num_peds, 2) ground-truth trajectory
         interaction_matrix: shape (num_peds, num_peds - 1) specifies which pairs belong to the given int_type.
@@ -178,8 +178,7 @@ class AnimObj:
             x_low, x_high = np.min(all_traj[:, 0]) - ped_radius, np.max(all_traj[:, 0]) + ped_radius
             y_low, y_high = np.min(all_traj[:, 1]) - ped_radius, np.max(all_traj[:, 1]) + ped_radius
         else:  # set bounds as specified
-            x_low, x_high, y_low, y_high = bounds
-        self.bounds = x_low, x_high, y_low, y_high
+            x_low, y_low, x_high, y_high = bounds
         ax.set_xlim(x_low, x_high)
         ax.set_ylim(y_low, y_high)
 
@@ -270,15 +269,15 @@ class AnimObj:
                 for model_i, ptf in enumerate(pred_traj_fake):
                     lpf_inner, cf_inner = [], []
                     for sample_i, p in enumerate(ptf):
-                        circle_fake = plt.Circle(ptf[0, ped_i], ped_radius, fill=True,
+                        circle_fake = plt.Circle(p[0, ped_i], ped_radius, fill=True,
                                                  color=color_fake[ped_i % len(color_fake)][model_i],
                                                  alpha=pred_alpha, visible=False, zorder=1)
                         cf_inner.append(ax.add_artist(circle_fake))
                         if cfg_names is not None:
                             label = f"{cfg_names[model_i]} ped {ped_i}" if sample_i == 0 else None
                         marker = locals()[f'markers_{model_i}'][sample_i]
-                        color = color_fake[ped_i][model_i]
-                        line_pred_fake = mlines.Line2D(*ptf[0:1].T, color=color,
+                        color = color_fake[ped_i % len(color_fake)][model_i]
+                        line_pred_fake = mlines.Line2D(*p[0:1].T, color=color,
                                                        marker=marker,
                                                        linestyle=linestyles[model_i],
                                                        alpha=pred_alpha, zorder=2,
@@ -307,8 +306,9 @@ class AnimObj:
         else:
             raise RuntimeError
         for ped_i, circle in enumerate(circles_to_plot_ped_num):
+            weight = 'bold' if ped_i in highlight_peds else None
             int_text = ax.text(circle.center[0] + text_offset_x, circle.center[1] - text_offset_y,
-                               str(ped_i), color='black', fontsize=8)
+                               str(ped_i), color='black', fontsize=8, weight=weight)
             ped_texts.append(ax.add_artist(int_text))
 
         # plot collision circles for predictions only

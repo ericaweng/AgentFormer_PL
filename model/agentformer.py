@@ -540,8 +540,6 @@ class FutureDecoder(nn.Module):
         dec_in = dec_in.view(-1, sample_num, dec_in.shape[-1])
         z_in = z.view(-1, sample_num, z.shape[-1])
         in_arr = [dec_in, z_in]
-        # print("dec_in.shape (last obs step + previous decoded timesteps):", dec_in.shape)
-        # print("z_in (latent, output of future decoder OR trajectory sampler OR prior):", z_in.shape)
         for key in self.input_type:
             if key == 'heading':
                 heading = data['heading_vec'].unsqueeze(1).repeat((1, sample_num, 1))
@@ -561,35 +559,23 @@ class FutureDecoder(nn.Module):
 
         for i in range(self.future_frames):
             traj_in = dec_in_z.view(-1, dec_in_z.shape[-1])
-            print("dec_in_z.shape (raw context + latent + other info. input into the decoder, each round of preds):",
-                  dec_in_z.shape)
             if self.input_norm is not None:
                 traj_in = self.input_norm(traj_in)
-            print("traj_in.shape:", traj_in.shape)
             tf_in = self.input_fc(traj_in).view(dec_in_z.shape[0], -1, self.model_dim)
-            print("tf_in.shape:", tf_in.shape)
             agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
             tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle, t_offset=self.past_frames-1 if self.pos_offset else 0)
-            print("tf_in_pos.shape:", tf_in_pos.shape)
             # tf_in_pos = tf_in
             mem_mask = generate_mask(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
-            print("mem_mask.shape:", mem_mask.shape)
             tgt_mask = generate_ar_mask(tf_in_pos.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
-            print("tgt_mask.shape:", tgt_mask.shape)
-            print("before tf decoder")
 
             tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
-            print("tf_out.shape (after decoder):", tf_out.shape)
 
             out_tmp = tf_out.view(-1, tf_out.shape[-1])
-            print("out_tmp.shape:", out_tmp.shape)
             if self.out_mlp_dim is not None:
                 out_tmp = self.out_mlp(out_tmp)
             seq_out = self.out_fc(out_tmp).view(tf_out.shape[0], -1, self.forecast_dim)
-            print("seq_out.shape:", seq_out.shape)
             if self.pred_type == 'scene_norm' and self.sn_out_type in {'vel', 'norm'}:
                 norm_motion = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
-                print("norm_motion.shape:", norm_motion.shape)
                 if self.sn_out_type == 'vel':
                     norm_motion = torch.cumsum(norm_motion, dim=0)
                 if self.sn_out_heading:
@@ -597,16 +583,12 @@ class FutureDecoder(nn.Module):
                     norm_motion = rotation_2d_torch(norm_motion, angles)[0]
                 seq_out = norm_motion + pre_motion_scene_norm[[-1]]
                 seq_out = seq_out.view(tf_out.shape[0], -1, seq_out.shape[-1])
-                print("seq_out.shape after adding norm motion:", seq_out.shape)
             if self.ar_detach:
                 out_in = seq_out[-agent_num:].clone().detach()
             else:
                 out_in = seq_out[-agent_num:]
-            print("out_in.shape (after taking just the current timestep predictions and relevant agents "
-                  "for the next prediction):", out_in.shape)
             # create dec_in_z
             in_arr = [out_in, z_in]
-            print("z_in.shape (to be concatted with out_in):", z_in.shape)
             for key in self.input_type:
                 if key == 'heading':
                     in_arr.append(heading)
@@ -624,10 +606,7 @@ class FutureDecoder(nn.Module):
                 in_arr.append(sf_feat)
                 last_pos = pos
             out_in_z = torch.cat(in_arr, dim=-1)
-            print("out_in_z.shape (to be concatted with context + previous predicted agent-ts, for next round):", out_in_z.shape)
             dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
-            print("dec_in_z.shape:", dec_in_z.shape)
-            import ipdb; ipdb.set_trace()
 
         seq_out = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
         data[f'{mode}_seq_out'] = seq_out
