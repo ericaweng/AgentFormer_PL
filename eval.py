@@ -99,10 +99,8 @@ def eval_one_seq(data_file, gt_raw, collision_rad, return_agent_traj_nums=False)
         assert isinstance(data_file, np.ndarray)
         gt_traj = gt_raw
         agent_traj = data_file
-    # assert isinstance(gt_traj, list) and len(gt_traj[0].shape) == 2 or len(gt_traj.shape) == 3, \
     assert isinstance(gt_traj, np.ndarray) and len(gt_traj.shape) == 3, \
         f"len(gt_traj.shape) should be 3 but is {len(gt_traj.shape)}"
-    # assert isinstance(agent_traj, list) and len(agent_traj[0].shape) == 3 or len(agent_traj.shape) == 4, \
     assert isinstance(agent_traj, np.ndarray) and len(agent_traj.shape) == 4, \
         f"len(agent_traj.shape) should be 4 but is {len(agent_traj.shape)}"
     assert agent_traj.shape[0] == gt_traj.shape[0]
@@ -124,23 +122,10 @@ def eval_one_seq(data_file, gt_raw, collision_rad, return_agent_traj_nums=False)
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
-def eval_one_seq2(data_file, gt_raw, collision_rad, return_sample_vals=False):
+def eval_one_seq2(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
     """new function, for returning necessary vals for plotting"""
-    if len(gt_raw.shape) == 2 and isinstance(data_file, str):
-        gt_traj, agent_traj = get_gt_from_raw_and_preds_from_file(gt_raw, data_file)
-    else:
-        assert isinstance(gt_raw, np.ndarray)
-        assert isinstance(data_file, np.ndarray)
-        gt_traj = gt_raw
-        agent_traj = data_file
-    # assert isinstance(gt_traj, list) and len(gt_traj[0].shape) == 2 or len(gt_traj.shape) == 3, \
-    assert isinstance(gt_traj, np.ndarray) and len(gt_traj.shape) == 3, \
-        f"len(gt_traj.shape) should be 3 but is {len(gt_traj.shape)}"
-    # assert isinstance(agent_traj, list) and len(agent_traj[0].shape) == 3 or len(agent_traj.shape) == 4, \
-    assert isinstance(agent_traj, np.ndarray) and len(agent_traj.shape) == 4, \
-        f"len(agent_traj.shape) should be 4 but is {len(agent_traj.shape)}"
-    assert agent_traj.shape[0] == gt_traj.shape[0]
-    assert agent_traj.shape[1] == 20
+    assert isinstance(gt_traj, np.ndarray) and len(gt_traj.shape) == 3, f"len(gt_traj.shape) should be 3 but is {len(gt_traj.shape)}"
+    assert isinstance(agent_traj, np.ndarray) and len(agent_traj.shape) == 4, f"len(agent_traj.shape) should be 4 but is {len(agent_traj.shape)}"
 
     """compute stats"""
     values = []
@@ -164,20 +149,9 @@ def eval_one_seq2(data_file, gt_raw, collision_rad, return_sample_vals=False):
             value, argmins = value
         if return_collision_mats_this_stat:
             value, collision_mats = value
-        # if isinstance(return_sample_vals, tuple):
-        #     value, sample_vals = value
-        #     all_sample_vals[stats_name] = sample_vals
         values.append(value)
 
     return values, all_sample_vals, argmins, collision_mats
-    # return_vals = [values]
-    # if return_agent_traj_nums:
-    #     return_vals.append(agent_traj_nums)
-    # if return_sample_vals:
-    #     return_vals.append(all_sample_vals)
-    # if argmins is not None:
-    #     return_vals.append(argmins)
-    # return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
 if __name__ == '__main__':
