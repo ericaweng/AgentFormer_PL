@@ -30,16 +30,18 @@ def main(args):
         in_ipdb = False
         print("not in ipdb")
 
-    if not in_ipdb and not args.mode == 'test':
-        plugin = DDPStrategy(find_unused_parameters=args.find_unused_params)
-        args.devices = torch.cuda.device_count()
-        accelerator = 'gpu'
-    else:
+    if not args.no_gpu:
+        accelerator = None
         plugin = None
-        args.devices = 1
-        # devices = None
-        # accelerator = None
-        accelerator = 'gpu'
+    else:
+        if not in_ipdb and not args.mode == 'test':
+            plugin = DDPStrategy(find_unused_parameters=args.find_unused_params)
+            args.devices = torch.cuda.device_count()
+            accelerator = 'gpu'
+        else:
+            plugin = None
+            args.devices = 1
+            accelerator = 'gpu'
 
     if args.test:
         sanity_val_steps = 0
@@ -52,11 +54,9 @@ def main(args):
 
     # Initialize data module
     dm = AgentFormerDataModule(cfg, args)
+    model = AgentFormerTrainer(cfg, args)
     if args.log_graph:
-        example_input_array = [next(iter(dm.train_dataloader()))]
-    else:
-        example_input_array = None
-    model = AgentFormerTrainer(cfg, args, example_input_array)
+        model.set_example_input_array(next(iter(dm.train_dataloader())))
     model.model.set_device(model.device)
 
     # Initialize trainer
@@ -117,17 +117,19 @@ if __name__ == '__main__':
     parser.add_argument('--mode', '-m', default='train')
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_workers', type=int, default=32)
+    parser.add_argument('--devices', type=int, default=None)
+    parser.add_argument('--no_gpu', '-ng', action='store_true', default=False)
     parser.add_argument('--dont_resume', '-dr', '-nc', dest='resume', action='store_false', default=True)
     parser.add_argument('--checkpoint_path', '-cp', default=None)
     parser.add_argument('--checkpoint_str', '-c', default=None)
     parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
-    parser.add_argument('--logs_root', '-lr', default='results3')
+    parser.add_argument('--logs_root', '-lr', default='results2')
     parser.add_argument('--log_on_test', '-l', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
-    parser.add_argument('--test_ds_size', '-t', default=10, type=int,
+    parser.add_argument('--test_ds_size', '-dz', default=10, type=int,
                         help='max size of dataset to load when using the --test flag')
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     args = parser.parse_args()

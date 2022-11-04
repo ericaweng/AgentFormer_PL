@@ -17,7 +17,7 @@ from model.running_norm import RunningNorm
 
 def generate_ar_mask_1aaat(sz, agent_num, agent_mask):
     # assert sz % agent_num == 0
-    T = np.ceil(sz / agent_num).astype(np.int)
+    T = torch.ceil(torch.tensor(sz / agent_num)).to(torch.int)
     mask = agent_mask.repeat(T, T)[:sz,:sz]
     indexer = torch.arange(sz).to(mask.device)
     time_mask = (indexer[:, None] > indexer - agent_num)  # | (indexer[None, :] < agent_num) & (indexer[:, None] < agent_num))
@@ -46,7 +46,8 @@ def generate_mask(tgt_sz, src_sz, agent_num, agent_mask):
 
 def generate_mask_1aaat(tgt_sz, src_sz, agent_num, agent_mask):
     assert src_sz % agent_num == 0
-    mask = agent_mask.repeat(np.ceil(tgt_sz / agent_num).astype(np.int), src_sz // agent_num)[:tgt_sz]
+    times_repeat_x = torch.ceil(torch.tensor(tgt_sz / agent_num)).to(torch.int)
+    mask = agent_mask.repeat(times_repeat_x, src_sz // agent_num)[:tgt_sz]
     return mask
 
 
@@ -103,7 +104,7 @@ class PositionalAgentEncoding(nn.Module):
         return ae
 
     def forward(self, x, num_a, agent_enc_shuffle=None, t_offset=0, a_offset=0):
-        num_t = np.ceil(x.shape[0] / num_a).astype(np.int)  # x.shape[0] // num_a
+        num_t = torch.ceil(torch.tensor(x.shape[0] / num_a)).to(torch.int)  # x.shape[0] // num_a
         pos_enc = self.get_pos_enc(num_t, num_a, t_offset)[:x.shape[0]]
         if self.use_agent_enc:
             agent_enc = self.get_agent_enc(num_t, num_a, a_offset, agent_enc_shuffle)
@@ -766,6 +767,13 @@ class AgentFormer(nn.Module):
         self.device = device
         self.to(device)
 
+    def get_torch_data(self, data):
+        device = self.device
+        for k, v in data.items():
+            if 'motion' in k:
+                data[k] = [torch.tensor(a).to(device) for a in data[k]]
+        return data
+
     def set_data(self, data):
         device = self.device
         if self.training and len(data['pre_motion_3D']) > self.max_train_agent:
@@ -888,7 +896,6 @@ class AgentFormer(nn.Module):
                 sf_feat.append(grad)
             sf_feat = torch.stack(sf_feat)
             self.data['fut_sf_feat'] = sf_feat
-        return self.data
 
     def step_annealer(self):
         for anl in self.param_annealers:

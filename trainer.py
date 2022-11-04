@@ -13,21 +13,26 @@ from viz_utils import plot_fig, get_metrics_str
 
 
 class AgentFormerTrainer(pl.LightningModule):
-    def __init__(self, cfg, args, example_input_array=None):
+    def __init__(self, cfg, args):
         super().__init__()
         model_id = cfg.get('model_id', 'agentformer')
         self.model = model_dict[model_id](cfg)
         self.cfg = cfg
         self.args = args
-        self.num_workers = min(args.num_workers, int(multiprocessing.cpu_count() / args.devices))
+        num_workers = int(multiprocessing.cpu_count() / (args.devices + 1e-5)) if args.devices is not None else float('inf')
+        self.num_workers = min(args.num_workers, num_workers)
         self.batch_size = args.batch_size
         self.collision_rad = cfg.get('collision_rad', 0.1)
         self.hparams.update(vars(cfg))
         self.hparams.update(vars(args))
-        if example_input_array is not None:
-            self.example_input_array = example_input_array
-            self.model.set_device('cuda')
-            self.model.set_data(example_input_array[0])
+
+    def set_example_input_array(self, example_input_array):
+        data = self.model.get_torch_data(example_input_array)
+        # print("data:", data.keys())
+        # dic = {k:v for k, v in data.items() if type(v) == torch.Tensor}
+        # print("dic:", dic.keys())
+        # import ipdb; ipdb.set_trace()
+        self.example_input_array = [data]  # [self.model.set_data(example_input_array)]
 
     def on_test_start(self):
         self.model.set_device(self.device)
