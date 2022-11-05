@@ -30,7 +30,7 @@ def main(args):
         in_ipdb = False
         print("not in ipdb")
 
-    if not args.no_gpu:
+    if args.no_gpu:
         accelerator = None
         plugin = None
     else:
@@ -125,7 +125,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
-    parser.add_argument('--logs_root', '-lr', default='results2')
+    parser.add_argument('--logs_root', '-lr', default='results4')
     parser.add_argument('--log_on_test', '-l', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)

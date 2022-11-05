@@ -136,7 +136,7 @@ def eval_one_seq2(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
         func = stats_func[stats_name]
         return_sample_vals_this_stat = return_sample_vals if stats_name in ['ADE_seq', 'FDE_seq', 'CR_mean'] else False
         return_argmins_this_stat = return_sample_vals if stats_name == 'ADE' else False
-        return_collision_mats_this_stat = return_sample_vals if stats_name == 'CR_max' else False
+        return_collision_mats_this_stat = return_sample_vals if stats_name in ['CR_max', 'CR_mADE'] else False
         stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad,
                            'return_sample_vals': return_sample_vals_this_stat,
                            'return_argmin': return_argmins_this_stat,
@@ -148,7 +148,12 @@ def eval_one_seq2(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
         if return_argmins_this_stat:
             value, argmins = value
         if return_collision_mats_this_stat:
-            value, collision_mats = value
+            if collision_mats is None:
+                value, collision_mats = value
+            else:
+                value, minADE_collision_mats = value
+                collision_mats.extend(minADE_collision_mats)
+                collision_mats = np.array(collision_mats)
         values.append(value)
 
     return values, all_sample_vals, argmins, collision_mats

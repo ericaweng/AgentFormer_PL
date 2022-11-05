@@ -53,9 +53,9 @@ def plot_fig(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
             if 'traj' in key:
                 bounds.append(np.array(val).reshape(-1, 2))
     bounds = np.concatenate(bounds)
-    bounds = [*np.min(bounds, axis=0), *np.max(bounds, axis=0)]
+    bounds = [*(np.min(bounds, axis=0) - 0.2), *(np.max(bounds, axis=0) + 0.2)]
 
-    for ax_i, (arg_dict,ax) in enumerate(zip(list_of_arg_dicts, axes)):
+    for ax_i, (arg_dict, ax) in enumerate(zip(list_of_arg_dicts, axes)):
         ao = AnimObj()
         anim_graphs.append(ao)
         ao.plot_traj_anim(**arg_dict, ax=ax, bounds=bounds)

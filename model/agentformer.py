@@ -367,7 +367,8 @@ class FutureDecoder(nn.Module):
             self.p_z_net = nn.Linear(self.model_dim, num_dist_params)
             initialize_weights(self.p_z_net.modules())
 
-    def decode_traj_ar_ped_one_at_a_time(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num, need_weights=False):
+    def decode_traj_ar_1aaat(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num,
+                             need_weights=False, approx_grad=False):
         agent_num = data['agent_num']
         if self.pred_type == 'vel':
             dec_in = pre_vel[[-1]]
@@ -499,6 +500,8 @@ class FutureDecoder(nn.Module):
                 out_in_z = torch.cat(in_arr, dim=-1)
                 # print("out_in_z.shape (to be concatted with context + previous predicted agent-ts, for next round):", out_in_z.shape)
                 dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
+                if approx_grad:
+                    dec_in_z = dec_in_z.detach()#.requires_grad_()
                 # print("dec_in_z:", dec_in_z[...,:2])
                 # print("dec_in_z.shape:", dec_in_z.shape)
                 # import ipdb; ipdb.set_trace()
@@ -528,7 +531,8 @@ class FutureDecoder(nn.Module):
         if need_weights:
             data['attn_weights'] = attn_weights
 
-    def decode_traj_ar(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num, need_weights=False):
+    def decode_traj_ar(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num,
+                       need_weights=False, approx_grad=False):
         agent_num = data['agent_num']
         if self.pred_type == 'vel':
             dec_in = pre_vel[[-1]]
@@ -608,6 +612,8 @@ class FutureDecoder(nn.Module):
                 last_pos = pos
             out_in_z = torch.cat(in_arr, dim=-1)
             dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
+            if approx_grad:
+                dec_in_z = dec_in_z.detach()#.requires_grad_()
 
         seq_out = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
         data[f'{mode}_seq_out'] = seq_out
@@ -632,7 +638,7 @@ class FutureDecoder(nn.Module):
     def decode_traj_batch(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num):
         raise NotImplementedError
 
-    def forward(self, data, mode, sample_num=1, ped_one_at_a_time=False, autoregress=True, z=None, need_weights=False):
+    def forward(self, data, mode, sample_num=1, approx_grad=False, ped_one_at_a_time=False, autoregress=True, z=None, need_weights=False):
         context = data['context_enc'].repeat_interleave(sample_num, dim=1)       # 80 x 64
         pre_motion = data['pre_motion'].repeat_interleave(sample_num, dim=1)             # 10 x 80 x 2
         pre_vel = data['pre_vel'].repeat_interleave(sample_num, dim=1) if self.pred_type == 'vel' else None
@@ -662,9 +668,11 @@ class FutureDecoder(nn.Module):
                 raise ValueError('Unknown Mode!')
 
         if ped_one_at_a_time:
-            self.decode_traj_ar_ped_one_at_a_time(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num, need_weights=need_weights)
+            self.decode_traj_ar_1aaat(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num,
+                                      need_weights=need_weights, approx_grad=approx_grad)
         elif autoregress:
-            self.decode_traj_ar(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num, need_weights=need_weights)
+            self.decode_traj_ar(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num,
+                                need_weights=need_weights, approx_grad=approx_grad)
         else:
             self.decode_traj_batch(data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num)
 
@@ -725,6 +733,7 @@ class AgentFormer(nn.Module):
         self.map_global_rot = cfg.get('map_global_rot', False)
         self.ar_train = cfg.get('ar_train', True)
         self.ped_one_at_a_time = cfg.get('ped_one_at_a_time', False)
+        self.approx_grad = cfg.get('approx_grad', False)
         self.max_train_agent = cfg.get('max_train_agent', 100)
         self.loss_cfg = self.cfg.loss_cfg
         self.loss_names = list(self.loss_cfg.keys())
@@ -922,7 +931,8 @@ class AgentFormer(nn.Module):
         if mode == 'recon':
             sample_num = 1
             self.future_encoder(self.data)
-        self.future_decoder(self.data, mode=mode, sample_num=sample_num, ped_one_at_a_time=self.ped_one_at_a_time, autoregress=True, need_weights=need_weights)
+        self.future_decoder(self.data, mode=mode, sample_num=sample_num, approx_grad=self.approx_grad,
+                            ped_one_at_a_time=self.ped_one_at_a_time, autoregress=True, need_weights=need_weights)
         return self.data[f'{mode}_dec_motion'], self.data
 
     def compute_loss(self):

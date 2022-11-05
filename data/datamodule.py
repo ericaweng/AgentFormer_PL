@@ -27,10 +27,10 @@ class AgentFormerDataModule(pl.LightningDataModule):
         return dataloader
 
     def train_dataloader(self):
-        return self.get_dataloader(self.args.test_dataset)
+        return self.get_dataloader(self.args.test_dataset if self.args.test else "train")
 
     def val_dataloader(self):
-        return self.get_dataloader(self.args.test_dataset)
+        return self.get_dataloader(self.args.test_dataset if self.args.test else "test")
 
     def test_dataloader(self):
-        return self.get_dataloader(self.args.test_dataset)
+        return self.get_dataloader(self.args.test_dataset if self.args.test else "test")

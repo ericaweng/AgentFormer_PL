@@ -66,7 +66,7 @@ class AgentFormerTrainer(pl.LightningModule):
         data, loss_dict = self._step(batch, 'test')
         gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
         pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
-        obs_motion = self.cfg.traj_scale * data[f'pre_motion'].transpose(1, 0).cpu()
+        obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()#.transpose(1, 0).cpu()
         # self.stats.update(gt_motion, pred_motion)
         return {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
                 'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion,}
@@ -115,6 +115,8 @@ class AgentFormerTrainer(pl.LightningModule):
         for frame_i, (output, seq_to_sample_metrics) in enumerate(zip(outputs, all_sample_vals)):
             frame = output['frame']
             seq = output['seq']
+            obs_traj = output['obs_motion'].numpy()
+            assert obs_traj.shape[0] == 8
             pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
             pred_fake_traj = output['pred_motion'].numpy().transpose(1, 2, 0, 3)  # (samples, ts, n_peds, 2)
 
@@ -125,15 +127,19 @@ class AgentFormerTrainer(pl.LightningModule):
 
             pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
             min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
+
             args_dict = {'plot_title': f"best mADE sample",
+                         'obs_traj': obs_traj,
                          'pred_traj_gt': pred_gt_traj,
                          'pred_traj_fake': pred_fake_traj_min,
+                         'collision_mats': collision_mats[frame_i][-1],
                          'text_fixed': min_ADE_stats}
             plot_args_list.append(args_dict)
 
             for sample_i in range(num_samples - 1):
                 stats = get_metrics_str(seq_to_sample_metrics, sample_i)
                 args_dict = {'plot_title': f"Sample {sample_i}",
+                             'obs_traj': obs_traj,
                              'pred_traj_gt': pred_gt_traj,
                              'pred_traj_fake': pred_fake_traj[sample_i],
                              'text_fixed': stats,
