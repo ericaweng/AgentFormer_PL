@@ -11,6 +11,72 @@ from utils.torch import get_scheduler
 
 from viz_utils import plot_fig, get_metrics_str
 
+from utils.utils import mkdir_if_missing
+
+
+def save_trajectories(trajectory, save_dir, seq_name, frame, suffix=''):
+    """Save trajectories in a text file.
+    Input:
+        trajectory: (np.array/torch.Tensor) Predcited trajectories with shape
+                    of (n_pedestrian, future_timesteps, 4). The last elemen is
+                    [frame_id, track_id, x, y] where each element is float.
+        save_dir: (str) Directory to save into.
+        seq_name: (str) Sequence name (e.g., eth_biwi, coupa_0)
+        frame: (num) Frame ID.
+        suffix: (str) Additional suffix to put into file name.
+    """
+    fname = f"{save_dir}/{seq_name}/frame_{int(frame):06d}{suffix}.txt"
+    mkdir_if_missing(fname)
+
+    if isinstance(trajectory, torch.Tensor):
+        trajectory = trajectory.cpu().numpy()
+    np.savetxt(fname, trajectory, fmt="%.3f")
+
+
+def format_agentformer_trajectories(trajectory, data, cfg, timesteps=12, frame_scale=10, future=True):
+    formatted_trajectories = []
+    if not future:
+        trajectory = torch.flip(trajectory, [0, 1])
+    for i, track_id in enumerate(data['valid_id']):
+        if data['pred_mask'] is not None and data['pred_mask'][i] != 1.0:
+            continue
+        for j in range(timesteps):
+            if future:
+                curr_data = data['fut_data'][j]
+            else:
+                curr_data = data['pre_data'][j]
+            # Get data with the same track_id
+            updated_data = curr_data[curr_data[:, 1] == track_id].squeeze()
+            if cfg.dataset in [
+                    'eth', 'hotel', 'univ', 'zara1', 'zara2', 'gen',
+                    'real_gen', 'adversarial'
+            ]:
+                # [13, 15] correspoinds to the 2D position
+                updated_data[[13, 15]] = trajectory[i, j].cpu().numpy()
+            elif 'sdd' in cfg.dataset:
+                updated_data[[2, 3]] = trajectory[i, j].cpu().numpy()
+            else:
+                raise NotImplementedError()
+            formatted_trajectories.append(updated_data)
+    if len(formatted_trajectories) == 0:
+        return np.array([])
+
+    # Convert to numpy array and get [frame_id, track_id, x, y]
+    formatted_trajectories = np.vstack(formatted_trajectories)
+    if cfg.dataset in [
+            'eth', 'hotel', 'univ', 'zara1', 'zara2', 'gen', 'real_gen',
+            'adversarial'
+    ]:
+        formatted_trajectories = formatted_trajectories[:, [0, 1, 13, 15]]
+        formatted_trajectories[:, 0] *= frame_scale
+    elif cfg.dataset == 'trajnet_sdd':
+        formatted_trajectories[:, 0] *= frame_scale
+
+    if not future:
+        formatted_trajectories = np.flip(formatted_trajectories, axis=0)
+
+    return formatted_trajectories
+
 
 class AgentFormerTrainer(pl.LightningModule):
     def __init__(self, cfg, args):
@@ -59,6 +125,8 @@ class AgentFormerTrainer(pl.LightningModule):
         return data, {'loss': total_loss, **loss_dict}
 
     def training_step(self, batch, batch_idx):
+        if self.args.tqdm_rate == 0 and batch_idx % 5 == 0:
+            print(f"epoch: {self.epoch} batch: {batch_idx}")
         data, loss_dict = self._step(batch, 'train')
         return loss_dict
 
@@ -68,15 +136,27 @@ class AgentFormerTrainer(pl.LightningModule):
         pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
         obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()#.transpose(1, 0).cpu()
         # self.stats.update(gt_motion, pred_motion)
+        if self.args.save_traj:
+            save_dir = '../trajectory_reward/results/trajectories/agentformer_sfm'
+            frame = batch['frame'] * 10
+            for idx, sample in enumerate(pred_motion.transpose(0,1)):
+                formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12, frame_scale=10, future=True)
+                save_trajectories(formatted, save_dir, batch['seq'], frame, suffix=f"/sample_{idx:03d}")
+            formatted = format_agentformer_trajectories(gt_motion, batch, self.cfg, timesteps=12, frame_scale=10, future=True)
+            save_trajectories(formatted, save_dir, batch['seq'], frame, suffix='/gt')
+            formatted = format_agentformer_trajectories(obs_motion.transpose(0,1), batch, self.cfg, timesteps=8, frame_scale=10, future=False)
+            save_trajectories(formatted, save_dir, batch['seq'], frame, suffix="/obs")
+
         return {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
                 'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion,}
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
 
-    def _epoch_end(self, outputs):
+    def _epoch_end(self, outputs, print_stats=False):
         args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]
         # pred_motion: num_peds, num_samples, ts, 2       # gt_motion: num_peds, ts, 2
+
         if self.args.mp:
             with multiprocessing.Pool(self.num_workers) as pool:
                 all_metrics = pool.starmap(partial(eval_one_seq2,
@@ -100,12 +180,15 @@ class AgentFormerTrainer(pl.LightningModule):
             results_dict[key] = value
 
         # log and print results
-        print(f"\n\n\n{self.current_epoch}")
+        if print_stats == 'test':
+            print(f"\n\n\n{self.current_epoch}")
         self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
         for key, value in results_dict.items():
-            print(f"{value:.4f}")
+            if print_stats == 'test':
+                print(f"{value:.4f}")
             self.log(f'val/{key}', value, sync_dist=True, prog_bar=True, logger=True)
-        print(total_num_agents)
+        if print_stats == 'test':
+            print(total_num_agents)
 
         if self.args.save_viz:
             self._save_viz(outputs, all_sample_vals, all_metrics, argmins, collision_mats)
@@ -161,7 +244,7 @@ class AgentFormerTrainer(pl.LightningModule):
         self._epoch_end(outputs)
 
     def test_epoch_end(self, outputs):
-        self._epoch_end(outputs)
+        self._epoch_end(outputs, True)
 
     def on_load_checkpoint(self, checkpoint):
         if 'model_dict' in checkpoint and 'epoch' in checkpoint:

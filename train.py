@@ -75,7 +75,7 @@ def train(epoch):
         if generator.index - last_generator_index > cfg.print_freq:
             ep = time.time() - since_train
             losses_str = ' '.join([f'{x}: {y.avg:.3f} ({y.val:.3f})' for x, y in train_loss_meter.items()])
-            if model.sfm_learnable_hparams is not None:
+            if hasattr(model, 'sfm_learnable_hparams') and model.sfm_learnable_hparams is not None:
                 learable_hparams_str = ' '.join([f'{k}: {v.item():.4f}' for k, v in model.sfm_learnable_hparams.items()])
             else:
                 learable_hparams_str = None
@@ -84,7 +84,7 @@ def train(epoch):
             for name, meter in train_loss_meter.items():
                 tb_logger.add_scalar('model_' + name, meter.avg, tb_ind)
             # if isinstance(model.sfm_learnable_hparams, dict):
-            if model.sfm_learnable_hparams is not None:
+            if hasattr(model, 'sfm_learnable_hparams') and model.sfm_learnable_hparams is not None:
                 for name, param in model.sfm_learnable_hparams.items():
                     tb_logger.add_scalar('param_' + name, param, tb_ind)
             tb_ind += 1

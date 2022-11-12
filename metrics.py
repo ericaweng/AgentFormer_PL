@@ -36,7 +36,7 @@ def compute_FDE_sequence(pred_arr, gt_arr, return_sample_vals=False, return_argm
 
 def compute_ADE_fast(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
     """about 4 times faster due to numpy vectorization"""
-    assert pred_arr.shape[1] == 20, pred_arr.shape
+    # assert pred_arr.shape[1] == 20, pred_arr.shape
     pred_arr = np.array(pred_arr)
     gt_arr = np.array(gt_arr)
     diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
@@ -238,6 +238,7 @@ def compute_CR(pred_arr,
 stats_func = {
         'ADE': compute_ADE_fast,
         'FDE': compute_FDE_fast,
+        'CR_min': partial(compute_CR, aggregation='min'),
         'CR_max': partial(compute_CR, aggregation='max'),
         'CR_mean': partial(compute_CR, aggregation='mean'),
         'ADE_seq': compute_ADE_sequence,

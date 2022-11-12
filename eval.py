@@ -56,12 +56,14 @@ def get_gt_from_raw_and_preds_from_file(gt_raw, data_file):
     # for stochastic with multiple samples
     elif isfolder(data_file):
         sample_list, _ = load_list_from_folder(data_file)
-        sample_list = sample_list[:20]
+        # sample_list = sample_list[:20]
         sample_all = []
         if len(sample_list) == 0:
             print(f'No samples in {data_file}')
             return [0] * len(stats_func), [0] * len(stats_func)
         for sample in sample_list:
+            # if 'sample' not in sample:
+            #     continue
             sample = np.loadtxt(sample, delimiter=' ', dtype='float32')  # (frames x agents) x 4
             sample_all.append(sample)
         all_traj = np.stack(sample_all, axis=0)  # samples x (framex x agents) x 4
@@ -104,7 +106,8 @@ def eval_one_seq(data_file, gt_raw, collision_rad, return_agent_traj_nums=False)
     assert isinstance(agent_traj, np.ndarray) and len(agent_traj.shape) == 4, \
         f"len(agent_traj.shape) should be 4 but is {len(agent_traj.shape)}"
     assert agent_traj.shape[0] == gt_traj.shape[0]
-    assert agent_traj.shape[1] == 20
+    # assert agent_traj.shape[1] == 20, \
+    #     f"len(agent_traj.shape) should be 20 but is {agent_traj.shape[1]}"
 
     """compute stats"""
     values = []

@@ -251,6 +251,7 @@ if __name__ == '__main__':
     parser.add_argument('--cleanup', action='store_true', default=False)
     parser.add_argument('--dont_save', action='store_true', default=False)
     parser.add_argument('--all_epochs', action='store_true', default=False)
+    parser.add_argument('--collisions_ok', action='store_true', default=False)
     parser.add_argument('--weight', type=float, default=None)
     parser.add_argument('--sigma_d', type=float, default=None)
     args = parser.parse_args()
@@ -259,7 +260,8 @@ if __name__ == '__main__':
         args.cached = True
     """ setup """
     cfg = Config(args.cfg, additional_cfg_vars={'weight': args.weight, 'sigma_d': args.sigma_d})
-    args.collisions_ok = cfg.get('collisions_ok', True)
+    # args.collisions_ok = cfg.get('collisions_ok', True)
+    # args.collisions_ok = cfg.get('collisions_ok', True)
     print("collisions_ok:", args.collisions_ok)
 
     if args.all_epochs:

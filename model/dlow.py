@@ -1,3 +1,4 @@
+import glob
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -88,10 +89,20 @@ class DLow(nn.Module):
         pred_model = model_lib.model_dict[pred_cfg.model_id](pred_cfg)
         self.pred_model_dim = pred_cfg.tf_model_dim
         if cfg.pred_epoch > 0:
-            cp_path = pred_cfg.model_path % cfg.pred_epoch
-            print('loading model from checkpoint: %s' % cp_path)
-            model_cp = torch.load(cp_path, map_location='cpu')
-            pred_model.load_state_dict(model_cp['model_dict'])
+            try:
+                cp_path = pred_cfg.model_path % cfg.pred_epoch
+                model_cp = torch.load(cp_path, map_location='cpu')
+                pred_model.load_state_dict(model_cp['model_dict'])
+            except FileNotFoundError:
+                glob_str = f'results/{pred_cfg.id}/*p'
+                print("glob_str:", glob_str)
+                cp_path = glob.glob(glob_str)
+                cp_path = cp_path[-1]
+                print("cp_path:", cp_path)
+                model_cp = torch.load(cp_path, map_location='cpu')
+                new_dict = {'.'.join(k.split('.')[1:]):v for k, v in model_cp['state_dict'].items()}
+                pred_model.load_state_dict(new_dict)
+            print('loaded model from checkpoint: %s' % cp_path)
         pred_model.eval()
         self.pred_model = [pred_model]
 

@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from torch import nn
 from torch.nn import functional as F
+from torch.utils import checkpoint
 from collections import defaultdict
 
 from .common.mlp import MLP
@@ -573,6 +574,10 @@ class FutureDecoder(nn.Module):
             mem_mask = generate_mask(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
             tgt_mask = generate_ar_mask(tf_in_pos.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
 
+            # if approx_grad:
+            #     tf_out, attn_weights = checkpoint.checkpoint(self.tf_decoder, (tf_in_pos, context, tgt_mask, mem_mask, None, None, data['agent_num'], need_weights))
+            #     tf_out, attn_weights = checkpoint.checkpoint_sequential(self.tf_decoder, (tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights))
+            # else:
             tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
 
             out_tmp = tf_out.view(-1, tf_out.shape[-1])
@@ -613,6 +618,7 @@ class FutureDecoder(nn.Module):
             out_in_z = torch.cat(in_arr, dim=-1)
             dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
             if approx_grad:
+                pass
                 dec_in_z = dec_in_z.detach()#.requires_grad_()
 
         seq_out = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])

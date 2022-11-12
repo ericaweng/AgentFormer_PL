@@ -93,7 +93,7 @@ def main():
 
     metrics_path = os.path.join(metrics_dir, "metrics_zara212.csv")
     data = pd.read_csv(metrics_path)
-    data = data[data['label'].apply(lambda r: 'zara2_sfm_base' in r)]
+    data = data[data['label'].apply(lambda r: 'zara2_sfm_base' in r if isinstance(r, str) else False)]
     min_epoch = 60
     max_epoch = 100
 
@@ -131,8 +131,8 @@ def main():
     data.pop('results_dir')
     print(data)
     print("len(data):", len(data))
-    # print(data)
 
+    import ipdb; ipdb.set_trace()
     # sweep performance tables
     sorted_weights = sorted(data['weight'].unique())
     sorted_sigmas = sorted(data['sigma_d'].unique())

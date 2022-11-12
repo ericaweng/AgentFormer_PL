@@ -8,7 +8,7 @@ torch.set_default_dtype(torch.float32)
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.strategies import DDPStrategy
 from data.datamodule import AgentFormerDataModule
 from utils.config import Config
@@ -90,6 +90,8 @@ def main(args):
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE')
     checkpoint_callback = ModelCheckpoint(monitor='val/ADE', save_top_k=3, mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
+    tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
+    callbacks = [early_stop_cb, checkpoint_callback, tqdm]
 
     print("LOGGING TO:", default_root_dir)
     print("\n\n")
@@ -98,7 +100,7 @@ def main(args):
                          log_every_n_steps=50 if lim_train_batch is None else lim_train_batch,
                          limit_val_batches=lim_val_batch, limit_train_batches=lim_train_batch,
                          max_epochs=cfg.num_epochs, default_root_dir=default_root_dir,
-                         logger=logger, callbacks=[early_stop_cb, checkpoint_callback],)
+                         logger=logger, callbacks=callbacks,)
 
     if 'train' in args.mode:
         n = trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
@@ -122,13 +124,15 @@ if __name__ == '__main__':
     parser.add_argument('--dont_resume', '-dr', '-nc', dest='resume', action='store_false', default=True)
     parser.add_argument('--checkpoint_path', '-cp', default=None)
     parser.add_argument('--checkpoint_str', '-c', default=None)
-    parser.add_argument('--test', action='store_true', default=False)
+    parser.add_argument('--test', '-t', action='store_true', default=False)
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
-    parser.add_argument('--logs_root', '-lr', default='results4')
+    parser.add_argument('--logs_root', '-lr', default='results')
     parser.add_argument('--log_on_test', '-l', action='store_true', default=False)
+    parser.add_argument('--save_traj', '-s', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
+    parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
     parser.add_argument('--test_ds_size', '-dz', default=10, type=int,
                         help='max size of dataset to load when using the --test flag')
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')

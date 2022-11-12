@@ -21,7 +21,7 @@ class Config:
             if additional_cfg_vars is not None and 'sigma_d' in additional_cfg_vars and additional_cfg_vars['sigma_d'] is not None:
                 self.id = f"{cfg_id}_weight-{additional_cfg_vars['weight']}_sigma_d-{additional_cfg_vars['sigma_d']}"
 
-        assert (len(files) == 1)
+        assert (len(files) == 1), files
         self.yml_dict = EasyDict(yaml.safe_load(open(files[0], 'r')))
         if additional_cfg_vars is not None and 'sigma_d' in additional_cfg_vars and additional_cfg_vars['sigma_d'] is not None:
             """cfg new vars"""
