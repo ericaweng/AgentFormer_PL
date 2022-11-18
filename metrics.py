@@ -206,15 +206,17 @@ def compute_CR(pred_arr,
     # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
     col_pred = np.zeros((n_sample))
     col_mats = []
-    if n_ped > 1:
-        # with nool(processes=multiprocessing.cpu_count() - 1) as pool:
-        #     r = pool.starmap(
-        #             partial(check_collision_per_sample, gt_arr=gt_arr),
-        #             enumerate(pred_arr))
-        for sample_idx, pa in enumerate(pred_arr):
-            n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pa, collision_rad)
-            col_mats.append(col_mat)
-            col_pred[sample_idx] += n_ped_with_col_pred.sum()
+    # if n_ped > 1:
+    #     with nool(processes=multiprocessing.cpu_count() - 1) as pool:
+    #         r = pool.starmap(
+    #                 partial(check_collision_per_sample, gt_arr=gt_arr),
+    #                 enumerate(pred_arr))
+    for sample_idx, pa in enumerate(pred_arr):
+        n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pa, collision_rad)
+        col_mats.append(col_mat)
+        col_pred[sample_idx] += n_ped_with_col_pred.sum()
+    # else:
+    #     col_mats.append(np.full((12,n_ped,n_ped), False))
 
     if aggregation == 'mean':
         cr_pred = col_pred.mean(axis=0)
@@ -231,7 +233,7 @@ def compute_CR(pred_arr,
     if return_sample_vals:
         crs.append(col_pred / n_ped)
     if return_collision_mat:
-        crs.append(col_mats)
+        crs.append(col_mats if len(col_mats) > 0 else None)
     return tuple(crs) if len(crs) > 1 else crs[0]
 
 

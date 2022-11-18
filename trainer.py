@@ -1,3 +1,4 @@
+import tracemalloc
 import torch
 import pytorch_lightning as pl
 import numpy as np
@@ -114,7 +115,15 @@ class AgentFormerTrainer(pl.LightningModule):
         # Compute predictions
         # data = self(batch)
         self.model.set_data(batch)
+        # tracemalloc.start()
         data = self.model()
+        # snapshot = tracemalloc.take_snapshot()
+        # top_stats = snapshot.statistics('lineno')
+        #
+        # print("[ Top 10 ]")
+        # for stat in top_stats[:10]:
+        #     print(stat)
+        # import ipdb; ipdb.set_trace()
         total_loss, loss_dict, loss_unweighted_dict = self.model.compute_loss()
 
         # losses
@@ -126,7 +135,7 @@ class AgentFormerTrainer(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         if self.args.tqdm_rate == 0 and batch_idx % 5 == 0:
-            print(f"epoch: {self.epoch} batch: {batch_idx}")
+            print(f"epoch: {self.current_epoch} batch: {batch_idx}")
         data, loss_dict = self._step(batch, 'train')
         return loss_dict
 
@@ -180,18 +189,20 @@ class AgentFormerTrainer(pl.LightningModule):
             results_dict[key] = value
 
         # log and print results
-        if print_stats == 'test':
+        if print_stats:
             print(f"\n\n\n{self.current_epoch}")
         self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
         for key, value in results_dict.items():
-            if print_stats == 'test':
+            if print_stats:
                 print(f"{value:.4f}")
             self.log(f'val/{key}', value, sync_dist=True, prog_bar=True, logger=True)
-        if print_stats == 'test':
+        if print_stats:
             print(total_num_agents)
 
-        if self.args.save_viz:
+        if self.args.save_viz and print_stats:
             self._save_viz(outputs, all_sample_vals, all_metrics, argmins, collision_mats)
+        elif self.args.save_viz and (self.current_epoch + 1) % 10:
+            self._save_viz(outputs[0:1], all_sample_vals[0:1], all_metrics[0:1], argmins[0:1], collision_mats[0:1])
 
     def _save_viz(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats):
         seq_to_plot_args = []
@@ -205,7 +216,7 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'viz/{seq}_frame-{frame}.mp4'
+            anim_save_fn = f'viz/{self.args.default_root_dir.replace("/", "--")}_{seq}_frame-{frame}.mp4'
             plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame}", (5, 4)]
 
             pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )

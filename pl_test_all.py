@@ -1,4 +1,5 @@
-"""parallelize evaluate all"""
+"""parallelize saving all test trajectories"""
+
 import os
 import glob
 import subprocess

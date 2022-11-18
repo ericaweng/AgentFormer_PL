@@ -1,3 +1,4 @@
+import os
 import glob
 import torch
 from torch import nn
@@ -88,21 +89,26 @@ class DLow(nn.Module):
         pred_cfg = Config(cfg.pred_cfg, tmp=False, create_dirs=False)
         pred_model = model_lib.model_dict[pred_cfg.model_id](pred_cfg)
         self.pred_model_dim = pred_cfg.tf_model_dim
-        if cfg.pred_epoch > 0:
-            try:
-                cp_path = pred_cfg.model_path % cfg.pred_epoch
-                model_cp = torch.load(cp_path, map_location='cpu')
-                pred_model.load_state_dict(model_cp['model_dict'])
-            except FileNotFoundError:
-                glob_str = f'results/{pred_cfg.id}/*p'
-                print("glob_str:", glob_str)
-                cp_path = glob.glob(glob_str)
-                cp_path = cp_path[-1]
-                print("cp_path:", cp_path)
-                model_cp = torch.load(cp_path, map_location='cpu')
-                new_dict = {'.'.join(k.split('.')[1:]):v for k, v in model_cp['state_dict'].items()}
-                pred_model.load_state_dict(new_dict)
-            print('loaded model from checkpoint: %s' % cp_path)
+        cp_path = cfg.get('pred_path', None)
+        if cp_path is not None:
+            model_cp = torch.load(cp_path, map_location='cpu')
+            new_dict = {'.'.join(k.split('.')[1:]): v for k, v in model_cp['state_dict'].items()}
+            pred_model.load_state_dict(new_dict)
+        elif cfg.pred_epoch > 0 and os.path.exists(pred_cfg.model_path % cfg.pred_epoch):
+            cp_path = pred_cfg.model_path % cfg.pred_epoch
+            model_cp = torch.load(cp_path, map_location='cpu')
+            pred_model.load_state_dict(model_cp['model_dict'])
+        else:
+            glob_str = f'{cfg.results_root_dir}/{pred_cfg.id}/*.*'
+            print("glob_str:", glob_str)
+            cp_path = glob.glob(glob_str)
+            print("cp_path:", cp_path)
+            cp_path = cp_path[-1]
+            print("cp_path:", cp_path)
+            model_cp = torch.load(cp_path, map_location='cpu')
+            new_dict = {'.'.join(k.split('.')[1:]): v for k, v in model_cp['state_dict'].items()}
+            pred_model.load_state_dict(new_dict)
+        print('DLOW: loaded pre model from checkpoint, doing: %s' % cp_path)
         pred_model.eval()
         self.pred_model = [pred_model]
 

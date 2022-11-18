@@ -1,3 +1,5 @@
+""" evaluate using eval_one_seq already-saved trajectories """
+
 import os
 import glob
 from collections import defaultdict

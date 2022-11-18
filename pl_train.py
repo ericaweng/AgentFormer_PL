@@ -60,7 +60,7 @@ def main(args):
     model.model.set_device(model.device)
 
     # Initialize trainer
-    default_root_dir = os.path.join(args.logs_root, cfg.id)
+    default_root_dir = args.default_root_dir = os.path.join(args.logs_root, cfg.id)
     if args.mode == 'train':
         models = sorted(glob.glob(os.path.join(default_root_dir, 'last-v*.ckpt')))
         if len(models) == 0:
@@ -91,7 +91,12 @@ def main(args):
     checkpoint_callback = ModelCheckpoint(monitor='val/ADE', save_top_k=3, mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
-    callbacks = [early_stop_cb, checkpoint_callback, tqdm]
+
+    callbacks = [tqdm]
+    if args.test and args.ckpt_on_test or not args.test:
+        callbacks.append(checkpoint_callback)
+    if not args.test:
+        callbacks.append(early_stop_cb)
 
     print("LOGGING TO:", default_root_dir)
     print("\n\n")
@@ -127,8 +132,9 @@ if __name__ == '__main__':
     parser.add_argument('--test', '-t', action='store_true', default=False)
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
-    parser.add_argument('--logs_root', '-lr', default='results')
+    parser.add_argument('--logs_root', '-lr', default='results-1aaat')
     parser.add_argument('--log_on_test', '-l', action='store_true', default=False)
+    parser.add_argument('--ckpt_on_test', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
