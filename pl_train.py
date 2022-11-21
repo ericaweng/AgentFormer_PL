@@ -88,7 +88,7 @@ def main(args):
     else:
         logger = None
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE')
-    checkpoint_callback = ModelCheckpoint(monitor='val/ADE', save_top_k=3, mode='min', save_last=True,
+    checkpoint_callback = ModelCheckpoint(monitor='val/ADE', save_top_k=30, mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
 
@@ -100,7 +100,7 @@ def main(args):
 
     print("LOGGING TO:", default_root_dir)
     print("\n\n")
-    trainer = pl.Trainer(check_val_every_n_epoch=5, num_sanity_val_steps=sanity_val_steps,
+    trainer = pl.Trainer(check_val_every_n_epoch=args.val_every, num_sanity_val_steps=sanity_val_steps,
                          devices=args.devices, strategy=plugin, accelerator=accelerator,
                          log_every_n_steps=50 if lim_train_batch is None else lim_train_batch,
                          limit_val_batches=lim_val_batch, limit_train_batches=lim_train_batch,
@@ -139,6 +139,7 @@ if __name__ == '__main__':
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
     parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
+    parser.add_argument('--val_every', '-ve', type=int, default=5)
     parser.add_argument('--test_ds_size', '-dz', default=10, type=int,
                         help='max size of dataset to load when using the --test flag')
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')

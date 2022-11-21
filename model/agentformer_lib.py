@@ -302,19 +302,18 @@ def agent_aware_attention(query: Tensor,
         _, future_agent_num, past_agent_num = attn_output_weights.shape
         # repeat0 = attn_output_weights.shape[1] // num_agent
         # repeat1 = attn_output_weights.shape[2] // num_agent
-        repeat1 = torch.ceil(torch.tensor(attn_output_weights.shape[1] / num_agent)).to(torch.int)
-        repeat2 = torch.ceil(torch.tensor(attn_output_weights.shape[2] / num_agent)).to(torch.int)
+        repeat1 = torch.ceil(torch.tensor(future_agent_num / num_agent)).to(torch.int)
+        repeat2 = torch.ceil(torch.tensor(past_agent_num / num_agent)).to(torch.int)
         attn_weight_self_mask_repeated = attn_weight_self_mask.repeat([repeat1, repeat2]).unsqueeze(0)
         # print("attn_weight_self_mask_repeated.shape:", attn_weight_self_mask_repeated.shape)
-        attn_weight_self_mask = attn_weight_self_mask_repeated[:, :attn_output_weights.shape[1], :attn_output_weights.shape[2]]
+        attn_weight_self_mask = attn_weight_self_mask_repeated[:, :future_agent_num, :past_agent_num]
         # if repeat1 != repeat2:
         #     assert repeat1 == attn_output_weights.shape[1] // num_agent
         #     assert repeat2 == attn_output_weights.shape[2] // num_agent
         # print("attn_weight_self_mask.shape:", attn_weight_self_mask.shape)
-        attn_output_weights_self = torch.bmm(q_self, k_self.transpose(1, 2))
-        # print("q_self.shape:", q_self.shape)
-        # print("k_self.shape:", k_self.shape)
-        # import ipdb; ipdb.set_trace()
+        attn_output_weights_self = torch.bmm(q_self, k_self.transpose(1, 2))  # 8 x 60 x 40
+        # print("q_self.shape:", q_self.shape)  # future encoder: 8 x 60 x 32 (n_head, future_steps, embedding_size)
+        # print("k_self.shape:", k_self.shape)  # future encoder: 8 x 40 x 32 (n_head, past_steps, embedding_size)
 
         attn_output_weights = attn_output_weights_inter * (1 - attn_weight_self_mask) + attn_output_weights_self * attn_weight_self_mask
         if attn_mask is not None:
@@ -323,8 +322,15 @@ def agent_aware_attention(query: Tensor,
             else:
                 attn_output_weights += attn_mask
 
+        # import ipdb; ipdb.set_trace()
+        print("attn_output_weights:", attn_output_weights[0])
+        print("attn_output_weights.shape:", attn_output_weights.shape)
+        import ipdb; ipdb.set_trace()
         attn_output_weights = softmax(
             attn_output_weights, dim=-1)
+        print("attn_output_weights:", attn_output_weights[0])
+        print("attn_output_weights.shape:", attn_output_weights.shape)
+        import ipdb; ipdb.set_trace()
     else:
         if attn_mask is not None:
             if attn_mask.dtype == torch.bool:
@@ -344,9 +350,16 @@ def agent_aware_attention(query: Tensor,
         attn_output_weights = softmax(
             attn_output_weights, dim=-1)
 
+    # attn_output_weights1 = attn_output_weights.clone()
+    # print("attn_output_weights1.shape:", attn_output_weights1.shape)
+    # print("attn_output_weights1:", attn_output_weights1[0,0])
     attn_output_weights = dropout(attn_output_weights, p=dropout_p, training=training)
+    # print("attn_output_weights:", attn_output_weights[0,0])
 
     attn_output = torch.bmm(attn_output_weights, v)
+    # print("attn_output (after multiplying weights with v):", attn_output)
+    # print("attn_output.shape:", attn_output.shape)
+    # import ipdb; ipdb.set_trace()
     assert list(attn_output.size()) == [bsz * num_heads, tgt_len, head_dim]
     attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
     attn_output = linear(attn_output, out_proj_weight, out_proj_bias)

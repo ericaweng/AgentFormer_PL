@@ -201,7 +201,7 @@ class AgentFormerTrainer(pl.LightningModule):
 
         if self.args.save_viz and print_stats:
             self._save_viz(outputs, all_sample_vals, all_metrics, argmins, collision_mats)
-        elif self.args.save_viz and (self.current_epoch + 1) % 10:
+        elif self.args.save_viz:  # and (self.current_epoch + 1) % 10:
             self._save_viz(outputs[0:1], all_sample_vals[0:1], all_metrics[0:1], argmins[0:1], collision_mats[0:1])
 
     def _save_viz(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats):
@@ -216,8 +216,8 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'viz/{self.args.default_root_dir.replace("/", "--")}_{seq}_frame-{frame}.mp4'
-            plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame}", (5, 4)]
+            anim_save_fn = f'viz/{self.args.default_root_dir.replace("/", "--")}-epoch-{self.current_epoch}_{seq}_frame-{frame}.mp4'
+            plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}", (5, 4)]
 
             pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
             min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))

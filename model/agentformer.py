@@ -3,6 +3,7 @@ import numpy as np
 from torch import nn
 from torch.nn import functional as F
 from torch.utils import checkpoint
+# torch.set_printoptions(precision=4, linewidth=90, sci_mode=False, threshold=8, edgeitems=5)
 from collections import defaultdict
 
 from .common.mlp import MLP
@@ -17,14 +18,31 @@ from model.running_norm import RunningNorm
 
 
 def generate_ar_mask_1aaat(sz, agent_num, agent_mask):
-    # assert sz % agent_num == 0
+    a_i = sz % agent_num
+    low_T = sz // agent_num
+    T = torch.ceil(torch.tensor(sz / agent_num)).to(torch.int)
+    agent_mask_repeat = agent_mask.repeat(T, T)[:sz,:sz]
+    indexer = torch.arange(sz).to(agent_mask_repeat.device)
+    # get columns of agent-timesteps of current timestep - 1 // set columns representing all agents of current timestep to False
+    cols_constraints = indexer[None, :] >= low_T * agent_num
+    # get rows of agent-timesteps of current timestep that haven't been computed yet
+    rows_constraints = indexer[:, None] > (low_T - 1) * agent_num + a_i
+    curr_ts_fut_agent_mask = cols_constraints & rows_constraints
+    timestep_constraints = ~(indexer[:, None] > indexer - agent_num)
+    time_mask_bool = timestep_constraints | curr_ts_fut_agent_mask
+    time_mask = torch.where(time_mask_bool, -torch.inf, 0.)
+    joint_mask = agent_mask_repeat + time_mask
+    return joint_mask
+
+
+def generate_ar_mask_1aaat1(sz, agent_num, agent_mask):
     T = torch.ceil(torch.tensor(sz / agent_num)).to(torch.int)
     mask = agent_mask.repeat(T, T)[:sz,:sz]
     indexer = torch.arange(sz).to(mask.device)
     time_mask = (indexer[:, None] > indexer - agent_num)  # | (indexer[None, :] < agent_num) & (indexer[:, None] < agent_num))
     joint_mask = ~(mask.to(bool) | time_mask)
-    # print("joint_mask:", joint_mask)
-    # import ipdb; ipdb.set_trace()
+    joint_mask = joint_mask.to(torch.float16)
+    joint_mask[joint_mask == 1] = -torch.inf
     return joint_mask
 
 
@@ -104,7 +122,7 @@ class PositionalAgentEncoding(nn.Module):
         ae = ae.repeat(num_t, 1, 1)
         return ae
 
-    def forward(self, x, num_a, agent_enc_shuffle=None, t_offset=0, a_offset=0):
+    def forward(self, x, num_a, agent_enc_shuffle=None, t_offset=0, a_offset=0, pause=False):
         num_t = torch.ceil(torch.tensor(x.shape[0] / num_a)).to(torch.int)  # x.shape[0] // num_a
         pos_enc = self.get_pos_enc(num_t, num_a, t_offset)[:x.shape[0]]
         if self.use_agent_enc:
@@ -119,6 +137,8 @@ class PositionalAgentEncoding(nn.Module):
             x += pos_enc
             if self.use_agent_enc:
                 x += agent_enc
+        if pause:
+            import ipdb; ipdb.set_trace()
         return self.dropout(x)
 
 
@@ -404,9 +424,234 @@ class FutureDecoder(nn.Module):
         seq_outs = []
         for i in range(self.future_frames):
             for a_i in range(agent_num):
+                self.eval()
+                # print("agent_num:", data['agent_num'])
                 # print("dec_in_z.shape (raw context + latent + other info. input into the decoder, each round of preds):", dec_in_z.shape)
                 # dec_in_z_relevant_agents = dec_in_z[:num_agents - a_i+1]
                 # print("dec_in_z_relevant_agents.shape:", dec_in_z_relevant_agents.shape)
+                # print("dec_in_z:", dec_in_z[...,:2])
+                traj_in = dec_in_z.view(-1, dec_in_z.shape[-1])
+                # traj_in = dec_in_z_relevant_agents.view(-1, dec_in_z.shape[-1])
+                # print("traj_in.shape:", traj_in.shape)
+                # if self.input_norm is not None:
+                #     traj_in = self.input_norm(traj_in)
+                tf_in = self.input_fc(traj_in).view(dec_in_z.shape[0], -1, self.model_dim)
+                # tf_in = self.input_fc(traj_in).view(dec_in_z_relevant_agents.shape[0], -1, self.model_dim)
+                # print("tf_in.shape (after input fc):", tf_in.shape)
+                agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
+                t_offset = self.past_frames-1 if self.pos_offset else 0
+                tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle, t_offset=t_offset)
+                # print("tf_in_pos (after pos_encoding):", tf_in_pos[...,:2])
+                # print("tf_in_pos.shape (after pos_encoding, input into the tf_decoder):", tf_in_pos.shape)
+                mem_mask = generate_mask_1aaat(tf_in.shape[0], context.shape[0], agent_num, mem_agent_mask).to(tf_in.device)
+                # print("mem_mask0.shape:", mem_mask.shape)
+                # mem_mask = generate_mask(tf_in.shape[0], context.shape[0], agent_num, mem_agent_mask, a_i).to(tf_in.device)
+                # print("mem_mask.shape:", mem_mask.shape)
+                tgt_mask = generate_ar_mask_1aaat(tf_in_pos.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
+                # print("tgt_mask0.shape:", tgt_mask.shape)
+                # tgt_mask = generate_ar_mask(tf_in_pos.shape[0], agent_num, tgt_agent_mask, a_i).to(tf_in.device)
+                # print("tgt_mask.shape:", tgt_mask.shape)
+                # print("before tf decoder")
+
+                tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask,
+                                                       num_agent=agent_num, need_weights=need_weights)
+                print("tf_out:", tf_out)
+                # in5 = torch.randn((5,1,256)).to(tf_in.device)
+                # in6 = torch.cat([in5, torch.randn((1,1,256)).to(tf_in.device)]).to(tf_in.device)
+                # in10 = torch.cat([in5, torch.randn((5,1,256)).to(tf_in.device)]).to(tf_in.device)
+                # # print("in 5:", in5)
+                # # print("in 6:", in6)
+                # # print("in 10:", in10)
+                # mem_mask5 = generate_mask_1aaat(5, context.shape[0], agent_num, mem_agent_mask).to(tf_in.device)
+                # mem_mask6 = generate_mask_1aaat(6, context.shape[0], agent_num, mem_agent_mask).to(tf_in.device)
+                # mem_mask10 = generate_mask_1aaat(10, context.shape[0], agent_num, mem_agent_mask).to(tf_in.device)
+                # # print("mem_mask5:", mem_mask5)
+                # # print("mem_mask6:", mem_mask6)
+                # # print("mem_mask10:", mem_mask10)
+                # tgt_mask5 = generate_ar_mask_1aaat(5, agent_num, tgt_agent_mask).to(tf_in.device)
+                # tgt_mask6 = generate_ar_mask_1aaat(6, agent_num, tgt_agent_mask).to(tf_in.device)
+                # tgt_mask10 = generate_ar_mask(10, agent_num, tgt_agent_mask).to(tf_in.device)
+                # tgt_mask6 = torch.tensor([[0., 0., 0., 0., 0., -torch.inf],
+                #                           [0., 0., 0., 0., 0., 0.],
+                #                           [0., 0., 0., 0., 0., 0.],
+                #                           [0., 0., 0., 0., 0., 0.],
+                #                           [0., 0., 0., 0., 0., 0.],
+                #                           [0., 0., 0., 0., 0., 0.]]).to(tf_in.device)
+                # tgt_mask6 = torch.tensor([[0., 0., 0., 0., 0., -torch.inf],
+                #                           [0., 0., 0., 0., 0., -torch.inf],
+                #                           [0., 0., 0., 0., 0., -torch.inf],
+                #                           [0., 0., 0., 0., 0., -torch.inf],
+                #                           [0., 0., 0., 0., 0., 0],
+                #                           [0., 0., 0., 0., 0., 0]]).to(tf_in.device)
+                # tgt_mask6 = torch.tensor([[0., 0., 0., 0., 0., -torch.inf],
+                #                           [0., 0., 0., 0., 0., 0],
+                #                           [0., 0., 0., 0., 0., -torch.inf],
+                #                           [0., 0., 0., 0., 0., -torch.inf],
+                #                           [0., 0., 0., 0., 0., -torch.inf],
+                #                           [0., 0., 0., 0., 0., -torch.inf]]).to(tf_in.device)
+                # # print("tgt_mask5:", tgt_mask5)
+                # # print("tgt_mask6:", tgt_mask6)
+                # # print("tgt_mask10:", tgt_mask10)
+                # out5, _ = self.tf_decoder(in5, context, memory_mask=mem_mask5, tgt_mask=tgt_mask5, num_agent=5)
+                # print("out5:", out5)
+                # import ipdb; ipdb.set_trace()
+                # out6, _ = self.tf_decoder(in6, context, memory_mask=mem_mask6, tgt_mask=tgt_mask6, num_agent=5)
+                # print("out6:", out6)
+                # import ipdb; ipdb.set_trace()
+                # out10, _ = self.tf_decoder(in10, context, memory_mask=mem_mask10, tgt_mask=tgt_mask10, num_agent=5)
+                # print("out10:", out10)
+                # # torch.randn((6,1,256))
+                # import ipdb; ipdb.set_trace()
+
+                # tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
+                # print("tf_out.shape: (after tf_decoder, the next timestep prediction for all agents)", tf_out.shape)
+                out_tmp = tf_out.view(-1, tf_out.shape[-1])
+                # print("out_tmp.shape:", out_tmp.shape)
+                # if self.out_mlp_dim is not None:
+                #     out_tmp = self.out_mlp(out_tmp)
+                seq_out_all = self.out_fc(out_tmp).view(tf_out.shape[0], -1, self.forecast_dim)
+                # print("seq_out_all (before cutting):", seq_out_all)
+                # get only the agent being predicted.
+                # past agents should be the same; but we already have them in dec_in_z.
+                # future agents are useless. maybe use them as loss in the future.
+                num_agent_ts = seq_out_all.shape[0]
+                seq_out = seq_out_all[-agent_num: -agent_num + 1]
+                # seq_out = seq_out_all[num_agent_ts - agent_num + a_i: num_agent_ts - agent_num + a_i + 1]
+                # print("seq_out single (after cutting):\n", seq_out)
+                # print("seq_out.shape (after taking just the current timestep predictions and relevant agents for the next prediction):", seq_out.shape)
+                if self.pred_type == 'scene_norm' and self.sn_out_type in {'vel', 'norm'}:
+                    norm_motion = seq_out.view(-1, sample_num * 1, seq_out.shape[-1])
+                    # norm_motion = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
+
+                    # print("norm_motion.shape:", norm_motion.shape)
+                    # if self.sn_out_type == 'vel':
+                    #     norm_motion = torch.cumsum(norm_motion, dim=0)
+                    # if self.sn_out_heading:
+                    #     angles = data['heading'].repeat_interleave(sample_num)
+                    #     norm_motion = rotation_2d_torch(norm_motion, angles)[0]
+                    times_repeat = torch.ceil(torch.tensor(seq_out_all.shape[0] / agent_num)).to(torch.int)
+                    seq_out_all_normed = seq_out_all + pre_motion_scene_norm[-1,:,None].repeat(times_repeat,1,1)[:num_agent_ts]  #[-1:, a_i:a_i+1]
+                    print("seq_out_all_normed:", seq_out_all_normed)
+                    print('should equal seq_outs[-1]:', seq_outs)
+                    seq_out = norm_motion + pre_motion_scene_norm[-1:, a_i:a_i+1]
+                    # print("pre_motion_scene_norm[-1:, a_i:a_i+1]:", pre_motion_scene_norm[-1:, a_i:a_i+1])
+                    # print("pre_motion_scene_norm:", pre_motion_scene_norm[-1])
+                    seq_out = seq_out.view(-1, sample_num, seq_out.shape[-1])
+                    # print("seq_out single (after adding norm):", seq_out)
+                    # seq_out = seq_out.view(tf_out.shape[0], -1, seq_out.shape[-1])
+                    # print("seq_out.shape after adding norm motion:", seq_out.shape)
+                seq_outs.append(seq_out)
+                # print("seq_out_all_normed (not cut):", seq_out_all_normed[:len(seq_outs)])
+                # print('should equal seq_out singles:', torch.cat(seq_outs))
+                import ipdb; ipdb.set_trace()
+                # print("dec_in (input unnormed positions only):\n", dec_in_z[...,:2])
+                # get just the next ts's predictions, because the rest is previous predictions (dec_in_z),
+                # which we already have (and it's identical to seq_out)
+                # out_in = seq_out[-1:].clone().detach()
+                # out_in = seq_out[-agent_num:-agent_num+a_i+1].clone().detach()
+                out_in = seq_out
+                if self.ar_detach:
+                    out_in = out_in.clone().detach()
+                    # out_in = seq_out[-agent_num:].clone().detach()
+                    # out_in = seq_out[-agent_num+a_i:-agent_num+a_i+1].clone().detach()
+                # create dec_in_z
+                # out_ins.append(out_in)
+
+                # next_ts_dec_in_z:
+                # print("z_in.shape (to be concatted with out_in to format next ts input):", z_in.shape)
+                in_arr = [out_in, z_in[a_i:a_i+1]]
+                # for key in self.input_type:
+                #     if key == 'heading':
+                #         in_arr.append(heading)
+                #     elif key == 'map':
+                #         in_arr.append(map_enc)
+                #     else:
+                #         raise ValueError('wrong decoder input type!')
+                # if self.use_sfm:
+                #     assert self.pred_type == 'scene_norm'
+                #     pos = out_in + data['scene_orig']
+                #     tmp_pos = pre_motion_scene_norm[-1].view(-1, sample_num, self.forecast_dim) if i == 0 else last_pos
+                #     vel = pos - tmp_pos
+                #     state = torch.cat([pos, vel], dim=-1)
+                #     sf_feat = compute_grad_feature(state, self.sfm_params, self.sfm_learnable_hparams)
+                #     in_arr.append(sf_feat)
+                #     last_pos = pos
+                out_in_z = torch.cat(in_arr, dim=-1)
+                # print("out_in_z.shape (to be concatted with context + previous predicted agent-ts, for next round):", out_in_z.shape)
+                dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
+                if approx_grad:
+                    dec_in_z = dec_in_z.detach()#.requires_grad_()
+                # print("dec_in_z (positions only):", dec_in_z[...,:2])
+                # print("dec_in_z.shape:", dec_in_z.shape)
+                print()
+                # print('data', data['fut_motion'])
+                # print('data', data.keys())
+                # import ipdb; ipdb.set_trace()
+                print()
+                print()
+
+        seq_out = torch.cat(seq_outs)
+        seq_out = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
+        print("seq_out.shape:", seq_out.shape)
+        # import ipdb; ipdb.set_trace()
+        data[f'{mode}_seq_out'] = seq_out
+
+        if self.pred_type == 'vel':
+            dec_motion = torch.cumsum(seq_out, dim=0)
+            dec_motion += pre_motion[[-1]]
+        elif self.pred_type == 'pos':
+            dec_motion = seq_out.clone()
+        elif self.pred_type == 'scene_norm':
+            dec_motion = seq_out + data['scene_orig']
+        else:
+            dec_motion = seq_out + pre_motion[[-1]]
+
+        dec_motion = dec_motion.transpose(0, 1).contiguous()       # M x frames x 7
+        if mode == 'infer':
+            dec_motion = dec_motion.view(-1, sample_num, *dec_motion.shape[1:])        # M x Samples x frames x 3
+        data[f'{mode}_dec_motion'] = dec_motion
+        if need_weights:
+            data['attn_weights'] = attn_weights
+
+    def decode_traj_ar_1aaat1(self, data, mode, context, pre_motion, pre_vel, pre_motion_scene_norm, z, sample_num,
+                             need_weights=False, approx_grad=False):
+        agent_num = data['agent_num']
+        if self.pred_type == 'vel':
+            dec_in = pre_vel[[-1]]
+        elif self.pred_type == 'pos':
+            dec_in = pre_motion[[-1]]
+        elif self.pred_type == 'scene_norm':
+            dec_in = pre_motion_scene_norm[[-1]]
+        else:
+            dec_in = torch.zeros_like(pre_motion[[-1]])
+        dec_in = dec_in.view(-1, sample_num, dec_in.shape[-1])
+        z_in = z.view(-1, sample_num, z.shape[-1])
+        in_arr = [dec_in, z_in]
+        # # print("dec_in.shape (last obs step + previous decoded timesteps):", dec_in.shape)
+        # # print("z_in (latent, output of future decoder OR trajectory sampler OR prior):", z_in.shape)
+        for key in self.input_type:
+            if key == 'heading':
+                heading = data['heading_vec'].unsqueeze(1).repeat((1, sample_num, 1))
+                in_arr.append(heading)
+            elif key == 'map':
+                map_enc = data['map_enc'].unsqueeze(1).repeat((1, sample_num, 1))
+                in_arr.append(map_enc)
+            else:
+                raise ValueError('wrong decode input type!')
+        if self.use_sfm:
+            sf_feat = data['pre_sf_feat'][-1].unsqueeze(1).repeat((1, sample_num, 1))
+            in_arr.append(sf_feat)
+        dec_in_z = torch.cat(in_arr, dim=-1)
+
+        mem_agent_mask = data['agent_mask'].clone()
+        tgt_agent_mask = data['agent_mask'].clone()
+
+        seq_outs = []
+        for i in range(self.future_frames):
+            for a_i in range(agent_num):
+                # print("dec_in_z.shape (raw context + latent + other info. input into the decoder, each round of preds):", dec_in_z.shape)
+                # dec_in_z_relevant_agents = dec_in_z[:num_agents - a_i+1]
+                # # print("dec_in_z_relevant_agents.shape:", dec_in_z_relevant_agents.shape)
                 traj_in = dec_in_z.view(-1, dec_in_z.shape[-1])
                 # traj_in = dec_in_z_relevant_agents.view(-1, dec_in_z.shape[-1])
                 # print("traj_in.shape:", traj_in.shape)
@@ -416,15 +661,17 @@ class FutureDecoder(nn.Module):
                 # tf_in = self.input_fc(traj_in).view(dec_in_z_relevant_agents.shape[0], -1, self.model_dim)
                 # print("tf_in.shape:", tf_in.shape)
                 agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
-                tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle, t_offset=self.past_frames-1 if self.pos_offset else 0)
+                tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle,
+                                             t_offset=self.past_frames - 1 if self.pos_offset else 0)
                 # print("tf_in_pos.shape:", tf_in_pos.shape)
                 # tf_in_pos = tf_in
-                mem_mask = generate_mask_1aaat(tf_in.shape[0], context.shape[0], agent_num, mem_agent_mask).to(tf_in.device)
-                # print("mem_mask0.shape:", mem_mask0.shape)
+                mem_mask = generate_mask_1aaat(tf_in.shape[0], context.shape[0], agent_num, mem_agent_mask).to(
+                    tf_in.device)
+                # print("mem_mask0.shape:", mem_mask.shape)
                 # mem_mask = generate_mask(tf_in.shape[0], context.shape[0], agent_num, mem_agent_mask, a_i).to(tf_in.device)
                 # print("mem_mask.shape:", mem_mask.shape)
                 tgt_mask = generate_ar_mask_1aaat(tf_in_pos.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
-                # print("tgt_mask0.shape:", tgt_mask0.shape)
+                # print("tgt_mask0.shape:", tgt_mask.shape)
                 # tgt_mask = generate_ar_mask(tf_in_pos.shape[0], agent_num, tgt_agent_mask, a_i).to(tf_in.device)
                 # print("tgt_mask.shape:", tgt_mask.shape)
                 # print("before tf decoder")
@@ -447,8 +694,7 @@ class FutureDecoder(nn.Module):
                 # seq_out = seq_out_all[-agent_num: -agent_num + 1]
                 seq_out = seq_out_all[num_agent_ts - agent_num + a_i: num_agent_ts - agent_num + a_i + 1]
                 # print("seq_out:\n", seq_out)
-                # print("seq_out.shape (after taking just the current timestep predictions and relevant agents "
-                #       "for the next prediction):", seq_out.shape)
+                # print("seq_out.shape (after taking just the current timestep predictions and relevant agents for the next prediction):", seq_out.shape)
                 if self.pred_type == 'scene_norm' and self.sn_out_type in {'vel', 'norm'}:
                     norm_motion = seq_out.view(-1, sample_num * 1, seq_out.shape[-1])
                     # norm_motion = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
@@ -459,13 +705,13 @@ class FutureDecoder(nn.Module):
                     #     angles = data['heading'].repeat_interleave(sample_num)
                     #     norm_motion = rotation_2d_torch(norm_motion, angles)[0]
                     # seq_out = norm_motion + pre_motion_scene_norm.repeat()#[-1:, a_i:a_i+1]
-                    seq_out = norm_motion + pre_motion_scene_norm[-1:, a_i:a_i+1]
+                    seq_out = norm_motion + pre_motion_scene_norm[-1:, a_i:a_i + 1]
                     seq_out = seq_out.view(-1, sample_num, seq_out.shape[-1])
                     # seq_out = seq_out.view(tf_out.shape[0], -1, seq_out.shape[-1])
                     # print("seq_out.shape after adding norm motion:", seq_out.shape)
                 seq_outs.append(seq_out)
                 # print("seq_outs:\n", seq_outs)
-                # print("dec_in:\n", dec_in_z[...,:2])
+                # print("dec_in:\n", dec_in_z[..., :2])
                 # print("seq_out:", seq_out)
                 # get just the next ts's predictions, because the rest is previous predictions (dec_in_z),
                 # which we already have (and it's identical to seq_out)
@@ -480,7 +726,7 @@ class FutureDecoder(nn.Module):
                 # out_ins.append(out_in)
 
                 # next_ts_dec_in_z:
-                in_arr = [out_in, z_in[a_i:a_i+1]]
+                in_arr = [out_in, z_in[a_i:a_i + 1]]
                 # print("z_in.shape (to be concatted with out_in):", z_in.shape)
                 # for key in self.input_type:
                 #     if key == 'heading':
@@ -502,9 +748,12 @@ class FutureDecoder(nn.Module):
                 # print("out_in_z.shape (to be concatted with context + previous predicted agent-ts, for next round):", out_in_z.shape)
                 dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
                 if approx_grad:
-                    dec_in_z = dec_in_z.detach()#.requires_grad_()
-                # print("dec_in_z:", dec_in_z[...,:2])
+                    dec_in_z = dec_in_z.detach()  # .requires_grad_()
+                # print("dec_in_z:", dec_in_z[..., :2])
                 # print("dec_in_z.shape:", dec_in_z.shape)
+                # print()
+                # print('data', data['fut_motion'])
+                # # print('data', data.keys())
                 # import ipdb; ipdb.set_trace()
                 # print()
                 # print()
@@ -525,9 +774,9 @@ class FutureDecoder(nn.Module):
         else:
             dec_motion = seq_out + pre_motion[[-1]]
 
-        dec_motion = dec_motion.transpose(0, 1).contiguous()       # M x frames x 7
+        dec_motion = dec_motion.transpose(0, 1).contiguous()  # M x frames x 7
         if mode == 'infer':
-            dec_motion = dec_motion.view(-1, sample_num, *dec_motion.shape[1:])        # M x Samples x frames x 3
+            dec_motion = dec_motion.view(-1, sample_num, *dec_motion.shape[1:])  # M x Samples x frames x 3
         data[f'{mode}_dec_motion'] = dec_motion
         if need_weights:
             data['attn_weights'] = attn_weights
@@ -564,6 +813,7 @@ class FutureDecoder(nn.Module):
         tgt_agent_mask = data['agent_mask'].clone()
 
         for i in range(self.future_frames):
+            self.eval()
             traj_in = dec_in_z.view(-1, dec_in_z.shape[-1])
             if self.input_norm is not None:
                 traj_in = self.input_norm(traj_in)
@@ -579,6 +829,8 @@ class FutureDecoder(nn.Module):
             #     tf_out, attn_weights = checkpoint.checkpoint_sequential(self.tf_decoder, (tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights))
             # else:
             tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
+            print("tf_out:", tf_out)
+            import ipdb; ipdb.set_trace()
 
             out_tmp = tf_out.view(-1, tf_out.shape[-1])
             if self.out_mlp_dim is not None:
@@ -953,6 +1205,8 @@ class AgentFormer(nn.Module):
             params = [self.data, self.loss_cfg[loss_name]]
             loss, loss_unweighted = loss_func[loss_name](*params)
             total_loss += loss.squeeze()
+            # if 'mse' in loss_name:
+            #     import ipdb; ipdb.set_trace()
             loss_dict[loss_name] = loss.item()
             loss_unweighted_dict[loss_name] = loss_unweighted.item()
         return total_loss, loss_dict, loss_unweighted_dict

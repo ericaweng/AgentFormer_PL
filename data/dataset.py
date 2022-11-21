@@ -26,6 +26,7 @@ class AgentFormerDataset(Dataset):
         self.split = split
         self.test_ds_size = test_ds_size
         self.data_max_agents = parser.get('data_max_agents', np.inf)
+        self.data_min_agents = parser.get('data_min_agents', 0)
         assert phase in ['training', 'testing'], 'error'
         assert split in ['train', 'val', 'test'], 'error'
 
@@ -89,7 +90,9 @@ class AgentFormerDataset(Dataset):
             if data is None:
                 continue
             num_agents = len(data['pre_motion_3D'])
-            if num_agents >= self.data_max_agents:
+            if num_agents > self.data_max_agents:
+                continue
+            if num_agents < self.data_min_agents:
                 continue
             datas.append(data)
             if self.test_ds_size is not None and len(datas) == self.test_ds_size:

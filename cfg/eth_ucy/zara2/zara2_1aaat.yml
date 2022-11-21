@@ -32,8 +32,9 @@ sn_out_type: 'norm'
 pos_concat: true
 rand_rot_scene: true
 scene_orig_all_past: true
-ped_one_at_a_time: true
+ped_one_at_a_time: false
 data_max_agents: 10  # max agents per sequence
+data_min_agents: 5  # max agents per sequence
 
 context_encoder:
   nlayer: 2
@@ -52,7 +53,7 @@ learn_prior                  : true
 
 # ------------------- Training Parameters -------------------------
 
-lr                           : 1.e-4
+lr                           : 1.e-2
 loss_cfg:
   mse:
     weight: 1.0
