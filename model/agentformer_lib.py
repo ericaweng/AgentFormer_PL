@@ -298,7 +298,6 @@ def agent_aware_attention(query: Tensor,
         attn_output_weights_inter = attn_output_weights
         # print("attn_output_weights.shape:", attn_output_weights.shape)
         attn_weight_self_mask = torch.eye(num_agent).to(q.device)
-        # import ipdb; ipdb.set_trace()
         _, future_agent_num, past_agent_num = attn_output_weights.shape
         # repeat0 = attn_output_weights.shape[1] // num_agent
         # repeat1 = attn_output_weights.shape[2] // num_agent
@@ -322,15 +321,16 @@ def agent_aware_attention(query: Tensor,
             else:
                 attn_output_weights += attn_mask
 
-        # import ipdb; ipdb.set_trace()
-        print("attn_output_weights:", attn_output_weights[0])
-        print("attn_output_weights.shape:", attn_output_weights.shape)
-        import ipdb; ipdb.set_trace()
+        # if attn_output_weights.shape[-1] < 20:
+        #     print("attn_output_weights:", attn_output_weights[0])
+        #     print("attn_output_weights.shape:", attn_output_weights.shape)
+        #     import ipdb; ipdb.set_trace()
         attn_output_weights = softmax(
             attn_output_weights, dim=-1)
-        print("attn_output_weights:", attn_output_weights[0])
-        print("attn_output_weights.shape:", attn_output_weights.shape)
-        import ipdb; ipdb.set_trace()
+        # if attn_output_weights.shape[-1] < 20:
+        #     print("attn_output_weights:", attn_output_weights[0])
+        #     print("attn_output_weights.shape:", attn_output_weights.shape)
+        #     import ipdb; ipdb.set_trace()
     else:
         if attn_mask is not None:
             if attn_mask.dtype == torch.bool:
@@ -359,7 +359,6 @@ def agent_aware_attention(query: Tensor,
     attn_output = torch.bmm(attn_output_weights, v)
     # print("attn_output (after multiplying weights with v):", attn_output)
     # print("attn_output.shape:", attn_output.shape)
-    # import ipdb; ipdb.set_trace()
     assert list(attn_output.size()) == [bsz * num_heads, tgt_len, head_dim]
     attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
     attn_output = linear(attn_output, out_proj_weight, out_proj_bias)
