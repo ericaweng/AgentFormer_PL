@@ -137,8 +137,8 @@ def eval_one_seq2(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
     collision_mats = None
     for stats_name in stats_func:
         func = stats_func[stats_name]
-        return_sample_vals_this_stat = return_sample_vals if stats_name in ['ADE_seq', 'FDE_seq', 'CR_mean'] else False
-        return_argmins_this_stat = return_sample_vals if stats_name == 'ADE' else False
+        return_sample_vals_this_stat = return_sample_vals if stats_name in ['ADE_joint', 'FDE_joint', 'CR_mean'] else False
+        return_argmins_this_stat = return_sample_vals if stats_name == 'ADE_marginal' else False
         return_collision_mats_this_stat = return_sample_vals if stats_name in ['CR_max', 'CR_mADE'] else False
         stats_func_args = {'pred_arr': agent_traj, 'gt_arr': gt_traj, 'collision_rad': collision_rad,
                            'return_sample_vals': return_sample_vals_this_stat,

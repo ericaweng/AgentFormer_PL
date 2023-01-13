@@ -87,8 +87,8 @@ def main(args):
         logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
     else:
         logger = None
-    early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE')
-    checkpoint_callback = ModelCheckpoint(monitor='val/ADE', save_top_k=30, mode='min', save_last=True,
+    early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_marginal')
+    checkpoint_callback = ModelCheckpoint(monitor='val/ADE_marginal', save_top_k=30, mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
 
@@ -132,16 +132,16 @@ if __name__ == '__main__':
     parser.add_argument('--test', '-t', action='store_true', default=False)
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
-    parser.add_argument('--logs_root', '-lr', default='results-1aaat')
-    parser.add_argument('--log_on_test', '-l', action='store_true', default=False)
+    parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
+    parser.add_argument('--logs_root', '-lr', default='results-1aaat-new-metrics', help='where to save checkpoints and tb logs')
+    parser.add_argument('--log_on_test', '-l', action='store_true', default=False, help='if true, then also writes logs when --test is also specified (o/w does not)')
     parser.add_argument('--ckpt_on_test', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
     parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
     parser.add_argument('--val_every', '-ve', type=int, default=5)
-    parser.add_argument('--test_ds_size', '-dz', default=10, type=int,
-                        help='max size of dataset to load when using the --test flag')
+    parser.add_argument('--test_ds_size', '-dz', default=10, type=int, help='max size of dataset to load when using the --test flag')
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     args = parser.parse_args()
 

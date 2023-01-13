@@ -1,6 +1,7 @@
 import tracemalloc
 import torch
 import pytorch_lightning as pl
+from torch.autograd import Variable
 import numpy as np
 from itertools import starmap
 from functools import partial
@@ -86,6 +87,8 @@ class AgentFormerTrainer(pl.LightningModule):
         self.model = model_dict[model_id](cfg)
         self.cfg = cfg
         self.args = args
+        # self.traj_loss = torch.tensor([0], requires_grad=True)  #.to(data['pre_motion'].device)
+        # self.traj_loss = Variable(torch.Tensor([0]), requires_grad=True)  #.to(data['pre_motion'].device)
         num_workers = int(multiprocessing.cpu_count() / (args.devices + 1e-5)) if args.devices is not None else float('inf')
         self.num_workers = min(args.num_workers, num_workers)
         self.batch_size = args.batch_size
@@ -137,7 +140,12 @@ class AgentFormerTrainer(pl.LightningModule):
         if self.args.tqdm_rate == 0 and batch_idx % 5 == 0:
             print(f"epoch: {self.current_epoch} batch: {batch_idx}")
         data, loss_dict = self._step(batch, 'train')
-        return loss_dict
+
+        gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
+        pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
+        obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()
+        return {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
+                'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
 
     def validation_step(self, batch, batch_idx):
         data, loss_dict = self._step(batch, 'test')
@@ -146,7 +154,9 @@ class AgentFormerTrainer(pl.LightningModule):
         obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()#.transpose(1, 0).cpu()
         # self.stats.update(gt_motion, pred_motion)
         if self.args.save_traj:
-            save_dir = '../trajectory_reward/results/trajectories/agentformer_sfm'
+            save_dir = './trajectories'
+            # save_dir = './trajectories_optimized'
+            # save_dir = '../trajectory_reward/results/trajectories/agentformer_sfm'
             frame = batch['frame'] * 10
             for idx, sample in enumerate(pred_motion.transpose(0,1)):
                 formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12, frame_scale=10, future=True)
@@ -157,38 +167,56 @@ class AgentFormerTrainer(pl.LightningModule):
             save_trajectories(formatted, save_dir, batch['seq'], frame, suffix="/obs")
 
         return {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
-                'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion,}
+                'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
 
-    def _epoch_end(self, outputs, print_stats=False):
+    def _epoch_end(self, outputs, mode='test'):
+        # datas = []
+        # for i, output in enumerate(outputs):
+        #     self.traj_loss[:] = 0
+        #     self.traj_loss.zero_grad()
+        #     self.traj_loss = Variable(torch.Tensor([0]), requires_grad=True)  # .to(data['pre_motion'].device)
+        #     data = self.model.optimize_traj(self.traj_loss, output['data'])
+        #     datas.append(data)
+        # [self.model.optimize_traj(output['data']) for output in outputs]
+        # new_outputs = [{**output, 'pred_motion': data['infer_dec_motion']} for output, data in zip(outputs, datas)]
+        # pred_motion: num_peds, num_samples, ts, 2  # gt_motion: num_peds, ts, 2
         args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]
-        # pred_motion: num_peds, num_samples, ts, 2       # gt_motion: num_peds, ts, 2
-
+        # args_list_new = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in new_outputs]
         if self.args.mp:
             with multiprocessing.Pool(self.num_workers) as pool:
                 all_metrics = pool.starmap(partial(eval_one_seq2,
                                                    collision_rad=self.collision_rad,
                                                    return_sample_vals=self.args.save_viz), args_list)
+        #     with multiprocessing.Pool(self.num_workers) as pool:
+        #         all_metrics_new = pool.starmap(partial(eval_one_seq2,
+        #                                                collision_rad=self.collision_rad,
+        #                                                return_sample_vals=self.args.save_viz), args_list_new)
         else:
             all_metrics = starmap(partial(eval_one_seq2,
                                           collision_rad=self.collision_rad,
                                           return_sample_vals=self.args.save_viz), args_list)
+            # all_metrics_new = starmap(partial(eval_one_seq2,
+            #                                   collision_rad=self.collision_rad,
+            #                                   return_sample_vals=self.args.save_viz), args_list_new)
 
         all_metrics, all_sample_vals, argmins, collision_mats = zip(*all_metrics)
+        # all_metrics_new, all_sample_vals_new, argmins_new, collision_mats_new = zip(*all_metrics_new)
 
         num_agent_per_seq = np.array([output['gt_motion'].shape[0] for output in outputs])
         total_num_agents = np.sum(num_agent_per_seq)
         results_dict = {}
         for key, values in zip(stats_func.keys(), zip(*all_metrics)):
-            if '_seq' in key:  # sequence-based metric
+            if '_joint' in key:  # sequence-based metric
                 value = np.mean(values)
             else:  # agent-based metric
                 value = np.sum(values * num_agent_per_seq) / np.sum(num_agent_per_seq)
             results_dict[key] = value
 
         # log and print results
+        print_stats = mode == 'test'
         if print_stats:
             print(f"\n\n\n{self.current_epoch}")
         self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
@@ -200,11 +228,14 @@ class AgentFormerTrainer(pl.LightningModule):
             print(total_num_agents)
 
         if self.args.save_viz and print_stats:
-            self._save_viz(outputs, all_sample_vals, all_metrics, argmins, collision_mats)
-        elif self.args.save_viz:  # and (self.current_epoch + 1) % 10:
-            self._save_viz(outputs[0:1], all_sample_vals[0:1], all_metrics[0:1], argmins[0:1], collision_mats[0:1])
+            self._save_viz(outputs[0:self.args.save_num], all_sample_vals[0:self.args.save_num], all_metrics[0:self.args.save_num], argmins[0:self.args.save_num], collision_mats[0:self.args.save_num], mode)
+            # self._save_viz(new_outputs, all_sample_vals_new, all_metrics_new, argmins_new, collision_mats_new, tag='optimized')
+        elif self.args.save_viz and (self.args.test and self.current_epoch % 10 == 0 or not self.args.test):
+            # self._save_viz(outputs, all_sample_vals, all_metrics, argmins, collision_mats, mode)
+            self._save_viz(outputs[0:self.args.save_num], all_sample_vals[0:self.args.save_num], all_metrics[0:self.args.save_num], argmins[0:self.args.save_num], collision_mats[0:self.args.save_num], mode)
+            # self._save_viz(outputs[0:1], all_sample_vals[0:1], all_metrics[0:1], argmins[0:1], collision_mats[0:1], mode)
 
-    def _save_viz(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats):
+    def _save_viz(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats, tag=''):
         seq_to_plot_args = []
         for frame_i, (output, seq_to_sample_metrics) in enumerate(zip(outputs, all_sample_vals)):
             frame = output['frame']
@@ -216,12 +247,14 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'viz/{self.args.default_root_dir.replace("/", "--")}-epoch-{self.current_epoch}_{seq}_frame-{frame}.mp4'
+            anim_save_fn = f'viz/{self.args.default_root_dir.replace("/", "--")}-epoch-{self.current_epoch}_{seq}' \
+                           f'_frame-{frame}_{tag}.mp4'
             plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}", (5, 4)]
 
             pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
+            # import ipdb; ipdb.set_trace()
+            # assert len(pred_fake_traj_min.shape) == 3
             min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
-
             args_dict = {'plot_title': f"best mADE sample",
                          'obs_traj': obs_traj,
                          'pred_traj_gt': pred_gt_traj,
@@ -249,13 +282,14 @@ class AgentFormerTrainer(pl.LightningModule):
             list(starmap(plot_fig, seq_to_plot_args))
 
     def train_epoch_end(self, outputs):
+        self._epoch_end(outputs, 'train')
         self.model.step_annealer()
 
     def validation_epoch_end(self, outputs):
-        self._epoch_end(outputs)
+        self._epoch_end(outputs, 'val')
 
     def test_epoch_end(self, outputs):
-        self._epoch_end(outputs, True)
+        self._epoch_end(outputs)
 
     def on_load_checkpoint(self, checkpoint):
         if 'model_dict' in checkpoint and 'epoch' in checkpoint:

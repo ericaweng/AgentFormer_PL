@@ -73,6 +73,7 @@ class TrajectoryOptimizer(nn.Module):
 
         pred_model.future_decoder(self.data, mode='infer', sample_num=self.nk, autoregress=True, z=z,
                                   need_weights=need_weights)
+        pred_model.refine_traj()
         return self.data
 
     def forward(self):

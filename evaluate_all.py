@@ -124,7 +124,7 @@ def main(args):
 
                 total_num_agents = np.sum(num_agent_per_seq)
                 for key, values in zip(stats_func.keys(), zip(*all_metrics)):
-                    if '_seq' in key:  # sequence-based metric
+                    if '_joint' in key:  # joint metric
                         value = np.mean(values)
                     else:  # agent-based metric
                         value = np.sum(values * np.array(num_agent_per_seq)) / np.sum(num_agent_per_seq)

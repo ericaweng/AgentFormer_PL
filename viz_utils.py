@@ -81,7 +81,7 @@ class AnimObj:
         self.update = None
 
     def plot_traj_anim(self, obs_traj=None, save_fn=None, ped_radius=0.1, ped_discomfort_dist=0.2, pred_traj_gt=None,
-                       pred_traj_fake=None, ped_num_label_on='gt',
+                       pred_traj_fake=None, ped_num_label_on='gt', show_ped_pos=True,
                        bounds=None, int_cat_abbv=None, scene_stats=None, cfg_names=None,
                        collision_mats=None, cmap_name='tab10', extend_last_frame=3, show_ped_stats=False,
                        text_time=None, text_fixed=None, grid_values=None, plot_collisions_all=False, plot_title=None,
@@ -94,6 +94,7 @@ class AnimObj:
                         or tensor of shape (num_samples, 8 or 12 pred timesteps, num_peds, 2)
                         or list of tensors of shape (8 or 12, num_peds, 2)  (where each item are the samples predicted by a different model)
                         or list of tensors of shape (num_samples, 8 or 12 pred timesteps, num_peds, 2)
+        show_ped_pos: whether to show the position of each ped next to the ped circle
         bounds: x_low, y_low, x_high, y_high: plotting bounds
                 if not specified the min and max bounds of whichever trajectories are present are used
         pred_traj_gt: shape (8 or 12, num_peds, 2) ground-truth trajectory
@@ -127,7 +128,7 @@ class AnimObj:
         # ax.set_title(f"{plot_title}{save_fn}\ninteraction_type: {int_cat_abbv}")
         ax.set_aspect("equal")
 
-        # make pred_traj_fake standard shape
+        # make pred_traj_fake standard shape of (num_samples, num_timesteps, num_peds, 2)
         if pred_traj_fake is not None:
             if isinstance(pred_traj_fake, np.ndarray):
                 if len(pred_traj_fake.shape) == 3:
@@ -238,8 +239,7 @@ class AnimObj:
                 raise NotImplementedError("text_fixed is unrecognized format")
 
         # ped graph elements
-        circles_gt, circles_fake, last_obs_circles, lines_pred_gt, \
-        lines_obs_gt, lines_pred_fake = [], [], [], [], [], []
+        circles_gt, circles_fake, last_obs_circles, lines_pred_gt, lines_obs_gt, lines_pred_fake = [], [], [], [], [], []
 
         # plot circles to represent peds
         legend_lines = []
@@ -302,7 +302,7 @@ class AnimObj:
         if ped_num_label_on == 'gt':
             circles_to_plot_ped_num = circles_gt
         elif ped_num_label_on == 'pred' or obs_traj is None and pred_traj_gt is None:
-            circles_to_plot_ped_num = circle_fake
+            circles_to_plot_ped_num = circles_fake
         else:
             raise RuntimeError
         for ped_i, circle in enumerate(circles_to_plot_ped_num):
@@ -310,6 +310,16 @@ class AnimObj:
             int_text = ax.text(circle.center[0] + text_offset_x, circle.center[1] - text_offset_y,
                                str(ped_i), color='black', fontsize=8, weight=weight)
             ped_texts.append(ax.add_artist(int_text))
+            
+        if show_ped_pos:
+            ped_pos_texts = []
+            for ped_i, circle_3 in enumerate(circles_fake):
+                for model_i, circle_2 in enumerate(circle_3):
+                    for sample_i, circle in enumerate(circle_2):
+                        ped_pos_text = f"{circle.center[0]:0.1f}, {circle.center[1]:0.1f}"
+                        ped_pos_texts.append(ax.add_artist(
+                                ax.text(circle.center[0] + text_offset_x, circle.center[1] + .2, ped_pos_text,
+                                        fontsize=8)))
 
         # plot collision circles for predictions only
         if collision_mats is not None:
@@ -364,6 +374,7 @@ class AnimObj:
 
             elif frame_i == obs_len:
                 [circle_fake.set_visible(True) for cf in circles_fake for cf_inner in cf for circle_fake in cf_inner]
+                [text.set_visible(True) for cf in ped_pos_texts for cf_inner in cf for circle_fake in cf_inner]
                 for circle_gt in circles_gt:
                     circle_gt.set_radius(ped_radius * 0.5)
                     circle_gt.set_alpha(0.3)
@@ -389,8 +400,7 @@ class AnimObj:
                 if pred_traj_gt is not None:
                     # traj_gt = np.concatenate([obs_traj, pred_traj_gt])
                     assert len(circles_gt) == len(lines_pred_gt) == len(ped_texts), f'{len(circles_gt)}, {len(lines_pred_gt)}, {len(ped_texts)} should all be equal'
-                    for ped_i, (circle_gt, line_pred_gt, ped_text) in enumerate(zip(
-                            circles_gt, lines_pred_gt, ped_texts)):
+                    for ped_i, (circle_gt, line_pred_gt) in enumerate(zip(circles_gt, lines_pred_gt)):
                         circle_gt.center = pred_traj_gt[frame_i - obs_len, ped_i]
                         if obs_traj is not None:
                             last_obs_pred_gt = np.concatenate([obs_traj[-1:, ped_i], pred_traj_gt[0:frame_i + 1 - obs_len, ped_i]])
@@ -399,8 +409,7 @@ class AnimObj:
                         line_pred_gt.set_data(*last_obs_pred_gt.T)
                         # move the pedestrian texts (ped number and relation)
                         if len(ped_texts) > 0:
-                            ped_text.set_position(
-                                    (circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
+                            ped_texts[ped_i].set_position((circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
 
                 if pred_traj_fake is not None:
                     assert len(lines_pred_fake) == len(circles_fake)
@@ -415,6 +424,10 @@ class AnimObj:
                                 else:
                                     last_obs_pred_fake = pred_traj_fake[model_i][sample_i, 0:frame_i + 1 - obs_len, ped_i]
                                 line_pred_fake.set_data(*last_obs_pred_fake.T)
+                                if len(ped_pos_texts) > 0 and model_i == 0 and sample_i == 0:
+                                    ped_pos_text = f"{circle_fake.center[0]:0.1f}, {circle_fake.center[1]:0.1f}"
+                                    ped_pos_texts[ped_i].set_text(ped_pos_text)
+                                    ped_pos_texts[ped_i].set_position((circle_fake.center[0] + text_offset_x, circle_fake.center[1] - text_offset_y))
 
             # update collision circles (only if we are during pred timesteps)
             if (plot_collisions_all or obs_len <= frame_i <= obs_len + pred_len) and collision_mats is not None:

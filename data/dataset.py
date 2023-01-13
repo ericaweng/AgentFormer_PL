@@ -90,6 +90,8 @@ class AgentFormerDataset(Dataset):
             if data is None:
                 continue
             num_agents = len(data['pre_motion_3D'])
+            if 'hotel' in data['seq']:
+                continue
             if num_agents > self.data_max_agents:
                 continue
             if num_agents < self.data_min_agents:
