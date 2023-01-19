@@ -1,11 +1,6 @@
-import copy
 import torch
-import numpy as np
 from torch import nn
-from torch.autograd import Variable
-from torch import optim
 from torch.nn import functional as F
-from torch.utils import checkpoint
 # torch.set_printoptions(precision=4, linewidth=90, sci_mode=False, threshold=8, edgeitems=5)
 from collections import defaultdict
 
@@ -16,6 +11,7 @@ from .agentformer_lib import AgentFormerEncoderLayer, AgentFormerDecoderLayer, A
 from .map_encoder import MapEncoder
 from utils.torch import *
 from utils.utils import initialize_weights
+from viz_utils import plot_traj_img
 from model.sfm import *
 from model.running_norm import RunningNorm
 
@@ -464,7 +460,7 @@ class FutureDecoder(nn.Module):
         tgt_agent_mask = data['agent_mask'].clone()
 
         seq_outs = []
-        for i in range(self.future_frames):
+        for pred_i in range(self.future_frames):
             for a_i in range(agent_num):
                 # self.eval()
                 traj_in = dec_in_z.view(-1, dec_in_z.shape[-1])#[:i*agent_num + a_i]
@@ -478,7 +474,7 @@ class FutureDecoder(nn.Module):
                 tgt_mask = generate_ar_mask_1aaat(tf_in_pos.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
 
                 tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask,
-                                                       num_agent=agent_num, need_weights=need_weights)
+                                                       num_agent=agent_num, need_weights=True)#need_weights)
 
                 # tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
                 # print("tf_out.shape: (after tf_decoder, the next timestep prediction for all agents)", tf_out.shape)
@@ -500,7 +496,6 @@ class FutureDecoder(nn.Module):
                 if self.pred_type == 'scene_norm' and self.sn_out_type in {'vel', 'norm'}:
                     norm_motion = seq_out.view(-1, sample_num * 1, seq_out.shape[-1])
                     # norm_motion = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
-
                     # print("norm_motion.shape:", norm_motion.shape)
                     # if self.sn_out_type == 'vel':
                     #     norm_motion = torch.cumsum(norm_motion, dim=0)
@@ -521,7 +516,30 @@ class FutureDecoder(nn.Module):
                     # seq_out = seq_out.view(tf_out.shape[0], -1, seq_out.shape[-1])
                     # print("seq_out.shape after adding norm motion:", seq_out.shape)
                 seq_outs.append(seq_out)
-                # print("seq_out_all_normed (not cut):", seq_out_all_normed[:len(seq_outs)])
+
+                save_fn = f'viz/test_t-{pred_i}_ai-{a_i}.png'
+                x_attn_w = attn_weights['cross_attn_weights'][0, 0].reshape(-1, 8, agent_num)
+                # get the first attention layer (0), and the first sample (0)
+                s_attn_w = attn_weights['self_attn_weights'][0, 0]  # .reshape(*attn_weights['self_attn_weights'].shape[:-1], -1, 2)[0,0]
+                attn_ped_i = s_attn_w.shape[0] - agent_num  # last timestep; 0th agent
+                obs_traj = pre_motion.cpu().numpy()
+                pred_traj_gt = data['fut_motion'].cpu().numpy()
+                if sample_num == 1 and False:
+                    pred_traj = (torch.cat(seq_outs).reshape(-1, 2) + data['scene_orig']).cpu().numpy()
+                    plot_traj_img(obs_traj, save_fn, pred_traj=pred_traj, pred_traj_gt=pred_traj_gt,
+                                  attn_ped_i=attn_ped_i, ped_radius=0.1, pred_traj_fake=None, self_attn=s_attn_w,
+                                  cross_attn=x_attn_w)
+                elif sample_num == 20:
+                    pred_traj = (torch.cat(seq_outs) + data['scene_orig']).cpu().numpy()
+                    for sample_i in range(sample_num):
+                        save_fn = f'viz/sample-{sample_i}_test_t-{pred_i}_ai-{a_i}.png'
+                        plot_traj_img(obs_traj[:, sample_i::sample_num], save_fn,
+                                      pred_traj=pred_traj[:, sample_i].reshape(-1, 2),
+                                      pred_traj_gt=pred_traj_gt,
+                                      attn_ped_i=attn_ped_i, ped_radius=0.1, pred_traj_fake=None, self_attn=s_attn_w,
+                                      cross_attn=x_attn_w)
+                    import ipdb; ipdb.set_trace()
+
                 # TODO today
                 # print('should equal seq_out singles:', torch.cat(seq_outs).shape)
                 # print('should equal seq_out singles:', torch.cat(seq_outs)[:,0:1])
@@ -636,10 +654,8 @@ class FutureDecoder(nn.Module):
             #     tf_out, attn_weights = checkpoint.checkpoint(self.tf_decoder, (tf_in_pos, context, tgt_mask, mem_mask, None, None, data['agent_num'], need_weights))
             #     tf_out, attn_weights = checkpoint.checkpoint_sequential(self.tf_decoder, (tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights))
             # else:
-            tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
+            tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=True)#need_weights)
             # print("tf_out:", tf_out)
-            # import ipdb; ipdb.set_trace()
-
             out_tmp = tf_out.view(-1, tf_out.shape[-1])
             if self.out_mlp_dim is not None:
                 out_tmp = self.out_mlp(out_tmp)
@@ -657,10 +673,20 @@ class FutureDecoder(nn.Module):
                 out_in = seq_out[-agent_num:].clone().detach()
             else:
                 out_in = seq_out[-agent_num:]
-
-            # TODO
-            # print("seq_out:", seq_out)
-            # print("seq_out.shape:", seq_out.shape)
+            # print("self attn_weights.shape:", attn_weights['self_attn_weights'][0].shape)
+            # print("x attn_weights.shape:", attn_weights['cross_attn_weights'][0].shape)
+            # save_fn = f'viz/pre_t-{i}.png'
+            # x_attn_w = attn_weights['cross_attn_weights'][0,0].reshape(-1, 8, agent_num)
+            # # get the first attention layer (0), and the first sample (0)
+            # s_attn_w = attn_weights['self_attn_weights'][0,0]#.reshape(*attn_weights['self_attn_weights'].shape[:-1], -1, 2)[0,0]
+            # attn_ped_i = s_attn_w.shape[0] - agent_num  # last timestep; 0th agent
+            # obs_traj = pre_motion.cpu().numpy()
+            # pred_traj = (seq_out.squeeze() + data['scene_orig']).cpu().numpy()
+            # pred_traj_gt = data['fut_motion'].cpu().numpy()
+            # if sample_num == 1:
+            #     plot_traj_img(obs_traj, save_fn, pred_traj=pred_traj, pred_traj_gt=pred_traj_gt, attn_ped_i=attn_ped_i,
+            #                   ped_radius=0.1, pred_traj_fake=None, self_attn=s_attn_w, cross_attn=x_attn_w)
+            # import ipdb; ipdb.set_trace()
 
             # create dec_in_z
             in_arr = [out_in, z_in]
@@ -688,6 +714,8 @@ class FutureDecoder(nn.Module):
                 dec_in_z = dec_in_z.detach()#.requires_grad_()
 
         seq_out = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
+        # print("context:", context[0, 0])
+        # import ipdb; ipdb.set_trace()
         data[f'{mode}_seq_out'] = seq_out
         # print("seq_out:", seq_out)
         # print("seq_out.shape:", seq_out.shape)

@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+from matplotlib.cm import ScalarMappable as sm
+from matplotlib.colors import Normalize
 import matplotlib.patches as patches
 
 
@@ -73,6 +75,164 @@ def plot_fig(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
 
 def plot_traj_anim(**kwargs):
     AnimObj().plot_traj_anim(**kwargs)
+
+
+def plot_traj_img(obs_traj, save_fn=None, attn_ped_i=None, pred_traj=None, ped_radius=0.2, pred_traj_gt=None,
+                  pred_traj_fake=None, bounds=None, plot_collisions=False,
+                  collision_mats=None, plot_velocity_arrows=False, ax=None, agent_outline_colors=None,
+                  agent_texts=None, small_arrows=False, cross_attn=None, self_attn=None):
+
+        obs_ts, num_peds, _ = obs_traj.shape
+
+        if agent_outline_colors is not None:
+            assert len(agent_outline_colors) == num_peds
+        if agent_texts is not None:
+            assert len(agent_texts) == num_peds
+
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        else:
+            fig = None
+
+        ax.set_aspect("equal")
+
+        if bounds is None:  # calculate bounds automatically
+            all_traj = obs_traj.reshape(-1, 2)
+            if pred_traj is not None:
+                all_traj = np.concatenate([all_traj, pred_traj.reshape(-1, 2)])
+            if pred_traj_gt is not None:
+                all_traj = np.concatenate([all_traj, pred_traj_gt.reshape(-1, 2)])
+            if pred_traj_fake is not None:
+                all_traj = np.concatenate([all_traj, pred_traj_fake.reshape(-1, 2)])
+            x_low, x_high = np.min(all_traj[:, 0]) - ped_radius, np.max(all_traj[:, 0]) + ped_radius
+            y_low, y_high = np.min(all_traj[:, 1]) - ped_radius, np.max(all_traj[:, 1]) + ped_radius
+        else:  # set bounds as specified
+            x_low, x_high, y_low, y_high = bounds
+        ax.set_xlim(x_low, x_high)
+        ax.set_ylim(y_low, y_high)
+
+        # color and style properties
+        text_offset_x = -0.2
+        text_offset_y = -0.2
+
+        # attn
+        cross_attn = cross_attn[attn_ped_i]
+        self_attn = self_attn[attn_ped_i]
+
+        # OBS
+        obs_cmap = plt.get_cmap('Blues')
+        # plot circles to represent peds
+        obs_sm = sm(cmap=obs_cmap)
+        obs_sm.set_array(cross_attn)
+        obs_sm.autoscale()
+
+        for ped_i in range(num_peds):
+            obs_color = 'b'
+            ax.add_artist(mlines.Line2D(*obs_traj[:, ped_i].T, color=obs_color, marker='.', linestyle='-',
+                                        linewidth=1, zorder=-1))
+            for t in range(obs_ts):
+                # color = cmap(cross_attn_normed[t, ped_i])
+                color = obs_sm.to_rgba(cross_attn[t, ped_i])
+                ax.add_artist(plt.Circle(obs_traj[t, ped_i], ped_radius, fill=True, facecolor=color, linewidth=0))
+                ax.add_artist(ax.text(obs_traj[t, ped_i][0] + text_offset_x, obs_traj[t, ped_i][1] - text_offset_y,
+                                      f"{cross_attn[t, ped_i]:0.2f}", fontsize=8))
+
+        # obs colorbar
+        cbaxes_obs = fig.add_axes([0.1, 0.1, 0.3, 0.03])
+        cbaxes_obs.set_ylabel("attention to past")
+        fig.colorbar(obs_sm, cax=cbaxes_obs, orientation='horizontal')
+
+        # PREDS
+        pred_cmap = plt.get_cmap('Greens')
+        pred_sm = sm(cmap=pred_cmap)
+        pred_sm.set_array(self_attn)
+        pred_sm.autoscale()
+        if pred_traj is not None:
+            # plot future lines
+            stuffs = np.concatenate([obs_traj[-1], pred_traj])
+            for ped_i in range(num_peds):
+                pred_color = 'g'
+                ax.add_artist(mlines.Line2D(*stuffs[ped_i::num_peds].T, color=pred_color, marker='.', linestyle='-',
+                                            linewidth=1, zorder=-1))
+
+            # for 1aaat: show attn to last obs step as future attn rather than past
+            if attn_ped_i is None:
+                show_attn_ped = pred_ts_agents + num_peds
+            else:  # for plain AF: show attn to a chosen agent in last pred ts,
+                show_attn_ped = attn_ped_i
+
+            # plot future circles
+            pred_ts_agents, _ = pred_traj.shape
+            ts_ped_i = 0
+            while ts_ped_i < pred_ts_agents:
+                if ts_ped_i == show_attn_ped:
+                    color = 'c'  # last predicted timestep, for which the attention scores correspond to
+                else:
+                    color = pred_sm.to_rgba(self_attn[ts_ped_i])
+                ax.add_artist(plt.Circle(pred_traj[ts_ped_i], ped_radius, fill=True, facecolor=color))
+                ax.add_artist(ax.text(pred_traj[ts_ped_i][0] + text_offset_x, pred_traj[ts_ped_i][1] - text_offset_y,
+                                      f"{self_attn[ts_ped_i]:0.2f}", fontsize=8))
+                ts_ped_i += 1
+
+            # colorbar for future
+            cbaxes_pred = fig.add_axes([0.5, 0.1, 0.3, 0.03])
+            cbaxes_pred.axes.yaxis.set_visible(True)
+            cbaxes_pred.set_ylabel("attention to future")
+            fig.colorbar(pred_sm, cax=cbaxes_pred, orientation='horizontal')
+
+        if pred_traj_gt is not None:
+            # plot future lines
+            for ped_i in range(num_peds):
+                pred_color = 'r'
+                stuffs = np.concatenate([obs_traj[-1:], pred_traj_gt])
+                ax.add_artist(mlines.Line2D(*stuffs[:, ped_i].T, color=pred_color, marker='.', linestyle='-',
+                                            linewidth=1, zorder=-1))
+                for t in range(pred_traj_gt.shape[0]):
+                    color = 'r'
+                    ax.add_artist(plt.Circle(pred_traj_gt[t, ped_i], ped_radius, fill=True, facecolor=color, zorder=-2))
+
+        # OTHER RANDO STUFF
+        if agent_texts is not None:
+            ax.add_artist(ax.text(obs_traj[-1, ped_i, 0] + text_offset_x,
+                                  obs_traj[-1, ped_i, 1] - text_offset_y,
+                                  agent_texts[ped_i], weight='bold', color='k', fontsize=8))
+
+        if plot_velocity_arrows:
+            if small_arrows:
+                arrow_style = patches.ArrowStyle("->", head_length=0.9, head_width=0.7)
+            else:
+                arrow_style = patches.ArrowStyle("->", head_length=3, head_width=3)
+            arrow_color = (1, 1, 1, 1)
+            if pred_traj is not None:
+                traj = np.concatenate([obs_traj, pred_traj])
+            else:
+                traj = obs_traj
+            arrow_starts = traj[:-1].reshape(-1, 2)
+            arrow_ends = arrow_starts + 0.1 * (traj[1:] - traj[:-1]).reshape(-1, 2)
+            for arrow_start, arrow_end in zip(arrow_starts, arrow_ends):
+                ax.add_artist(patches.FancyArrowPatch(arrow_start, arrow_end, color=arrow_color,
+                                                      arrowstyle=arrow_style, zorder=obs_ts + 1,
+                                                      linewidth=0.4 if small_arrows else 1.5))
+            last_arrow_starts = traj[-1]
+            last_arrow_ends = traj[-1] + 0.1 * (traj[-1] - traj[-2]).reshape(-1, 2)
+            for arrow_start, arrow_end in zip(last_arrow_starts, last_arrow_ends):
+                ax.add_artist(patches.FancyArrowPatch(arrow_start, arrow_end,
+                                                      color=arrow_color,  # 'r',
+                                                      arrowstyle=arrow_style,
+                                                      zorder=obs_ts + 10,
+                                                      linewidth=0.4 if small_arrows else 2))
+        if plot_collisions and pred_traj is not None:
+            if small_arrows:
+                _plot_collision_circles(ax, pred_traj, collide_circ_rad=1.0,
+                                        yellow=(.9, .8, 0, .6), collide_delay=1)
+            else:
+                _plot_collision_circles(ax, pred_traj)
+
+        if fig is not None:
+            if save_fn is not None:
+                plt.savefig(save_fn)
+                print(f"saved image to {save_fn}")
+            plt.close(fig)
 
 
 class AnimObj:
@@ -310,16 +470,24 @@ class AnimObj:
             int_text = ax.text(circle.center[0] + text_offset_x, circle.center[1] - text_offset_y,
                                str(ped_i), color='black', fontsize=8, weight=weight)
             ped_texts.append(ax.add_artist(int_text))
-            
+
         if show_ped_pos:
+            ped_pos_texts_obs = []
+            for ped_i, circle in enumerate(circles_gt):
+                ped_pos_text = f"{circle.center[0]:0.1f}, {circle.center[1]:0.1f}"
+                ped_pos_texts_obs.append(ax.add_artist(ax.text(circle.center[0] + text_offset_x, circle.center[1] + text_offset_y,
+                                                               ped_pos_text, fontsize=8,)))
             ped_pos_texts = []
             for ped_i, circle_3 in enumerate(circles_fake):
+                ppt = []
                 for model_i, circle_2 in enumerate(circle_3):
+                    ppt_i = []
                     for sample_i, circle in enumerate(circle_2):
                         ped_pos_text = f"{circle.center[0]:0.1f}, {circle.center[1]:0.1f}"
-                        ped_pos_texts.append(ax.add_artist(
-                                ax.text(circle.center[0] + text_offset_x, circle.center[1] + .2, ped_pos_text,
-                                        fontsize=8)))
+                        ppt_i.append(ax.add_artist(ax.text(circle.center[0] + text_offset_x, circle.center[1] + text_offset_y,
+                                                           ped_pos_text, fontsize=8, visible=False)))
+                    ppt.append(ppt_i)
+                ped_pos_texts.append(ppt)
 
         # plot collision circles for predictions only
         if collision_mats is not None:
@@ -371,10 +539,15 @@ class AnimObj:
                 # move the pedestrian texts (ped number and relation)
                 for ped_text, circle in zip(ped_texts, circles_to_plot_ped_num):
                     ped_text.set_position((circle.center[0] + text_offset_x, circle.center[1] - text_offset_y))
+                    if len(ped_pos_texts_obs) > 0:
+                        ped_pos_text = f"{circle_gt.center[0]:0.1f}, {circle_gt.center[1]:0.1f}"
+                        ped_pos_texts_obs[ped_i].set_text(ped_pos_text)
+                        ped_pos_texts_obs[ped_i].set_position((circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
 
             elif frame_i == obs_len:
                 [circle_fake.set_visible(True) for cf in circles_fake for cf_inner in cf for circle_fake in cf_inner]
-                [text.set_visible(True) for cf in ped_pos_texts for cf_inner in cf for circle_fake in cf_inner]
+                [text.set_visible(True) for cf in ped_pos_texts for cf_inner in cf for text in cf_inner]
+                [text.set_visible(False) for text in ped_pos_texts_obs]
                 for circle_gt in circles_gt:
                     circle_gt.set_radius(ped_radius * 0.5)
                     circle_gt.set_alpha(0.3)
@@ -424,10 +597,10 @@ class AnimObj:
                                 else:
                                     last_obs_pred_fake = pred_traj_fake[model_i][sample_i, 0:frame_i + 1 - obs_len, ped_i]
                                 line_pred_fake.set_data(*last_obs_pred_fake.T)
-                                if len(ped_pos_texts) > 0 and model_i == 0 and sample_i == 0:
+                                if len(ped_pos_texts) > 0:
                                     ped_pos_text = f"{circle_fake.center[0]:0.1f}, {circle_fake.center[1]:0.1f}"
-                                    ped_pos_texts[ped_i].set_text(ped_pos_text)
-                                    ped_pos_texts[ped_i].set_position((circle_fake.center[0] + text_offset_x, circle_fake.center[1] - text_offset_y))
+                                    ped_pos_texts[ped_i][model_i][sample_i].set_text(ped_pos_text)
+                                    ped_pos_texts[ped_i][model_i][sample_i].set_position((circle_fake.center[0] + text_offset_x, circle_fake.center[1] - text_offset_y))
 
             # update collision circles (only if we are during pred timesteps)
             if (plot_collisions_all or obs_len <= frame_i <= obs_len + pred_len) and collision_mats is not None:

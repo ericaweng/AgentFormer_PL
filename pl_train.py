@@ -143,6 +143,7 @@ if __name__ == '__main__':
     parser.add_argument('--val_every', '-ve', type=int, default=5)
     parser.add_argument('--test_ds_size', '-dz', default=10, type=int, help='max size of dataset to load when using the --test flag')
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
+    parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')
     args = parser.parse_args()
 
     time_str = get_timestring()

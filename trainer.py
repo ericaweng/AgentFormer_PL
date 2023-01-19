@@ -247,8 +247,9 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'viz/{self.args.default_root_dir.replace("/", "--")}-epoch-{self.current_epoch}_{seq}' \
+            anim_save_fn = f'viz/{self.args.default_root_dir.replace("/", "--")}/epoch-{self.current_epoch}_{seq}' \
                            f'_frame-{frame}_{tag}.mp4'
+            mkdir_if_missing(anim_save_fn)
             plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}", (5, 4)]
 
             pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
