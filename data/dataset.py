@@ -16,7 +16,7 @@ from .ethucy_split import get_ethucy_split, get_ethucy_split_dagger
 class AgentFormerDataset(Dataset):
     """ torch Dataset """
 
-    def __init__(self, parser, split='train', phase='training', test_ds_size=None, frames_list=None):
+    def __init__(self, parser, split='train', phase='training', test_ds_size=None, frames_list=None, start_frame=None):
         self.past_frames = parser.past_frames
         self.dagger = parser.get('dagger', False)
         self.dagger_data = parser.get('dagger_data', None)
@@ -92,9 +92,11 @@ class AgentFormerDataset(Dataset):
             if frames_list is not None and isinstance(frames_list, list) and len(frames_list) > 0 \
                     and frame not in frames_list:
                 continue
-            num_agents = len(data['pre_motion_3D'])
-            if 'hotel' in data['seq']:
+            if start_frame is not None and frame < start_frame:
                 continue
+            num_agents = len(data['pre_motion_3D'])
+            # if 'hotel' in data['seq']:
+            #     continue
             if num_agents > self.data_max_agents:
                 continue
             if num_agents < self.data_min_agents:
@@ -105,7 +107,7 @@ class AgentFormerDataset(Dataset):
                 break
         self.sample_list = datas
 
-        print(f'num valid samples: {len(self.sample_list)}')
+        print(f'using {len(self.sample_list)} num samples')
         print("------------------------------ done --------------------------------\n")
         if len(self.sample_list) < 10:
             print("frames_list:", [data['frame'] for data in self.sample_list])

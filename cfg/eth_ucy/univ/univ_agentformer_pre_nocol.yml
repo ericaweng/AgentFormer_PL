@@ -2,8 +2,8 @@
 
 description                  : AgentFormer (Before DLow)
 results_root_dir             : results
-seed                         : 10
-dataset                      : zara2
+seed                         : 1
+dataset                      : univ
 data_root_ethucy             : datasets/eth_ucy
 data_root_nuscenes_pred      : datasets/nuscenes_pred
 
@@ -50,7 +50,7 @@ learn_prior                  : true
 
 # ------------------- Training Parameters -------------------------
 
-lr                           : 1.e-4
+lr                           : 5.e-4
 loss_cfg:
   mse:
     weight: 1.0
@@ -68,6 +68,7 @@ decay_step: 10
 decay_gamma: 0.5
 print_freq                   : 20
 model_save_freq              : 10
+
 
 # ------------------- Testing Parameters -------------------------
 collisions_ok: False

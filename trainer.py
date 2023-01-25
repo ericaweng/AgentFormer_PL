@@ -1,6 +1,8 @@
-import tracemalloc
+import os
+# import tracemalloc
 import torch
 import pytorch_lightning as pl
+
 from torch.autograd import Variable
 import numpy as np
 from itertools import starmap
@@ -12,8 +14,64 @@ from model.model_lib import model_dict
 from utils.torch import get_scheduler
 
 from viz_utils import plot_fig, get_metrics_str
+from metrics import check_collision_per_sample_no_gt
+from utils.utils import mkdir_if_missing, print_log
 
-from utils.utils import mkdir_if_missing
+
+def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device):
+    """run model with collision rejection"""
+    samples_to_return = torch.empty(0).to(device)
+    num_tries = 0
+    num_zeros = 0
+    MAX_NUM_ZEROS = 3
+    MAX_NUM_TRIES = 10
+    samples_w_cols = 0
+    while samples_to_return.shape[0] < sample_k:
+        with torch.no_grad():
+            num_samples = 30
+            model.set_data(data)
+            sample_motion_3D = model.inference(mode='infer', sample_num=num_samples, need_weights=False)[0].transpose(0, 1).contiguous()
+            num_tries += 1
+        sample_motion_3D *= traj_scale
+
+        # compute number of colliding samples
+        pred_arr = sample_motion_3D.cpu().numpy()
+        if pred_arr.shape[0] == 1:  # if there's only one ped, there are necessarily no collisions
+            samples_to_return = sample_motion_3D[:sample_k]
+            break
+        with multiprocessing.Pool(processes=30) as pool:  # compute collisions in parallel
+            mask = pool.map(partial(check_collision_per_sample_no_gt, ped_radius=collision_rad), pred_arr)
+            # no_mp alternative:
+            # mask = itertools.starmap(partial(check_collision_per_sample_no_gt, ped_radius=collision_rad), pred_arr)
+            # mask contains list of length num_samples of tuples of length 2
+            # (collision_per_ped_array (num_peds), collision_matrix_per_timestep (pred_steps, num_peds, num_peds))
+        # get indices of samples that have 0 collisions
+        maskk = np.where(~np.any(np.array(list(zip(*mask))[0]).astype(np.bool), axis=-1))[0]
+        if maskk.shape[0] == 0:  # if there are no samples with 0 collisions
+            num_zeros += 1
+            if num_zeros > MAX_NUM_ZEROS or num_tries > MAX_NUM_TRIES:
+                print(f"frame {data['frame']} with {len(data['pre_motion_3D'])} peds: "
+                      f"collected {num_tries * 30} samples, only {samples_to_return.shape[0]} non-colliding. \n")
+                samples_w_cols = sample_k - samples_to_return.shape[0]
+                samples_to_return = torch.cat([samples_to_return, sample_motion_3D])[:sample_k]  # append some colliding samples to the end
+                break
+            continue
+        # append new non-colliding samples to list
+        # at_least_1_col = np.any([np.any([np.any(ped) for ped in sample]) for sample in mask])
+        # if at_least_1_col:
+        #     print(f"Seq {data['seq']} frame {data['frame']} with {len(data['pre_motion_3D'])} peds has {maskk.shape[0]} non-colliding samples in 50 samples")
+        non_collide_idx = torch.LongTensor(maskk)
+        assert torch.max(non_collide_idx) < sample_motion_3D.shape[0]
+        assert 0 <= torch.max(non_collide_idx)
+        sample_motion_3D_non_colliding = torch.index_select(sample_motion_3D, 0, non_collide_idx.to(device))  # select only those in current sample who don't collide
+        samples_to_return = torch.cat([samples_to_return, sample_motion_3D_non_colliding])[:sample_k]
+
+    if samples_to_return.shape[0] == 0:  # should not get here
+        print("should not get here")
+        import ipdb; ipdb.set_trace()
+    gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
+    samples_to_return = samples_to_return.transpose(0, 1)
+    return samples_to_return.cpu(), gt_motion_3D.cpu(), samples_w_cols
 
 
 def save_trajectories(trajectory, save_dir, seq_name, frame, suffix=''):
@@ -153,10 +211,24 @@ class AgentFormerTrainer(pl.LightningModule):
         pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
         obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()#.transpose(1, 0).cpu()
         # self.stats.update(gt_motion, pred_motion)
+        return {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
+                'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
+
+    def test_step(self, batch, batch_idx):
+        if self.cfg.get('collisions_ok', True):
+            return_dict = self.validation_step(batch, batch_idx)
+            pred_motion, gt_motion, obs_motion = return_dict['pred_motion'], return_dict['gt_motion'], return_dict['obs_motion']
+        else:
+            pred_motion, gt_motion, num_samples_w_col = run_model_w_col_rej(batch, self.model, self.cfg.traj_scale,
+                                                    self.cfg.sample_k, self.cfg.collision_rad, self.model.device)
+            obs_motion = self.cfg.traj_scale * torch.stack(batch[f'pre_motion_3D'], dim=1).cpu()
+            return_dict = {'frame': batch['frame'], 'seq': batch['seq'], 'gt_motion': gt_motion, 'pred_motion':
+                pred_motion, 'obs_motion': obs_motion, "num_samples_w_col": num_samples_w_col}
+
         if self.args.save_traj:
-            save_dir = './trajectories'
+            # save_dir = './trajectories'
             # save_dir = './trajectories_optimized'
-            # save_dir = '../trajectory_reward/results/trajectories/agentformer_sfm'
+            save_dir = f'../trajectory_reward/results/trajectories/{"_".join(self.args.cfg.split("_")[1:])}'
             frame = batch['frame'] * 10
             for idx, sample in enumerate(pred_motion.transpose(0,1)):
                 formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12, frame_scale=10, future=True)
@@ -166,11 +238,7 @@ class AgentFormerTrainer(pl.LightningModule):
             formatted = format_agentformer_trajectories(obs_motion.transpose(0,1), batch, self.cfg, timesteps=8, frame_scale=10, future=False)
             save_trajectories(formatted, save_dir, batch['seq'], frame, suffix="/obs")
 
-        return {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
-                'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
-
-    def test_step(self, batch, batch_idx):
-        return self.validation_step(batch, batch_idx)
+        return return_dict
 
     def _epoch_end(self, outputs, mode='test'):
         # datas = []
@@ -209,14 +277,35 @@ class AgentFormerTrainer(pl.LightningModule):
         total_num_agents = np.sum(num_agent_per_seq)
         results_dict = {}
         for key, values in zip(stats_func.keys(), zip(*all_metrics)):
-            if '_joint' in key:  # sequence-based metric
+            if '_joint' in key or 'CR' in key:  # sequence-based metric
                 value = np.mean(values)
             else:  # agent-based metric
                 value = np.sum(values * num_agent_per_seq) / np.sum(num_agent_per_seq)
             results_dict[key] = value
 
+        # stats related to collision_rejection sampling
+        if not self.cfg.get('collisions_ok', True):
+            tot_samples_w_col = np.sum([output['num_samples_w_col'] for output in outputs])
+            tot_frames_w_col = np.sum([1 if output['num_samples_w_col'] else 0 for output in outputs])
+            results_dict['tot_samples_w_col'] = tot_samples_w_col
+            results_dict['tot_frames_w_col'] = tot_frames_w_col
+
         # log and print results
         print_stats = mode == 'test'
+        test_results_filename = os.path.join(self.args.logs_root, 'test_results', f'{self.args.cfg}.tsv')
+        mkdir_if_missing(test_results_filename)
+
+        if print_stats and self.args.save_test_results:
+            with open(test_results_filename, 'w') as f:
+                with open(os.path.join(self.args.default_root_dir, f'test_results.tsv'), 'w') as g:
+                    f.write(f"epoch\t{self.current_epoch}\n")
+                    g.write(f"epoch\t{self.current_epoch}\n")
+                    for key, value in results_dict.items():
+                        f.write(f"{key}\t{value:.4f}\n")
+                        g.write(f"{key}\t{value:.4f}\n")
+                    f.write(f"total_peds\t{total_num_agents}")
+                    g.write(f"total_peds\t{total_num_agents}")
+
         if print_stats:
             print(f"\n\n\n{self.current_epoch}")
         self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)

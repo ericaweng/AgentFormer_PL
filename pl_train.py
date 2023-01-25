@@ -52,14 +52,7 @@ def main(args):
         lim_train_batch = None
         lim_val_batch = None
 
-    # Initialize data module
-    dm = AgentFormerDataModule(cfg, args)
-    model = AgentFormerTrainer(cfg, args)
-    if args.log_graph:
-        model.set_example_input_array(next(iter(dm.train_dataloader())))
-    model.model.set_device(model.device)
-
-    # Initialize trainer
+    # load checkpoint model
     default_root_dir = args.default_root_dir = os.path.join(args.logs_root, cfg.id)
     if args.mode == 'train':
         models = sorted(glob.glob(os.path.join(default_root_dir, 'last-v*.ckpt')))
@@ -73,6 +66,7 @@ def main(args):
     else:
         raise NotImplementedError
     print("models:", models)
+
     if args.checkpoint_path is not None and args.resume:
         resume_from_checkpoint = args.checkpoint_path
         print("LOADING from custom checkpoint:", resume_from_checkpoint)
@@ -82,7 +76,15 @@ def main(args):
     else:
         resume_from_checkpoint = None
         print("STARTING new run from scratch")
-    # Initialize trainer
+
+    # initialize DataModule and Trainer
+    dm = AgentFormerDataModule(cfg, args)
+    model = AgentFormerTrainer(cfg, args)
+    if args.log_graph:
+        model.set_example_input_array(next(iter(dm.train_dataloader())))
+    model.model.set_device(model.device)
+
+    # initialize logging and checkpointing and other training utils
     if args.mode == 'train' and (not args.test or args.log_on_test):
         logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
     else:
@@ -133,7 +135,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
     parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
-    parser.add_argument('--logs_root', '-lr', default='results-1aaat-new-metrics', help='where to save checkpoints and tb logs')
+    parser.add_argument('--logs_root', '-lr', default='results-joint', help='where to save checkpoints and tb logs')
     parser.add_argument('--log_on_test', '-l', action='store_true', default=False, help='if true, then also writes logs when --test is also specified (o/w does not)')
     parser.add_argument('--ckpt_on_test', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
@@ -144,6 +146,8 @@ if __name__ == '__main__':
     parser.add_argument('--test_ds_size', '-dz', default=10, type=int, help='max size of dataset to load when using the --test flag')
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')
+    parser.add_argument('--start_frame', '-sf', default=None, type=int, help="frame to start loading data from, if you don't want to load entire dataset")
+    parser.add_argument('--dont_save_test_results', '-dstr', dest='save_test_results', action='store_false', default=True, help='whether or not to save test results stats to tsv file (on test mode)')
     args = parser.parse_args()
 
     time_str = get_timestring()
