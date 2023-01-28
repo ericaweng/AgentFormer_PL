@@ -25,12 +25,14 @@ def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device
     num_zeros = 0
     MAX_NUM_ZEROS = 3
     MAX_NUM_TRIES = 10
+    MAX_NUM_SAMPLES = 300
+    NUM_SAMPLES_PER_FORWARD = 30
     samples_w_cols = 0
     while samples_to_return.shape[0] < sample_k:
         with torch.no_grad():
-            num_samples = 30
             model.set_data(data)
-            sample_motion_3D = model.inference(mode='infer', sample_num=num_samples, need_weights=False)[0].transpose(0, 1).contiguous()
+            sample_motion_3D = model.inference(mode='infer', sample_num=NUM_SAMPLES_PER_FORWARD,
+                                               need_weights=False)[0].transpose(0, 1).contiguous()
             num_tries += 1
         sample_motion_3D *= traj_scale
 
@@ -39,7 +41,8 @@ def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device
         if pred_arr.shape[0] == 1:  # if there's only one ped, there are necessarily no collisions
             samples_to_return = sample_motion_3D[:sample_k]
             break
-        with multiprocessing.Pool(processes=30) as pool:  # compute collisions in parallel
+        # compute collisions in parallel
+        with multiprocessing.Pool(processes=min(NUM_SAMPLES_PER_FORWARD, multiprocessing.cpu_count())) as pool:
             mask = pool.map(partial(check_collision_per_sample_no_gt, ped_radius=collision_rad), pred_arr)
             # no_mp alternative:
             # mask = itertools.starmap(partial(check_collision_per_sample_no_gt, ped_radius=collision_rad), pred_arr)
@@ -49,9 +52,10 @@ def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device
         maskk = np.where(~np.any(np.array(list(zip(*mask))[0]).astype(np.bool), axis=-1))[0]
         if maskk.shape[0] == 0:  # if there are no samples with 0 collisions
             num_zeros += 1
-            if num_zeros > MAX_NUM_ZEROS or num_tries > MAX_NUM_TRIES:
+            if num_tries * NUM_SAMPLES_PER_FORWARD >= MAX_NUM_SAMPLES:
+                # if num_zeros > MAX_NUM_ZEROS or num_tries > MAX_NUM_TRIES:
                 print(f"frame {data['frame']} with {len(data['pre_motion_3D'])} peds: "
-                      f"collected {num_tries * 30} samples, only {samples_to_return.shape[0]} non-colliding. \n")
+                  f"collected {num_tries * NUM_SAMPLES_PER_FORWARD} samples, only {samples_to_return.shape[0]} non-colliding. \n")
                 samples_w_cols = sample_k - samples_to_return.shape[0]
                 samples_to_return = torch.cat([samples_to_return, sample_motion_3D])[:sample_k]  # append some colliding samples to the end
                 break
@@ -220,7 +224,8 @@ class AgentFormerTrainer(pl.LightningModule):
             pred_motion, gt_motion, obs_motion = return_dict['pred_motion'], return_dict['gt_motion'], return_dict['obs_motion']
         else:
             pred_motion, gt_motion, num_samples_w_col = run_model_w_col_rej(batch, self.model, self.cfg.traj_scale,
-                                                    self.cfg.sample_k, self.cfg.collision_rad, self.model.device)
+                                                                            self.cfg.sample_k, self.cfg.collision_rad,
+                                                                            self.model.device)
             obs_motion = self.cfg.traj_scale * torch.stack(batch[f'pre_motion_3D'], dim=1).cpu()
             return_dict = {'frame': batch['frame'], 'seq': batch['seq'], 'gt_motion': gt_motion, 'pred_motion':
                 pred_motion, 'obs_motion': obs_motion, "num_samples_w_col": num_samples_w_col}
@@ -291,12 +296,12 @@ class AgentFormerTrainer(pl.LightningModule):
             results_dict['tot_frames_w_col'] = tot_frames_w_col
 
         # log and print results
-        print_stats = mode == 'test'
-        test_results_filename = os.path.join(self.args.logs_root, 'test_results', f'{self.args.cfg}.tsv')
-        mkdir_if_missing(test_results_filename)
+        is_test_mode = mode == 'test'
+        frames_w_cols_filename = os.path.join(self.args.logs_root, 'test_results', f'{self.args.cfg}.tsv')
+        mkdir_if_missing(frames_w_cols_filename)
 
-        if print_stats and self.args.save_test_results:
-            with open(test_results_filename, 'w') as f:
+        if is_test_mode and self.args.save_test_results:
+            with open(frames_w_cols_filename, 'w') as f:
                 with open(os.path.join(self.args.default_root_dir, f'test_results.tsv'), 'w') as g:
                     f.write(f"epoch\t{self.current_epoch}\n")
                     g.write(f"epoch\t{self.current_epoch}\n")
@@ -306,23 +311,35 @@ class AgentFormerTrainer(pl.LightningModule):
                     f.write(f"total_peds\t{total_num_agents}")
                     g.write(f"total_peds\t{total_num_agents}")
 
-        if print_stats:
+        if is_test_mode:
             print(f"\n\n\n{self.current_epoch}")
         self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
         for key, value in results_dict.items():
-            if print_stats:
+            if is_test_mode:
                 print(f"{value:.4f}")
             self.log(f'val/{key}', value, sync_dist=True, prog_bar=True, logger=True)
-        if print_stats:
+        if is_test_mode:
             print(total_num_agents)
 
-        if self.args.save_viz and print_stats:
-            self._save_viz(outputs[0:self.args.save_num], all_sample_vals[0:self.args.save_num], all_metrics[0:self.args.save_num], argmins[0:self.args.save_num], collision_mats[0:self.args.save_num], mode)
-            # self._save_viz(new_outputs, all_sample_vals_new, all_metrics_new, argmins_new, collision_mats_new, tag='optimized')
-        elif self.args.save_viz and (self.args.test and self.current_epoch % 10 == 0 or not self.args.test):
-            # self._save_viz(outputs, all_sample_vals, all_metrics, argmins, collision_mats, mode)
-            self._save_viz(outputs[0:self.args.save_num], all_sample_vals[0:self.args.save_num], all_metrics[0:self.args.save_num], argmins[0:self.args.save_num], collision_mats[0:self.args.save_num], mode)
-            # self._save_viz(outputs[0:1], all_sample_vals[0:1], all_metrics[0:1], argmins[0:1], collision_mats[0:1], mode)
+        if not self.cfg.get('collisions_ok', True):
+            idxs_to_plot = [i for i, output in enumerate(outputs) if output['num_samples_w_col'] > 0]
+            # save the frame numbers of the scenes with collisions, label with the number of samples with collisions
+            frames = np.array([[outputs[i]['frame'], outputs[i]['num_samples_w_col']] for i in idxs_to_plot]).astype(int)
+            frames_w_cols_filename = os.path.join(self.args.logs_root, 'test_results', f'colliding_frame_nums_{self.args.cfg}.tsv')
+            np.savetxt(frames_w_cols_filename, frames, fmt='%4d')
+
+        # plot if there are collisions; or if args.save_viz and in test_mode
+        if not self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode and len(idxs_to_plot) > 0:  # plot only certain scenes
+            self._save_viz(*zip(*[(outputs[i], all_sample_vals[i], all_metrics[i], argmins[i], collision_mats[i])
+                                  for i in idxs_to_plot]), mode)
+        # elif self.args.save_viz and is_test_mode:
+        #     self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
+        #                    all_metrics[:self.args.save_num], argmins[:self.args.save_num],
+        #                    collision_mats[:self.args.save_num], mode)
+        # elif self.args.save_viz and (self.args.test and self.current_epoch % 1 == 0 or not self.args.test):
+        #     self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
+        #                    all_metrics[:self.args.save_num], argmins[:self.args.save_num],
+        #                    collision_mats[:self.args.save_num], mode)
 
     def _save_viz(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats, tag=''):
         seq_to_plot_args = []

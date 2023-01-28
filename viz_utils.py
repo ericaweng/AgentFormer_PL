@@ -4,7 +4,6 @@ import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.cm import ScalarMappable as sm
-from matplotlib.colors import Normalize
 import matplotlib.patches as patches
 
 
@@ -241,11 +240,12 @@ class AnimObj:
         self.update = None
 
     def plot_traj_anim(self, obs_traj=None, save_fn=None, ped_radius=0.1, ped_discomfort_dist=0.2, pred_traj_gt=None,
-                       pred_traj_fake=None, ped_num_label_on='gt', show_ped_pos=True,
+                       pred_traj_fake=None, ped_num_label_on='gt', show_ped_pos=False,
                        bounds=None, int_cat_abbv=None, scene_stats=None, cfg_names=None,
                        collision_mats=None, cmap_name='tab10', extend_last_frame=3, show_ped_stats=False,
                        text_time=None, text_fixed=None, grid_values=None, plot_collisions_all=False, plot_title=None,
                        ax=None, update=None, pred_alpha=None, highlight_peds=[]):
+        # TODO show_ped_pos does not do ped pos for obs steps
         """
         obs_traj: shape (8, num_peds, 2) observation input to model, first 8 timesteps of the scene
         save_fn: file name where to save animation
@@ -356,18 +356,17 @@ class AnimObj:
         # each ped a different color
         cmap_real = plt.get_cmap(cmap_name, max(10, num_peds))
         cmap_fake = plt.get_cmap(cmap_name, max(10, num_peds))
-        color_fake = [['#0D47A1', '#2196F3'],  # blue
-                      ['#E65100', '#FF9800'],  # orange
-                      ['#194D33', '#4CAF50'],  # green
-                      ['#B71C1C', '#F44336'],  # red
-                      ['#4A148C', '#9C27B0'],  # purple
-                      ['#312502', '#795548'],  # brown
-                      ['#b31658', '#E91E63'],  # pink
-                      ['#333333', '#999999'],  # gray
-                      ['#F0F4C3', '#AFB42B'],  # olive
-                      ]
+        # color_fake = [['#0D47A1', '#2196F3'],  # blue
+        #               ['#E65100', '#FF9800'],  # orange
+        #               ['#194D33', '#4CAF50'],  # green
+        #               ['#B71C1C', '#F44336'],  # red
+        #               ['#4A148C', '#9C27B0'],  # purple
+        #               ['#312502', '#795548'],  # brown
+        #               ['#b31658', '#E91E63'],  # pink
+        #               ['#333333', '#999999'],  # gray
+        #               ['#AFB42B', '#AFB42B'],  # olive
+        #               ]
         # each model a different alpha and linestyle
-        alpha_min = 0.3
         linestyles = ['dotted', '--']
 
         # add scene-related stats as descriptive text
@@ -399,6 +398,7 @@ class AnimObj:
                 raise NotImplementedError("text_fixed is unrecognized format")
 
         # ped graph elements
+        # circles_fake: [ped_i, model_i, sample_i]
         circles_gt, circles_fake, last_obs_circles, lines_pred_gt, lines_obs_gt, lines_pred_fake = [], [], [], [], [], []
 
         # plot circles to represent peds
@@ -407,10 +407,9 @@ class AnimObj:
 
         for ped_i in range(num_peds):
             color_real = cmap_real(ped_i)
-            # color_fake = cmap_fake(ped_i)
-            # color_real = cmap_real(0)
+            color_fake = cmap_fake(ped_i)
 
-            ## plot ground-truth obs and pred
+            # plot ground-truth obs and pred
             if obs_traj is not None:
                 circles_gt.append(ax.add_artist(plt.Circle(obs_traj[0, ped_i], ped_radius, fill=True, color=color_real, zorder=0)))
                 line_obs_gt = mlines.Line2D(*obs_traj[0:1].T, color=color_real, marker='.', linestyle='-', linewidth=1,
@@ -420,7 +419,7 @@ class AnimObj:
             if pred_traj_gt is not None:
                 if obs_traj is None:
                     circles_gt.append(ax.add_artist(plt.Circle(pred_traj_gt[0, ped_i], ped_radius, fill=True, color=color_real, zorder=0)))
-                line_pred_gt = mlines.Line2D(*pred_traj_gt[0:1].T, color=color_real, marker='.', linestyle='-', linewidth=1,
+                line_pred_gt = mlines.Line2D(*pred_traj_gt[0:1].T, color=color_real, marker='.', linestyle='dotted', linewidth=1,
                                              alpha=obs_alpha, zorder=0, visible=False)
                 lines_pred_gt.append(ax.add_artist(line_pred_gt))
 
@@ -428,18 +427,20 @@ class AnimObj:
                 lpf, cf = [], []
                 for model_i, ptf in enumerate(pred_traj_fake):
                     lpf_inner, cf_inner = [], []
+                    color = color_fake
+                    # color = color_fake[ped_i % len(color_fake)][model_i]
                     for sample_i, p in enumerate(ptf):
                         circle_fake = plt.Circle(p[0, ped_i], ped_radius, fill=True,
-                                                 color=color_fake[ped_i % len(color_fake)][model_i],
+                                                 color=color,
                                                  alpha=pred_alpha, visible=False, zorder=1)
                         cf_inner.append(ax.add_artist(circle_fake))
                         if cfg_names is not None:
                             label = f"{cfg_names[model_i]} ped {ped_i}" if sample_i == 0 else None
                         marker = locals()[f'markers_{model_i}'][sample_i]
-                        color = color_fake[ped_i % len(color_fake)][model_i]
                         line_pred_fake = mlines.Line2D(*p[0:1].T, color=color,
                                                        marker=marker,
-                                                       linestyle=linestyles[model_i],
+                                                       linestyle='--',
+                                                       # linestyle=linestyles[model_i],
                                                        alpha=pred_alpha, zorder=2,
                                                        visible=False)
                         if cfg_names is not None and label is not None:
@@ -533,21 +534,24 @@ class AnimObj:
 
             # move the real and pred (fake) agent
             if frame_i < obs_len:
-                for ped_i, (circle_gt, line_obs_gt) in enumerate(zip(circles_gt, lines_obs_gt)):
+                for ped_i, (circle_gt, circle_fake, line_obs_gt) in enumerate(zip(circles_gt, circles_fake, lines_obs_gt)):
                     circle_gt.center = obs_traj[frame_i, ped_i]
+                    circle_fake[0][0].center = obs_traj[frame_i, ped_i]
                     line_obs_gt.set_data(*obs_traj[0:frame_i + 1, ped_i].T)
-                # move the pedestrian texts (ped number and relation)
-                for ped_text, circle in zip(ped_texts, circles_to_plot_ped_num):
-                    ped_text.set_position((circle.center[0] + text_offset_x, circle.center[1] - text_offset_y))
-                    if len(ped_pos_texts_obs) > 0:
+                    if show_ped_pos and len(ped_pos_texts_obs) > 0:
                         ped_pos_text = f"{circle_gt.center[0]:0.1f}, {circle_gt.center[1]:0.1f}"
                         ped_pos_texts_obs[ped_i].set_text(ped_pos_text)
                         ped_pos_texts_obs[ped_i].set_position((circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
 
+                # move the pedestrian texts (ped number and relation)
+                for ped_text, circle in zip(ped_texts, circles_gt):  # circles_to_plot_ped_num):
+                    ped_text.set_position((circle.center[0] + text_offset_x, circle.center[1] - text_offset_y))
+
             elif frame_i == obs_len:
                 [circle_fake.set_visible(True) for cf in circles_fake for cf_inner in cf for circle_fake in cf_inner]
-                [text.set_visible(True) for cf in ped_pos_texts for cf_inner in cf for text in cf_inner]
-                [text.set_visible(False) for text in ped_pos_texts_obs]
+                if show_ped_pos:
+                    [text.set_visible(True) for cf in ped_pos_texts for cf_inner in cf for text in cf_inner]
+                    [text.set_visible(False) for text in ped_pos_texts_obs]
                 for circle_gt in circles_gt:
                     circle_gt.set_radius(ped_radius * 0.5)
                     circle_gt.set_alpha(0.3)
@@ -597,7 +601,7 @@ class AnimObj:
                                 else:
                                     last_obs_pred_fake = pred_traj_fake[model_i][sample_i, 0:frame_i + 1 - obs_len, ped_i]
                                 line_pred_fake.set_data(*last_obs_pred_fake.T)
-                                if len(ped_pos_texts) > 0:
+                                if show_ped_pos and len(ped_pos_texts) > 0:
                                     ped_pos_text = f"{circle_fake.center[0]:0.1f}, {circle_fake.center[1]:0.1f}"
                                     ped_pos_texts[ped_i][model_i][sample_i].set_text(ped_pos_text)
                                     ped_pos_texts[ped_i][model_i][sample_i].set_position((circle_fake.center[0] + text_offset_x, circle_fake.center[1] - text_offset_y))
