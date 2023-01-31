@@ -349,7 +349,7 @@ class AnimObj:
         text_offset_y = 0.2
         obs_alpha = 1  # how much alpha to plot obs traj
         if pred_alpha is None:
-            pred_alpha = 0.7  # how much alpha to plot gt traj, if they exist
+            pred_alpha = 0.5  # how much alpha to plot gt traj, if they exist
         # each sample a different marker
         markers_0 = [None] * 10#['o', '*', '^', 's', '1', 'P', 'x', '$\#$', ',', '$\clubsuit$'] #'v', '<', ',', ]
         markers_1 = [None] * 10#['P', 'x', '$\#$', ',', '$\clubsuit$'] #'v', '<', ',', ]
@@ -406,8 +406,8 @@ class AnimObj:
         legend_labels = []
 
         for ped_i in range(num_peds):
-            color_real = cmap_real(ped_i)
-            color_fake = cmap_fake(ped_i)
+            color_real = cmap_real(ped_i % num_peds)
+            color_fake = cmap_fake(ped_i % num_peds)
 
             # plot ground-truth obs and pred
             if obs_traj is not None:
@@ -420,7 +420,7 @@ class AnimObj:
                 if obs_traj is None:
                     circles_gt.append(ax.add_artist(plt.Circle(pred_traj_gt[0, ped_i], ped_radius, fill=True, color=color_real, zorder=0)))
                 line_pred_gt = mlines.Line2D(*pred_traj_gt[0:1].T, color=color_real, marker='.', linestyle='dotted', linewidth=1,
-                                             alpha=obs_alpha, zorder=0, visible=False)
+                                             alpha=pred_alpha, zorder=0, visible=False)
                 lines_pred_gt.append(ax.add_artist(line_pred_gt))
 
             if pred_traj_fake is not None:  # plot fake pred trajs
@@ -432,7 +432,7 @@ class AnimObj:
                     for sample_i, p in enumerate(ptf):
                         circle_fake = plt.Circle(p[0, ped_i], ped_radius, fill=True,
                                                  color=color,
-                                                 alpha=pred_alpha, visible=False, zorder=1)
+                                                 alpha=obs_alpha, visible=False, zorder=1)
                         cf_inner.append(ax.add_artist(circle_fake))
                         if cfg_names is not None:
                             label = f"{cfg_names[model_i]} ped {ped_i}" if sample_i == 0 else None
@@ -441,7 +441,7 @@ class AnimObj:
                                                        marker=marker,
                                                        linestyle='--',
                                                        # linestyle=linestyles[model_i],
-                                                       alpha=pred_alpha, zorder=2,
+                                                       alpha=obs_alpha, zorder=2,
                                                        visible=False)
                         if cfg_names is not None and label is not None:
                             legend_labels.append(label)

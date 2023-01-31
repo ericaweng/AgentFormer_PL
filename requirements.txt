@@ -1,8 +1,19 @@
-tensorboard
-opencv-python
-glob2
-six
-pyyaml
-easydict
-nuscenes-devkit
-pandas
+#minimum requirements, not tested
+easydict==1.10
+filelock==3.9.0
+glob2==0.7
+ipdb @ file:///home/conda/feedstock_root/build_artifacts/ipdb_1671923457576/work
+matplotlib @ file:///croot/matplotlib-suite_1670466153205/work
+numpy @ file:///croot/numpy_and_numpy_base_1672336185480/work
+opencv-python==4.7.0.68
+pandas==1.5.2
+pytorch-lightning==1.7.7
+scipy==1.9.3
+seaborn @ file:///croot/seaborn_1673479180098/work
+tensorboard @ file:///home/builder/stiwari/miniconda3/envs/tf210/conda-bld/tensorboard_1666889856225/work/tensorboard-2.10.0-py3-none-any.whl
+tensorflow @ file:///home/builder/stiwari/miniconda3/envs/tf210/conda-bld/tensorflow-base_1666974941302/work/tensorflow_pkg/tensorflow-2.10.0-cp310-cp310-linux_x86_64.whl
+torch==1.12.1
+torchmetrics @ file:///home/conda/feedstock_root/build_artifacts/torchmetrics_1669849697223/work
+torchvision @ file:///croot/torchvision_1670313549871/work
+tqdm @ file:///opt/conda/conda-bld/tqdm_1664392687731/work
+wandb @ file:///home/conda/feedstock_root/build_artifacts/wandb_1673613476298/work

@@ -27,7 +27,7 @@ def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device
     MAX_NUM_TRIES = 10
     MAX_NUM_SAMPLES = 300
     NUM_SAMPLES_PER_FORWARD = 30
-    samples_w_cols = 0
+    samples_w_cols = None
     while samples_to_return.shape[0] < sample_k:
         with torch.no_grad():
             model.set_data(data)
@@ -38,7 +38,8 @@ def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device
 
         # compute number of colliding samples
         pred_arr = sample_motion_3D.cpu().numpy()
-        if pred_arr.shape[0] == 1:  # if there's only one ped, there are necessarily no collisions
+        num_peds = pred_arr.shape[1]
+        if num_peds == 1:  # if there's only one ped, there are necessarily no collisions
             samples_to_return = sample_motion_3D[:sample_k]
             break
         # compute collisions in parallel
@@ -56,7 +57,7 @@ def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device
                 # if num_zeros > MAX_NUM_ZEROS or num_tries > MAX_NUM_TRIES:
                 print(f"frame {data['frame']} with {len(data['pre_motion_3D'])} peds: "
                   f"collected {num_tries * NUM_SAMPLES_PER_FORWARD} samples, only {samples_to_return.shape[0]} non-colliding. \n")
-                samples_w_cols = sample_k - samples_to_return.shape[0]
+                samples_w_cols = num_peds, sample_k - samples_to_return.shape[0]
                 samples_to_return = torch.cat([samples_to_return, sample_motion_3D])[:sample_k]  # append some colliding samples to the end
                 break
             continue
@@ -290,14 +291,15 @@ class AgentFormerTrainer(pl.LightningModule):
 
         # stats related to collision_rejection sampling
         if not self.cfg.get('collisions_ok', True):
-            tot_samples_w_col = np.sum([output['num_samples_w_col'] for output in outputs])
-            tot_frames_w_col = np.sum([1 if output['num_samples_w_col'] else 0 for output in outputs])
+            tot_samples_w_col = np.sum([0 if output['num_samples_w_col'] is None
+                                        else output['num_samples_w_col'][1] for output in outputs])
+            tot_frames_w_col = np.sum([0 if output['num_samples_w_col'] is None else 1 for output in outputs])
             results_dict['tot_samples_w_col'] = tot_samples_w_col
             results_dict['tot_frames_w_col'] = tot_frames_w_col
 
         # log and print results
         is_test_mode = mode == 'test'
-        frames_w_cols_filename = os.path.join(self.args.logs_root, 'test_results', f'{self.args.cfg}.tsv')
+        frames_w_cols_filename = f'../trajectory_reward/results/trajectories/test_results/{self.args.cfg}.tsv'
         mkdir_if_missing(frames_w_cols_filename)
 
         if is_test_mode and self.args.save_test_results:
@@ -322,11 +324,11 @@ class AgentFormerTrainer(pl.LightningModule):
             print(total_num_agents)
 
         if not self.cfg.get('collisions_ok', True):
-            idxs_to_plot = [i for i, output in enumerate(outputs) if output['num_samples_w_col'] > 0]
+            idxs_to_plot = [i for i, output in enumerate(outputs) if output['num_samples_w_col'] is not None]
             # save the frame numbers of the scenes with collisions, label with the number of samples with collisions
-            frames = np.array([[outputs[i]['frame'], outputs[i]['num_samples_w_col']] for i in idxs_to_plot]).astype(int)
+            frames = np.array([[outputs[i]['seq'], outputs[i]['frame'], *outputs[i]['num_samples_w_col']] for i in idxs_to_plot])
             frames_w_cols_filename = os.path.join(self.args.logs_root, 'test_results', f'colliding_frame_nums_{self.args.cfg}.tsv')
-            np.savetxt(frames_w_cols_filename, frames, fmt='%4d')
+            np.savetxt(frames_w_cols_filename, frames, fmt='%s')
 
         # plot if there are collisions; or if args.save_viz and in test_mode
         if not self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode and len(idxs_to_plot) > 0:  # plot only certain scenes
