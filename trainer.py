@@ -23,16 +23,18 @@ def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device
     samples_to_return = torch.empty(0).to(device)
     num_tries = 0
     num_zeros = 0
-    MAX_NUM_ZEROS = 3
-    MAX_NUM_TRIES = 10
     MAX_NUM_SAMPLES = 300
-    NUM_SAMPLES_PER_FORWARD = 30
+    NUM_SAMPLES_PER_FORWARD = 20
     samples_w_cols = None
+    sample_motion_3D_prev = None
     while samples_to_return.shape[0] < sample_k:
         with torch.no_grad():
             model.set_data(data)
             sample_motion_3D = model.inference(mode='infer', sample_num=NUM_SAMPLES_PER_FORWARD,
                                                need_weights=False)[0].transpose(0, 1).contiguous()
+            if sample_motion_3D_prev is not None:
+                assert torch.any(sample_motion_3D_prev != sample_motion_3D)
+            sample_motion_3D_prev = sample_motion_3D
             num_tries += 1
         sample_motion_3D *= traj_scale
 

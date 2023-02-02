@@ -26,6 +26,7 @@ pred_epoch: 50
 qnet_mlp: [512, 256]
 share_eps: true
 train_w_mean: true
+test_w_mean: false
 
 # ------------------- VAE-------------------------
 

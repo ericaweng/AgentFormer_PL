@@ -83,6 +83,7 @@ class DLow(nn.Module):
         self.nz = nz = cfg.nz
         self.share_eps = cfg.get('share_eps', True)
         self.train_w_mean = cfg.get('train_w_mean', False)
+        self.test_w_mean = cfg.get('test_w_mean', True)
         self.loss_cfg = self.cfg.loss_cfg
         self.loss_names = list(self.loss_cfg.keys())
 
@@ -127,7 +128,9 @@ class DLow(nn.Module):
         self.pred_model[0].set_data(data)
         self.data = self.pred_model[0].data
 
-    def main(self, mean=False, need_weights=False):
+    def main(self, mean=False, need_weights=False, sample_num=None):
+        if sample_num is None:
+            sample_num = self.nk
         pred_model = self.pred_model[0]
         if hasattr(pred_model, 'use_map') and pred_model.use_map:
             self.data['map_enc'] = pred_model.map_encoder(self.data['agent_maps'])
@@ -149,14 +152,14 @@ class DLow(nn.Module):
         logvar = (A ** 2 + 1e-8).log()
         self.data['q_z_dist_dlow'] = Normal(mu=b, logvar=logvar)
 
-        pred_model.future_decoder(self.data, mode='infer', sample_num=self.nk, autoregress=True, z=z, need_weights=need_weights)
+        pred_model.future_decoder(self.data, mode='infer', sample_num=sample_num, autoregress=True, z=z, need_weights=need_weights)
         return self.data
     
     def forward(self):
         return self.main(mean=self.train_w_mean)
 
     def inference(self, mode, sample_num, need_weights=False):
-        self.main(mean=True, need_weights=need_weights)
+        self.main(mean=self.test_w_mean, need_weights=need_weights)#, sample_num=sample_num)
         res = self.data[f'infer_dec_motion']
         if mode == 'recon':
             res = res[:, 0]
