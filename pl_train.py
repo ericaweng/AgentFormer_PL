@@ -43,6 +43,7 @@ def main(args):
             args.devices = 1
             accelerator = 'gpu'
 
+    print(f"using {args.devices} gpus")
     if args.test:
         sanity_val_steps = 0
         lim_train_batch = int(args.test_ds_size / args.batch_size)
@@ -90,7 +91,7 @@ def main(args):
     else:
         logger = None
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_marginal')
-    checkpoint_callback = ModelCheckpoint(monitor='val/ADE_marginal', save_top_k=30, mode='min', save_last=True,
+    checkpoint_callback = ModelCheckpoint(monitor='val/ADE_marginal', save_top_k=5, mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
 
@@ -110,11 +111,10 @@ def main(args):
                          logger=logger, callbacks=callbacks,)
 
     if 'train' in args.mode:
-        n = trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
-        if n:
-            trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir)
-            trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
-    elif 'test' in args.mode or 'val' in args.mode or 'cond' in args.mode:
+        trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir)
+        trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
+    elif 'test' in args.mode or 'val' in args.mode:
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
     else:
         raise NotImplementedError

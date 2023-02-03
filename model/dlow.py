@@ -32,6 +32,21 @@ def diversity_loss(data, cfg):
     return loss, loss_unweighted
 
 
+def joint_recon_loss(data, cfg):
+    diff = data['infer_dec_motion'] - data['fut_motion_orig'].unsqueeze(1)
+    if cfg.get('mask', True):
+        mask = data['fut_mask'].unsqueeze(1).unsqueeze(-1)
+        diff *= mask
+    dist = diff.pow(2).sum(dim=-1).sum(dim=-1)  # (num_peds, num_samples)
+    if cfg.get('normalize', True):
+        samples = dist.mean(axis=0)
+    else:
+        samples = dist.sum(axis=0)  # (num_samples)
+    loss_unweighted = samples.min()
+    loss = loss_unweighted * cfg['weight']
+    return loss, loss_unweighted
+
+
 def recon_loss(data, cfg):
     diff = data['infer_dec_motion'] - data['fut_motion_orig'].unsqueeze(1)
     if cfg.get('mask', True):
@@ -68,6 +83,7 @@ loss_func = {
     'kld': compute_z_kld,
     'diverse': diversity_loss,
     'recon': recon_loss,
+    'joint_recon': joint_recon_loss,
     'sample_sfm': compute_sample_sfm
 }
 
@@ -83,6 +99,7 @@ class DLow(nn.Module):
         self.nz = nz = cfg.nz
         self.share_eps = cfg.get('share_eps', True)
         self.train_w_mean = cfg.get('train_w_mean', False)
+        print("self.train_w_mean", self.train_w_mean)
         self.test_w_mean = cfg.get('test_w_mean', True)
         self.loss_cfg = self.cfg.loss_cfg
         self.loss_names = list(self.loss_cfg.keys())
@@ -100,14 +117,17 @@ class DLow(nn.Module):
             model_cp = torch.load(cp_path, map_location='cpu')
             pred_model.load_state_dict(model_cp['model_dict'])
         else:
-            glob_str = f'{cfg.results_root_dir}/{pred_cfg.id}/*.*'
+            glob_str = f'{cfg.results_root_dir}/{pred_cfg.id}/*.ckpt'
             print("glob_str:", glob_str)
             cp_path = glob.glob(glob_str)
             print("cp_path:", cp_path)
             cp_path = cp_path[-1]
             print("cp_path:", cp_path)
             model_cp = torch.load(cp_path, map_location='cpu')
-            new_dict = {'.'.join(k.split('.')[1:]): v for k, v in model_cp['state_dict'].items()}
+            try:
+                new_dict = {'.'.join(k.split('.')[1:]): v for k, v in model_cp['state_dict'].items()}
+            except KeyError:
+                new_dict = model_cp['model_dict']
             pred_model.load_state_dict(new_dict)
         print('DLOW: loaded pre model from checkpoint, doing: %s' % cp_path)
         pred_model.eval()

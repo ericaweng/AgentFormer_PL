@@ -654,7 +654,7 @@ class FutureDecoder(nn.Module):
             #     tf_out, attn_weights = checkpoint.checkpoint(self.tf_decoder, (tf_in_pos, context, tgt_mask, mem_mask, None, None, data['agent_num'], need_weights))
             #     tf_out, attn_weights = checkpoint.checkpoint_sequential(self.tf_decoder, (tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights))
             # else:
-            tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=True)#need_weights)
+            tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
             # print("tf_out:", tf_out)
             out_tmp = tf_out.view(-1, tf_out.shape[-1])
             if self.out_mlp_dim is not None:

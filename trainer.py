@@ -24,7 +24,7 @@ def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device
     num_tries = 0
     num_zeros = 0
     MAX_NUM_SAMPLES = 300
-    NUM_SAMPLES_PER_FORWARD = 20
+    NUM_SAMPLES_PER_FORWARD = 30
     samples_w_cols = None
     sample_motion_3D_prev = None
     while samples_to_return.shape[0] < sample_k:
@@ -309,7 +309,10 @@ class AgentFormerTrainer(pl.LightningModule):
                 with open(os.path.join(self.args.default_root_dir, f'test_results.tsv'), 'w') as g:
                     f.write(f"epoch\t{self.current_epoch}\n")
                     g.write(f"epoch\t{self.current_epoch}\n")
+                    metrics_to_print = {'ADE_marginal', 'FDE_marginal', 'CR_mean', 'ADE_joint', 'FDE_joint'}
                     for key, value in results_dict.items():
+                        if key not in metrics_to_print:
+                            continue
                         f.write(f"{key}\t{value:.4f}\n")
                         g.write(f"{key}\t{value:.4f}\n")
                     f.write(f"total_peds\t{total_num_agents}")
@@ -336,10 +339,10 @@ class AgentFormerTrainer(pl.LightningModule):
         if not self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode and len(idxs_to_plot) > 0:  # plot only certain scenes
             self._save_viz(*zip(*[(outputs[i], all_sample_vals[i], all_metrics[i], argmins[i], collision_mats[i])
                                   for i in idxs_to_plot]), mode)
-        # elif self.args.save_viz and is_test_mode:
-        #     self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
-        #                    all_metrics[:self.args.save_num], argmins[:self.args.save_num],
-        #                    collision_mats[:self.args.save_num], mode)
+        elif self.args.save_viz and is_test_mode:
+            self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
+                           all_metrics[:self.args.save_num], argmins[:self.args.save_num],
+                           collision_mats[:self.args.save_num], mode)
         # elif self.args.save_viz and (self.args.test and self.current_epoch % 1 == 0 or not self.args.test):
         #     self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
         #                    all_metrics[:self.args.save_num], argmins[:self.args.save_num],
