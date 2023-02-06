@@ -80,7 +80,7 @@ def compute_sample_sfm(data, cfg, learnable_hparams=None):
 loss_func = {
     'mse': compute_motion_mse,
     'kld': compute_z_kld,
-    'sample': compute_sample_loss,
+    'sample': compute_sample_loss,  # identical to recon loss in dlow training
     'recon_sfm': compute_recon_sfm,
     'sample_sfm': compute_sample_sfm
 }

@@ -63,7 +63,13 @@ def recon_loss(data, cfg):
 
 
 def compute_sample_sfm(data, cfg):
-    sfm_params = cfg.get('sfm_params', data['cfg'].sfm_params)
+    try:
+        sfm_params = cfg.get('sfm_params', data['cfg'].sfm_params)
+    except AttributeError:
+        if 'sfm_params' in cfg:
+            sfm_params = cfg['sfm_params']
+        else:
+            sfm_params = data['cfg'].sfm_params
     pred = data['infer_dec_motion']
     sample_num = pred.shape[1]
     pre_motion_orig = data['pre_motion'].transpose(0, 1).unsqueeze(1).repeat((1, sample_num, 1, 1))
@@ -99,7 +105,6 @@ class DLow(nn.Module):
         self.nz = nz = cfg.nz
         self.share_eps = cfg.get('share_eps', True)
         self.train_w_mean = cfg.get('train_w_mean', False)
-        print("self.train_w_mean", self.train_w_mean)
         self.test_w_mean = cfg.get('test_w_mean', True)
         self.loss_cfg = self.cfg.loss_cfg
         self.loss_names = list(self.loss_cfg.keys())
