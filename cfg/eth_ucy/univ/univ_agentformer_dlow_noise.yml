@@ -1,4 +1,4 @@
-# training cfg for models trained with dlow noise with joint recon loss term (instead of the original marginal term)
+# univ training cfg for models trained with dlow noise instead of mean
 # ------------------- General Options -------------------------
 
 description                  : AgentFormer (DLow)
@@ -26,7 +26,6 @@ pred_cfg: univ_agentformer_pre
 pred_epoch: 70
 qnet_mlp: [512, 256]
 share_eps: true
-test_w_mean: false
 
 # ------------------- VAE-------------------------
 
@@ -43,7 +42,7 @@ loss_cfg:
   diverse:
     weight: 10
     d_scale: 10
-  joint_recon:
+  recon:
     weight: 5.0
 
 num_epochs                   : 50
@@ -54,7 +53,3 @@ decay_gamma: 0.5
 print_freq                   : 20
 model_save_freq              : 5
 
-
-# ------------------- Testing Parameters -------------------------
-collisions_ok: False
-collision_rad: 0.1

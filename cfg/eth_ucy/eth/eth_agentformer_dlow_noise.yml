@@ -1,4 +1,4 @@
-# training cfg for models trained with dlow noise with joint recon loss term (instead of the original marginal term)
+# eth training cfg for models trained with dlow noise instead of mean
 # ------------------- General Options -------------------------
 
 description                  : AgentFormer (DLow)
@@ -42,7 +42,7 @@ loss_cfg:
   diverse:
     weight: 20
     d_scale: 10
-  joint_recon:
+  recon:
     weight: 5.0
 
 num_epochs                   : 50

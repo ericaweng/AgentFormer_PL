@@ -1,4 +1,4 @@
-# hotel collision-rejection testing cfg for models trained with dlow noise with joint recon loss term (instead of the original marginal term)
+# training cfg for models trained with dlow noise with joint recon loss term (instead of the original marginal term)
 # ------------------- General Options -------------------------
 
 description                  : AgentFormer (DLow)
@@ -26,7 +26,6 @@ pred_cfg: hotel_agentformer_pre
 pred_epoch: 50
 qnet_mlp: [512, 256]
 share_eps: true
-train_w_mean: true
 test_w_mean: false
 
 # ------------------- VAE-------------------------
