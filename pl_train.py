@@ -2,12 +2,14 @@ import os
 import sys
 import glob
 import argparse
+from functools import partial
 
 import torch
+import wandb
 torch.set_default_dtype(torch.float32)
 
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.strategies import DDPStrategy
 from data.datamodule import AgentFormerDataModule
@@ -17,8 +19,17 @@ from trainer import AgentFormerTrainer
 
 
 def main(args):
+    # initialize AgentFormer config from wandb sweep config or from full config filename
+    if args.wandb_sweep:
+        run = wandb.init()
+        run.name = full_config_name = f'{args.cfg}_w-{wandb.config.weight:0.1f}_s-{wandb.config.sigma_d:0.2f}'
+        cfg = Config(full_config_name)
+        wandb.config.update(args)
+        wandb.config.update(cfg)
+    else:
+        cfg = Config(args.cfg)
+
     # Set global random seed
-    cfg = Config(args.cfg)
     pl.seed_everything(cfg.seed)
 
     # run with test run params if in ipython env; else with real run params
@@ -88,10 +99,13 @@ def main(args):
     # initialize logging and checkpointing and other training utils
     if args.mode == 'train' and (not args.test or args.log_on_test):
         logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
+        if args.wandb_sweep:
+            wandb_logger = WandbLogger(save_dir=args.logs_root, log_model=True, save_top_k=5, name=run.name)
+            logger = [logger, wandb_logger]
     else:
         logger = None
-    early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_marginal')
-    checkpoint_callback = ModelCheckpoint(monitor='val/ADE_marginal', save_top_k=5, mode='min', save_last=True,
+    early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_joint')
+    checkpoint_callback = ModelCheckpoint(monitor='val/ADE_joint', save_top_k=5, mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
 
@@ -113,6 +127,12 @@ def main(args):
     if 'train' in args.mode:
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
         trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir)
+        args.mode = 'test'
+        args.save_traj = True
+        args.save_viz = True
+        dm = AgentFormerDataModule(cfg, args)
+        model = AgentFormerTrainer(cfg, args)
+        model.model.set_device(model.device)
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
     elif 'test' in args.mode or 'val' in args.mode:
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
@@ -148,11 +168,52 @@ if __name__ == '__main__':
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')
     parser.add_argument('--start_frame', '-sf', default=None, type=int, help="frame to start loading data from, if you don't want to load entire dataset")
     parser.add_argument('--dont_save_test_results', '-dstr', dest='save_test_results', action='store_false', default=True, help='whether or not to save test results stats to tsv file (on test mode)')
+    parser.add_argument('--wandb_sweep', '-ws', action='store_true', default=False, help='runs wandb sweep with id given by args.sweep_id')
+    parser.add_argument('--sweep_id', '-sid', default=None, help='if given, continues wandb sweep with id given by args.sweep_id')
+    parser.add_argument('--new_sweep', '-ns', action='store_true', default=False, help='if true, then starts new wandb sweep')
+    parser.add_argument('--project_name', '-p', default='af_dlow_sfm', help='wandb project name')
     args = parser.parse_args()
 
     time_str = get_timestring()
-    print("time str: {}".format(time_str))
+    print(f"time str: {time_str}")
     print("python version : {}".format(sys.version.replace('\n', ' ')))
-    print("torch version : {}".format(torch.__version__))
-    print("cudnn version : {}".format(torch.backends.cudnn.version()))
-    main(args)
+    print(f"torch version : {torch.__version__}")
+    print(f"cudnn version : {torch.backends.cudnn.version()}")
+
+    if args.wandb_sweep:
+        configs = {
+                'weight': None,
+                'sigma_d': None,
+        }
+        sweep_config = {
+            'method': 'grid',
+            'metric': {
+                'goal': 'minimize',
+                'name': 'val/ADE_joint'
+            },
+            'parameters': {
+                'weight': {
+                    'values': [10, 15, 20, 30, 40, 50, 100]
+                },
+                'sigma_d': {
+                    'values': [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25,2.5]
+                }
+            }
+        }
+        # get sweep id from file if not given as arg
+        if args.sweep_id is None and not args.new_sweep:
+            try:
+                with open('sweep_id2.txt', 'r') as f:
+                    args.sweep_id = f.read().strip()
+            except:
+                args.sweep_id = wandb.sweep(sweep_config, project=args.project_name)
+                with open('sweep_id2.txt', 'w') as f:
+                    f.write(args.sweep_id)
+        else:
+            args.sweep_id = wandb.sweep(sweep_config, project=args.project_name)
+            with open('sweep_id2.txt', 'w') as f:
+                f.write(args.sweep_id)
+        wandb.agent(args.sweep_id, function=partial(main, args), project=args.project_name)
+        print(f"sweep id: {args.sweep_id}")
+    else:
+        main(args)

@@ -1,84 +1,18 @@
 import os
-# import tracemalloc
+from itertools import starmap
+from functools import partial
+import multiprocessing
+import numpy as np
 import torch
 import pytorch_lightning as pl
 
-from torch.autograd import Variable
-import numpy as np
-from itertools import starmap
-from functools import partial
+from model.model_lib import model_dict
 from eval import eval_one_seq2
 from metrics import stats_func
-import multiprocessing
-from model.model_lib import model_dict
+from utils.utils import mkdir_if_missing
 from utils.torch import get_scheduler
-
 from viz_utils import plot_fig, get_metrics_str
-from metrics import check_collision_per_sample_no_gt
-from utils.utils import mkdir_if_missing, print_log
-
-
-def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device):
-    """run model with collision rejection"""
-    samples_to_return = torch.empty(0).to(device)
-    num_tries = 0
-    num_zeros = 0
-    MAX_NUM_SAMPLES = 300
-    NUM_SAMPLES_PER_FORWARD = 30
-    samples_w_cols = None
-    sample_motion_3D_prev = None
-    while samples_to_return.shape[0] < sample_k:
-        with torch.no_grad():
-            model.set_data(data)
-            sample_motion_3D = model.inference(mode='infer', sample_num=NUM_SAMPLES_PER_FORWARD,
-                                               need_weights=False)[0].transpose(0, 1).contiguous()
-            if sample_motion_3D_prev is not None:
-                assert torch.any(sample_motion_3D_prev != sample_motion_3D)
-            sample_motion_3D_prev = sample_motion_3D
-            num_tries += 1
-        sample_motion_3D *= traj_scale
-
-        # compute number of colliding samples
-        pred_arr = sample_motion_3D.cpu().numpy()
-        num_peds = pred_arr.shape[1]
-        if num_peds == 1:  # if there's only one ped, there are necessarily no collisions
-            samples_to_return = sample_motion_3D[:sample_k]
-            break
-        # compute collisions in parallel
-        with multiprocessing.Pool(processes=min(NUM_SAMPLES_PER_FORWARD, multiprocessing.cpu_count())) as pool:
-            mask = pool.map(partial(check_collision_per_sample_no_gt, ped_radius=collision_rad), pred_arr)
-            # no_mp alternative:
-            # mask = itertools.starmap(partial(check_collision_per_sample_no_gt, ped_radius=collision_rad), pred_arr)
-            # mask contains list of length num_samples of tuples of length 2
-            # (collision_per_ped_array (num_peds), collision_matrix_per_timestep (pred_steps, num_peds, num_peds))
-        # get indices of samples that have 0 collisions
-        maskk = np.where(~np.any(np.array(list(zip(*mask))[0]).astype(np.bool), axis=-1))[0]
-        if maskk.shape[0] == 0:  # if there are no samples with 0 collisions
-            num_zeros += 1
-            if num_tries * NUM_SAMPLES_PER_FORWARD >= MAX_NUM_SAMPLES:
-                # if num_zeros > MAX_NUM_ZEROS or num_tries > MAX_NUM_TRIES:
-                print(f"frame {data['frame']} with {len(data['pre_motion_3D'])} peds: "
-                  f"collected {num_tries * NUM_SAMPLES_PER_FORWARD} samples, only {samples_to_return.shape[0]} non-colliding. \n")
-                samples_w_cols = num_peds, sample_k - samples_to_return.shape[0]
-                samples_to_return = torch.cat([samples_to_return, sample_motion_3D])[:sample_k]  # append some colliding samples to the end
-                break
-            continue
-        # append new non-colliding samples to list
-        # at_least_1_col = np.any([np.any([np.any(ped) for ped in sample]) for sample in mask])
-        # if at_least_1_col:
-        #     print(f"Seq {data['seq']} frame {data['frame']} with {len(data['pre_motion_3D'])} peds has {maskk.shape[0]} non-colliding samples in 50 samples")
-        non_collide_idx = torch.LongTensor(maskk)
-        assert torch.max(non_collide_idx) < sample_motion_3D.shape[0]
-        assert 0 <= torch.max(non_collide_idx)
-        sample_motion_3D_non_colliding = torch.index_select(sample_motion_3D, 0, non_collide_idx.to(device))  # select only those in current sample who don't collide
-        samples_to_return = torch.cat([samples_to_return, sample_motion_3D_non_colliding])[:sample_k]
-
-    if samples_to_return.shape[0] == 0:  # should not get here
-        print("should not get here")
-        import ipdb; ipdb.set_trace()
-    gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
-    samples_to_return = samples_to_return.transpose(0, 1)
-    return samples_to_return.cpu(), gt_motion_3D.cpu(), samples_w_cols
+from collision_rejection import run_model_w_col_rej
 
 
 def save_trajectories(trajectory, save_dir, seq_name, frame, suffix=''):
@@ -152,8 +86,6 @@ class AgentFormerTrainer(pl.LightningModule):
         self.model = model_dict[model_id](cfg)
         self.cfg = cfg
         self.args = args
-        # self.traj_loss = torch.tensor([0], requires_grad=True)  #.to(data['pre_motion'].device)
-        # self.traj_loss = Variable(torch.Tensor([0]), requires_grad=True)  #.to(data['pre_motion'].device)
         num_workers = int(multiprocessing.cpu_count() / (args.devices + 1e-5)) if args.devices is not None else float('inf')
         self.num_workers = min(args.num_workers, num_workers)
         self.batch_size = args.batch_size
@@ -161,37 +93,17 @@ class AgentFormerTrainer(pl.LightningModule):
         self.hparams.update(vars(cfg))
         self.hparams.update(vars(args))
 
-    def set_example_input_array(self, example_input_array):
-        data = self.model.get_torch_data(example_input_array)
-        # print("data:", data.keys())
-        # dic = {k:v for k, v in data.items() if type(v) == torch.Tensor}
-        # print("dic:", dic.keys())
-        # import ipdb; ipdb.set_trace()
-        self.example_input_array = [data]  # [self.model.set_data(example_input_array)]
-
     def on_test_start(self):
         self.model.set_device(self.device)
 
     def on_fit_start(self):
         self.model.set_device(self.device)
 
-    def forward(self, batch):
-        self.model.set_data(batch)
-        return self.model()
-
     def _step(self, batch, mode):
         # Compute predictions
         # data = self(batch)
         self.model.set_data(batch)
-        # tracemalloc.start()
         data = self.model()
-        # snapshot = tracemalloc.take_snapshot()
-        # top_stats = snapshot.statistics('lineno')
-        #
-        # print("[ Top 10 ]")
-        # for stat in top_stats[:10]:
-        #     print(stat)
-        # import ipdb; ipdb.set_trace()
         total_loss, loss_dict, loss_unweighted_dict = self.model.compute_loss()
 
         # losses
@@ -339,7 +251,7 @@ class AgentFormerTrainer(pl.LightningModule):
         if not self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode and len(idxs_to_plot) > 0:  # plot only certain scenes
             self._save_viz(*zip(*[(outputs[i], all_sample_vals[i], all_metrics[i], argmins[i], collision_mats[i])
                                   for i in idxs_to_plot]), mode)
-        elif self.args.save_viz and is_test_mode:
+        elif self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode:
             self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
                            all_metrics[:self.args.save_num], argmins[:self.args.save_num],
                            collision_mats[:self.args.save_num], mode)
