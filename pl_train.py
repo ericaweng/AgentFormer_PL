@@ -193,25 +193,25 @@ if __name__ == '__main__':
             },
             'parameters': {
                 'weight': {
-                    'values': [10, 15, 20, 30, 40, 50]
+                    'values': [10, 15, 20, 25, 30, 35, 40]
                 },
                 'sigma_d': {
-                    'values': [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25]
+                    'values': [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25,2.5]
                 }
             }
         }
         # get sweep id from file if not given as arg
         if args.sweep_id is None and not args.new_sweep:
             try:
-                with open('sweep_id2.txt', 'r') as f:
+                with open('sweep_id.txt', 'r') as f:
                     args.sweep_id = f.read().strip()
             except:
                 args.sweep_id = wandb.sweep(sweep_config, project=args.project_name)
-                with open('sweep_id2.txt', 'w') as f:
+                with open('sweep_id.txt', 'w') as f:
                     f.write(args.sweep_id)
         else:
             args.sweep_id = wandb.sweep(sweep_config, project=args.project_name)
-            with open('sweep_id2.txt', 'w') as f:
+            with open('sweep_id.txt', 'w') as f:
                 f.write(args.sweep_id)
         wandb.agent(args.sweep_id, function=partial(main, args), project=args.project_name)
         print(f"sweep id: {args.sweep_id}")

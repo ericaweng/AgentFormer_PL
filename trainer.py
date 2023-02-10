@@ -157,42 +157,26 @@ class AgentFormerTrainer(pl.LightningModule):
             save_trajectories(formatted, save_dir, batch['seq'], frame, suffix='/gt')
             formatted = format_agentformer_trajectories(obs_motion.transpose(0,1), batch, self.cfg, timesteps=8, frame_scale=10, future=False)
             save_trajectories(formatted, save_dir, batch['seq'], frame, suffix="/obs")
+            # os.system(f'chmod -R 777 {save_dir}')
 
         return return_dict
 
     def _epoch_end(self, outputs, mode='test'):
-        # datas = []
-        # for i, output in enumerate(outputs):
-        #     self.traj_loss[:] = 0
-        #     self.traj_loss.zero_grad()
-        #     self.traj_loss = Variable(torch.Tensor([0]), requires_grad=True)  # .to(data['pre_motion'].device)
-        #     data = self.model.optimize_traj(self.traj_loss, output['data'])
-        #     datas.append(data)
-        # [self.model.optimize_traj(output['data']) for output in outputs]
-        # new_outputs = [{**output, 'pred_motion': data['infer_dec_motion']} for output, data in zip(outputs, datas)]
-        # pred_motion: num_peds, num_samples, ts, 2  # gt_motion: num_peds, ts, 2
         args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]
-        # args_list_new = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in new_outputs]
+
+        # calculate metrics for each sequence
         if self.args.mp:
             with multiprocessing.Pool(self.num_workers) as pool:
                 all_metrics = pool.starmap(partial(eval_one_seq2,
                                                    collision_rad=self.collision_rad,
                                                    return_sample_vals=self.args.save_viz), args_list)
-        #     with multiprocessing.Pool(self.num_workers) as pool:
-        #         all_metrics_new = pool.starmap(partial(eval_one_seq2,
-        #                                                collision_rad=self.collision_rad,
-        #                                                return_sample_vals=self.args.save_viz), args_list_new)
         else:
             all_metrics = starmap(partial(eval_one_seq2,
                                           collision_rad=self.collision_rad,
                                           return_sample_vals=self.args.save_viz), args_list)
-            # all_metrics_new = starmap(partial(eval_one_seq2,
-            #                                   collision_rad=self.collision_rad,
-            #                                   return_sample_vals=self.args.save_viz), args_list_new)
-
         all_metrics, all_sample_vals, argmins, collision_mats = zip(*all_metrics)
-        # all_metrics_new, all_sample_vals_new, argmins_new, collision_mats_new = zip(*all_metrics_new)
 
+        # aggregate metrics across sequences
         num_agent_per_seq = np.array([output['gt_motion'].shape[0] for output in outputs])
         total_num_agents = np.sum(num_agent_per_seq)
         results_dict = {}
@@ -203,7 +187,7 @@ class AgentFormerTrainer(pl.LightningModule):
                 value = np.sum(values * num_agent_per_seq) / np.sum(num_agent_per_seq)
             results_dict[key] = value
 
-        # stats related to collision_rejection sampling
+        # get stats related to collision_rejection sampling
         if not self.cfg.get('collisions_ok', True):
             tot_samples_w_col = np.sum([0 if output['num_samples_w_col'] is None
                                         else output['num_samples_w_col'][1] for output in outputs])
@@ -213,11 +197,12 @@ class AgentFormerTrainer(pl.LightningModule):
 
         # log and print results
         is_test_mode = mode == 'test'
-        frames_w_cols_filename = f'../trajectory_reward/results/trajectories/test_results/{self.args.cfg}.tsv'
-        mkdir_if_missing(frames_w_cols_filename)
+        test_results_filename = f'../trajectory_reward/results/trajectories/test_results/{self.args.cfg}.tsv'
+        mkdir_if_missing(test_results_filename)
 
+        # save results to file
         if is_test_mode and self.args.save_test_results and not self.args.trial:
-            with open(frames_w_cols_filename, 'w') as f:
+            with open(test_results_filename, 'w') as f:
                 with open(os.path.join(self.args.default_root_dir, f'test_results.tsv'), 'w') as g:
                     f.write(f"epoch\t{self.current_epoch}\n")
                     g.write(f"epoch\t{self.current_epoch}\n")
@@ -229,25 +214,30 @@ class AgentFormerTrainer(pl.LightningModule):
                         g.write(f"{key}\t{value:.4f}\n")
                     f.write(f"total_peds\t{total_num_agents}")
                     g.write(f"total_peds\t{total_num_agents}")
+            print(f"wrote test results to {test_results_filename}")
 
-        if is_test_mode:
-            print(f"\n\n\n{self.current_epoch}")
-        self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
-        for key, value in results_dict.items():
-            if is_test_mode:
-                print(f"{value:.4f}")
-            self.log(f'val/{key}', value, sync_dist=True, prog_bar=True, logger=True)
-        if is_test_mode:
-            print(total_num_agents)
-
+        # save the frame numbers of the scenes with collisions, label with the number of samples with collisions
         if not self.cfg.get('collisions_ok', True):
             idxs_to_plot = [i for i, output in enumerate(outputs) if output['num_samples_w_col'] is not None]
             # save the frame numbers of the scenes with collisions, label with the number of samples with collisions
             frames = np.array([[outputs[i]['seq'], outputs[i]['frame'], *outputs[i]['num_samples_w_col']] for i in idxs_to_plot])
-            frames_w_cols_filename = os.path.join(self.args.logs_root, 'test_results', f'colliding_frame_nums_{self.args.cfg}.tsv')
-            np.savetxt(frames_w_cols_filename, frames, fmt='%s')
+            collision_failure_stats_filename = os.path.join(self.args.logs_root, 'test_results', f'colliding_frame_nums_{self.args.cfg}.tsv')
+            mkdir_if_missing(test_results_filename)
+            np.savetxt(collision_failure_stats_filename, frames, fmt='%s')
 
-        # plot if there are collisions; or if args.save_viz and in test_mode
+        # print results to console for easy copy-and-paste
+        if is_test_mode:
+            print(f"\n\n\n{self.current_epoch}")
+            for key, value in results_dict.items():
+                print(f"{value:.4f}")
+            print(total_num_agents)
+
+        # log metrics to tensorboard
+        for key, value in results_dict.items():
+            self.log(f'val/{key}', value, sync_dist=True, prog_bar=True, logger=True)
+        self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
+
+        # plot visualizations if there are collisions; or if args.save_viz and in test_mode
         if not self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode and len(idxs_to_plot) > 0:  # plot only certain scenes
             self._save_viz(*zip(*[(outputs[i], all_sample_vals[i], all_metrics[i], argmins[i], collision_mats[i])
                                   for i in idxs_to_plot]), mode)
