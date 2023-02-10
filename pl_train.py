@@ -55,10 +55,10 @@ def main(args):
             accelerator = 'gpu'
 
     print(f"using {args.devices} gpus")
-    if args.test:
+    if args.trial:
         sanity_val_steps = 0
-        lim_train_batch = int(args.test_ds_size / args.batch_size)
-        lim_val_batch = int(args.test_ds_size / args.batch_size)
+        lim_train_batch = int(args.trial_ds_size / args.batch_size)
+        lim_val_batch = int(args.trial_ds_size / args.batch_size)
     else:
         sanity_val_steps = 1
         lim_train_batch = None
@@ -97,7 +97,7 @@ def main(args):
     model.model.set_device(model.device)
 
     # initialize logging and checkpointing and other training utils
-    if args.mode == 'train' and (not args.test or args.log_on_test):
+    if args.mode == 'train' and (not args.trial or args.log_on_trial):
         logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
         if args.wandb_sweep:
             wandb_logger = WandbLogger(save_dir=args.logs_root, log_model=True, save_top_k=5, name=run.name)
@@ -110,9 +110,9 @@ def main(args):
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
 
     callbacks = [tqdm]
-    if args.test and args.ckpt_on_test or not args.test:
+    if args.trial and args.ckpt_on_trial or not args.trial:
         callbacks.append(checkpoint_callback)
-    if not args.test:
+    if not args.trial:
         callbacks.append(early_stop_cb)
 
     print("LOGGING TO:", default_root_dir)
@@ -145,25 +145,25 @@ if __name__ == '__main__':
     parser.add_argument('--cfg', default='eth_agentformer_sfm_pre8-2')
     parser.add_argument('--mode', '-m', default='train')
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_workers', type=int, default=32)
+    parser.add_argument('--num_workers', type=int, default=24)
     parser.add_argument('--devices', type=int, default=None)
     parser.add_argument('--no_gpu', '-ng', action='store_true', default=False)
     parser.add_argument('--dont_resume', '-dr', '-nc', dest='resume', action='store_false', default=True)
     parser.add_argument('--checkpoint_path', '-cp', default=None)
     parser.add_argument('--checkpoint_str', '-c', default=None)
-    parser.add_argument('--test', '-t', action='store_true', default=False)
+    parser.add_argument('--trial', '-t', action='store_true', default=False, help='if true, then does a trial run (without save checkpoints or logs, and allows user to specify smaller dataset size for sanity checking)')
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
     parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
     parser.add_argument('--logs_root', '-lr', default='results-joint', help='where to save checkpoints and tb logs')
-    parser.add_argument('--log_on_test', '-l', action='store_true', default=False, help='if true, then also writes logs when --test is also specified (o/w does not)')
-    parser.add_argument('--ckpt_on_test', '-ck', action='store_true', default=False)
+    parser.add_argument('--log_on_trial', '-l', action='store_true', default=False, help='if true, then also writes logs when --trial is also specified (o/w does not)')
+    parser.add_argument('--ckpt_on_trial', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
     parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
     parser.add_argument('--val_every', '-ve', type=int, default=5)
-    parser.add_argument('--test_ds_size', '-dz', default=10, type=int, help='max size of dataset to load when using the --test flag')
+    parser.add_argument('--trial_ds_size', '-dz', default=10, type=int, help='max size of dataset to load when using the --test flag')
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')
     parser.add_argument('--start_frame', '-sf', default=None, type=int, help="frame to start loading data from, if you don't want to load entire dataset")
@@ -193,10 +193,10 @@ if __name__ == '__main__':
             },
             'parameters': {
                 'weight': {
-                    'values': [10, 15, 20, 30, 40, 50, 100]
+                    'values': [10, 15, 20, 30, 40, 50]
                 },
                 'sigma_d': {
-                    'values': [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25,2.5]
+                    'values': [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25]
                 }
             }
         }

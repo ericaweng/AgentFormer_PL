@@ -18,7 +18,7 @@ def main(args):
         gpu_i = args.gpus_available[total_cmds % num_gpus]
         print(gpu_i, cmd)
         env = {**os.environ, 'CUDA_VISIBLE_DEVICES': str(gpu_i)}
-        if not args.test:
+        if not args.trial:
             subprocess.Popen(cmd.split(' '), env=env)
         time.sleep(1)
         total_cmds += 1
@@ -29,5 +29,5 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--max_cmds', '-mc', type=int, default=100)
     argparser.add_argument('--gpus_available', '-ga', nargs='+', type=int, default=list(range(torch.cuda.device_count())))
-    argparser.add_argument('--test', '-t', action='store_true')
+    argparser.add_argument('--trial', '-t', action='store_true')
     main(argparser.parse_args())

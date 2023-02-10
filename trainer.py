@@ -216,7 +216,7 @@ class AgentFormerTrainer(pl.LightningModule):
         frames_w_cols_filename = f'../trajectory_reward/results/trajectories/test_results/{self.args.cfg}.tsv'
         mkdir_if_missing(frames_w_cols_filename)
 
-        if is_test_mode and self.args.save_test_results:
+        if is_test_mode and self.args.save_test_results and not self.args.trial:
             with open(frames_w_cols_filename, 'w') as f:
                 with open(os.path.join(self.args.default_root_dir, f'test_results.tsv'), 'w') as g:
                     f.write(f"epoch\t{self.current_epoch}\n")
@@ -255,7 +255,7 @@ class AgentFormerTrainer(pl.LightningModule):
             self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
                            all_metrics[:self.args.save_num], argmins[:self.args.save_num],
                            collision_mats[:self.args.save_num], mode)
-        # elif self.args.save_viz and (self.args.test and self.current_epoch % 1 == 0 or not self.args.test):
+        # elif self.args.save_viz and (self.args.trial and self.current_epoch % 1 == 0 or not self.args.trial):
         #     self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
         #                    all_metrics[:self.args.save_num], argmins[:self.args.save_num],
         #                    collision_mats[:self.args.save_num], mode)
