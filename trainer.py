@@ -125,7 +125,7 @@ class AgentFormerTrainer(pl.LightningModule):
                 'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
 
     def validation_step(self, batch, batch_idx):
-        data, loss_dict = self._step(batch, 'test')
+        data, loss_dict = self._step(batch, 'val')
         gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
         pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
         obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()#.transpose(1, 0).cpu()
@@ -148,7 +148,7 @@ class AgentFormerTrainer(pl.LightningModule):
         if self.args.save_traj:
             # save_dir = './trajectories'
             # save_dir = './trajectories_optimized'
-            save_dir = f'../trajectory_reward/results/trajectories/{"_".join(self.args.cfg.split("_")[1:])}'
+            save_dir = f'../trajectory_reward/results/trajectories/{"_".join(self.cfg.id.split("_")[1:])}'
             frame = batch['frame'] * 10
             for idx, sample in enumerate(pred_motion.transpose(0,1)):
                 formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12, frame_scale=10, future=True)
@@ -188,7 +188,8 @@ class AgentFormerTrainer(pl.LightningModule):
             results_dict[key] = value
 
         # get stats related to collision_rejection sampling
-        if not self.cfg.get('collisions_ok', True):
+        is_test_mode = mode == 'test'
+        if not self.cfg.get('collisions_ok', True) and is_test_mode:
             tot_samples_w_col = np.sum([0 if output['num_samples_w_col'] is None
                                         else output['num_samples_w_col'][1] for output in outputs])
             tot_frames_w_col = np.sum([0 if output['num_samples_w_col'] is None else 1 for output in outputs])
@@ -196,7 +197,6 @@ class AgentFormerTrainer(pl.LightningModule):
             results_dict['tot_frames_w_col'] = tot_frames_w_col
 
         # log and print results
-        is_test_mode = mode == 'test'
         test_results_filename = f'../trajectory_reward/results/trajectories/test_results/{self.args.cfg}.tsv'
         mkdir_if_missing(test_results_filename)
 
@@ -217,7 +217,7 @@ class AgentFormerTrainer(pl.LightningModule):
             print(f"wrote test results to {test_results_filename}")
 
         # save the frame numbers of the scenes with collisions, label with the number of samples with collisions
-        if not self.cfg.get('collisions_ok', True):
+        if not self.cfg.get('collisions_ok', True) and is_test_mode:
             idxs_to_plot = [i for i, output in enumerate(outputs) if output['num_samples_w_col'] is not None]
             # save the frame numbers of the scenes with collisions, label with the number of samples with collisions
             frames = np.array([[outputs[i]['seq'], outputs[i]['frame'], *outputs[i]['num_samples_w_col']] for i in idxs_to_plot])

@@ -44,7 +44,7 @@ loss_cfg:
     weight: 20
     d_scale: 10
   joint_recon:
-    weight: 5.0  
+    weight: 5.0
   sample_sfm:
     weight: 25.0
     sfm_params:

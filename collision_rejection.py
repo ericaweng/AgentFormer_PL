@@ -25,13 +25,13 @@ def col_rej_one_run_only(data, model, traj_scale, sample_k, collision_rad, devic
         sample_motion_3D = model.inference(mode='infer', sample_num=None,
                                            need_weights=False)[0].transpose(0, 1).contiguous()
     sample_motion_3D *= traj_scale
-    gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
+    gt_motion_3D = (torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale).cpu()
 
     # compute number of colliding samples
     pred_arr = sample_motion_3D.cpu().numpy()
     num_peds = pred_arr.shape[1]
     if num_peds == 1:  # if there's only one ped, there are necessarily no collisions
-        return sample_motion_3D[:sample_k].transpose(0, 1), gt_motion_3D, None
+        return sample_motion_3D[:sample_k].transpose(0, 1).cpu(), gt_motion_3D, None
 
     # compute collisions in parallel
     with multiprocessing.Pool(processes=min(model.nk, multiprocessing.cpu_count())) as pool:
@@ -51,8 +51,8 @@ def col_rej_one_run_only(data, model, traj_scale, sample_k, collision_rad, devic
     else:
         collision_info = num_peds, sample_k - sample_motion_3D_non_colliding.shape[0]
 
-    samples_to_return = samples_to_return.transpose(0, 1)
-    return samples_to_return.cpu(), gt_motion_3D.cpu(), collision_info
+    samples_to_return = samples_to_return.transpose(0, 1).cpu()
+    return samples_to_return, gt_motion_3D, collision_info
 
 
 def per_sample_col_rej(data, model, traj_scale, sample_k, collision_rad, device):

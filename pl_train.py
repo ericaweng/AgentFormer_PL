@@ -22,7 +22,8 @@ def main(args):
     # initialize AgentFormer config from wandb sweep config or from full config filename
     if args.wandb_sweep:
         run = wandb.init()
-        run.name = full_config_name = f'{args.cfg}_w-{wandb.config.weight:0.1f}_s-{wandb.config.sigma_d:0.2f}'
+        run.name = full_config_name = f'{args.cfg}_w-{wandb.config.weight:0.1f}_b-{wandb.config.b:0.2f}'
+        # run.name = full_config_name = f'{args.cfg}_w-{wandb.config.weight:0.1f}_s-{wandb.config.sigma_d:0.2f}'
         cfg = Config(full_config_name)
         wandb.config.update(args)
         wandb.config.update(cfg)
@@ -100,12 +101,12 @@ def main(args):
     if args.mode == 'train' and (not args.trial or args.log_on_trial):
         logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
         if args.wandb_sweep:
-            wandb_logger = WandbLogger(save_dir=args.logs_root, log_model=True, save_top_k=5, name=run.name)
+            wandb_logger = WandbLogger(save_dir=args.logs_root, log_model=True, name=run.name)
             logger = [logger, wandb_logger]
     else:
         logger = None
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_joint')
-    checkpoint_callback = ModelCheckpoint(monitor='val/ADE_joint', save_top_k=5, mode='min', save_last=True,
+    checkpoint_callback = ModelCheckpoint(monitor='val/ADE_joint', mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
 
@@ -163,7 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
     parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
     parser.add_argument('--val_every', '-ve', type=int, default=5)
-    parser.add_argument('--trial_ds_size', '-dz', default=10, type=int, help='max size of dataset to load when using the --test flag')
+    parser.add_argument('--trial_ds_size', '-dz', default=10, type=int, help='max size of dataset to load when using the --trial flag')
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')
     parser.add_argument('--start_frame', '-sf', default=None, type=int, help="frame to start loading data from, if you don't want to load entire dataset")
@@ -195,7 +196,10 @@ if __name__ == '__main__':
                 'weight': {
                     'values': [10, 15, 20, 25, 30, 35, 40]
                 },
-                'sigma_d': {
+                # 'sigma_d': {
+                #     'values': [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25,2.5]
+                # }
+                'b': {
                     'values': [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25,2.5]
                 }
             }

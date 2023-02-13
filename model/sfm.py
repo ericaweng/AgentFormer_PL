@@ -23,9 +23,10 @@ def collision_term(p_i, v_i, params, learnable_hparams=None):
     if learnable_hparams is not None:
         sigma_d = torch.abs(learnable_hparams['sigma_d']) + params.get('sigma_d_min', 0)
     else:
-        sigma_d = params['sigma_d']
+        sigma_d = params.get('sigma_d', 1)
     use_w = params.get('use_w', True)
     loss_reduce = params.get('loss_reduce', 'sum')
+    dist_fn = params.get('dist_fn', 'gaussian')
     ind = torch.triu_indices(p_i.shape[0], p_i.shape[0], offset=1)
     p_ij = pdiff(p_i)[ind[0], ind[1]]
     v_ij = pdiff(v_i)[ind[0], ind[1]]
@@ -34,7 +35,17 @@ def collision_term(p_i, v_i, params, learnable_hparams=None):
         w = _compute_collision_w(p_ij, v_ij, params)
     else:
         w = 1.0
-    energy = torch.exp(-0.5 * p_ij.norm(dim=-1)**2 / sigma_d**2)
+    if dist_fn == 'gaussian':
+        energy = torch.exp(-0.5 * p_ij.norm(dim=-1)**2 / sigma_d**2)
+    elif dist_fn == 'gaussian_no_exp':
+        energy = -p_ij.norm(dim=-1) ** 2
+    elif dist_fn == 'laplacian':
+        b = params.get('b', 1.0)
+        energy = torch.exp(-torch.abs(p_ij.norm(dim=-1)) / b)
+    elif dist_fn == 'laplacian_no_exp':
+        energy = -torch.abs(p_ij.norm(dim=-1))
+    else:
+        raise NotImplementedError
     col = w * energy
     loss = col.sum() if loss_reduce == 'sum' else col.mean()
     return loss
