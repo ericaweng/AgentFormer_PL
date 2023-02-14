@@ -6,7 +6,7 @@ from .map import GeometricMap
 
 class SDDPreprocess(object):
 
-    def __init__(self, data_root, seq_name, parser, log, split='train', phase='training'):
+    def __init__(self, data_root, seq_name, parser, split='train', phase='training'):
         self.parser = parser
         self.dataset = parser.dataset
         self.data_root = data_root
@@ -22,7 +22,6 @@ class SDDPreprocess(object):
         self.seq_name = seq_name
         self.split = split
         self.phase = phase
-        self.log = log
 
         label_path = f'{data_root}/{split}/{seq_name}.txt'
         delimiter = ' '

@@ -9,8 +9,8 @@ seed: 1
 dataset: trajnet_sdd
 data_root_ethucy: datasets/eth_ucy
 data_root_nuscenes_pred: datasets/nuscenes_pred
-data_root_sdd: datasets/stanford_drone
-data_root_trajnet_sdd: datasets/trajnet_split
+data_root_sdd: datasets/sdd
+data_root_trajnet_sdd: datasets/trajnet_sdd
 
 # ------------------- Feature Extractor -------------------------
 

@@ -865,6 +865,7 @@ class AgentFormer(nn.Module):
         self.future_encoder = FutureEncoder(cfg.future_encoder, self.ctx)
         if self.ctx['sfm_params'].get('learnable_hparams', False):
             print("SHOULDNT BE HEREn\n\n\n\n")
+            import ipdb; ipdb.set_trace()
             self.recon_weight = nn.Parameter(torch.ones(1) * 5)#torch.rand(1) * 10)
             self.sample_weight = nn.Parameter(torch.ones(1) * 5) # torch.rand(1) * 10)
             self.sigma_d = nn.Parameter(torch.zeros(1))#torch.ones(1))
@@ -975,7 +976,7 @@ class AgentFormer(nn.Module):
             pdist = F.pdist(cur_motion)
             D = torch.zeros([cur_motion.shape[0], cur_motion.shape[0]]).to(device)
             D[np.triu_indices(cur_motion.shape[0], 1)] = pdist
-            D += D.T
+            D = D + D.T
             mask = torch.zeros_like(D)
             mask[D > threshold] = float('-inf')
         else:

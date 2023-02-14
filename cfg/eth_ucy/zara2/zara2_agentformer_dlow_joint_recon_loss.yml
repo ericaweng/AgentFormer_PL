@@ -45,7 +45,7 @@ loss_cfg:
   joint_recon:
     weight: 5.0
 
-num_epochs                   : 50
+num_epochs                   : 70
 lr_fix_epochs                : 10
 lr_scheduler: 'step'
 decay_step: 5
