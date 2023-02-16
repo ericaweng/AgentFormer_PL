@@ -37,16 +37,16 @@ class Config:
         cfg_root_dir = '/tmp/agentformer' if tmp else self.results_root_dir
         self.cfg_root_dir = os.path.expanduser(cfg_root_dir)
 
-        self.cfg_dir = '%s/%s' % (self.cfg_root_dir, self.id)
-        self.model_dir = '%s/models' % self.cfg_dir
-        self.result_dir = '%s/results' % self.cfg_dir
-        self.log_dir = '%s/log' % self.cfg_dir
-        self.tb_dir = '%s/tb' % self.cfg_dir
-        self.model_path = os.path.join(self.model_dir, 'model_%04d.p')
-        self.model_path_last = os.path.join(self.model_dir, 'model_last.p')
-        os.makedirs(self.model_dir, exist_ok=True)
-        os.makedirs(self.result_dir, exist_ok=True)
-        os.makedirs(self.log_dir, exist_ok=True)
+        # self.cfg_dir = '%s/%s' % (self.cfg_root_dir, self.id)
+        # self.model_dir = '%s/models' % self.cfg_dir
+        # self.result_dir = '%s/results' % self.cfg_dir
+        # self.log_dir = '%s/log' % self.cfg_dir
+        # self.tb_dir = '%s/tb' % self.cfg_dir
+        # self.model_path = os.path.join(self.model_dir, 'model_%04d.p')
+        # self.model_path_last = os.path.join(self.model_dir, 'model_last.p')
+        # os.makedirs(self.model_dir, exist_ok=True)
+        # os.makedirs(self.result_dir, exist_ok=True)
+        # os.makedirs(self.log_dir, exist_ok=True)
         if create_dirs:
             recreate_dirs(self.tb_dir)
 

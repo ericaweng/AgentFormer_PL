@@ -1,15 +1,15 @@
-# trajnet data scaled
+# og name: trajnet_sdd_pre3_dlow.yml and results_root_dir was results
 
 # ------------------- General Options -------------------------
 
 description: AgentFormer (DLow)
 results_root_dir: results-joint
 seed: 1
-dataset: trajnet_sdd
+dataset: trajnet_sdd_ye
 data_root_ethucy: datasets/eth_ucy
 data_root_nuscenes_pred: datasets/nuscenes_pred
 data_root_sdd: datasets/sdd
-data_root_trajnet_sdd: datasets/trajnet_sdd
+data_root_trajnet_sdd: datasets/trajnet_sdd_ye
 
 # ------------------- Feature Extractor -------------------------
 
@@ -19,14 +19,14 @@ future_frames: 12
 min_past_frames: 2
 min_future_frames: 2
 
-traj_scale: 1
+traj_scale: 30
 motion_dim: 2
 forecast_dim: 2
 
 # ------------------- Model -------------------------
 
 model_id: dlow
-pred_cfg: trajnet-sdd_agentformer_pre
+pred_cfg: trajnet-sdd_agentformer_pre_ts-30
 pred_epoch: 100
 qnet_mlp: [512, 256]
 share_eps: true

@@ -1,3 +1,4 @@
+import imageio
 import numpy as np
 
 import matplotlib.lines as mlines
@@ -240,7 +241,7 @@ class AnimObj:
         self.update = None
 
     def plot_traj_anim(self, obs_traj=None, save_fn=None, ped_radius=0.1, ped_discomfort_dist=0.2, pred_traj_gt=None,
-                       pred_traj_fake=None, ped_num_label_on='gt', show_ped_pos=False,
+                       pred_traj_fake=None, ped_num_label_on='gt', show_ped_pos=False, bkg_img_path=None,
                        bounds=None, int_cat_abbv=None, scene_stats=None, cfg_names=None,
                        collision_mats=None, cmap_name='tab10', extend_last_frame=3, show_ped_stats=False,
                        text_time=None, text_fixed=None, grid_values=None, plot_collisions_all=False, plot_title=None,
@@ -287,6 +288,16 @@ class AnimObj:
         ax.set_title(plot_title, fontsize=16)
         # ax.set_title(f"{plot_title}{save_fn}\ninteraction_type: {int_cat_abbv}")
         ax.set_aspect("equal")
+
+        # plot background image for SDD
+        if bkg_img_path is not None:
+            try:
+                img = imageio.imread(bkg_img_path)
+                alpha = int(.5 * 255)
+                img = np.dstack((img, alpha * np.ones_like(img[:, :, 0:1])))
+                ax.imshow(img)
+            except FileNotFoundError:
+                pass
 
         # make pred_traj_fake standard shape of (num_samples, num_timesteps, num_peds, 2)
         if pred_traj_fake is not None:

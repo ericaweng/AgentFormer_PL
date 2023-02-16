@@ -68,9 +68,15 @@ def main(args):
     # load checkpoint model
     default_root_dir = args.default_root_dir = os.path.join(args.logs_root, cfg.id)
     if args.mode == 'train':
-        models = sorted(glob.glob(os.path.join(default_root_dir, 'last-v*.ckpt')))
-        if len(models) == 0:
-            models = sorted(glob.glob(os.path.join(default_root_dir, 'last*.ckpt')))
+        # specify checkpoint to resume
+        resume_cfg = cfg.get('resume_cfg', None)
+        if resume_cfg is not None:
+            models = sorted(glob.glob(os.path.join(args.logs_root, resume_cfg, '*epoch=*.ckpt')))
+            print("tuning via resuming from best checkpoint of other model")
+        else:  # resume from last checkpoint
+            models = sorted(glob.glob(os.path.join(default_root_dir, 'last-v*.ckpt')))
+            if len(models) == 0:
+                models = sorted(glob.glob(os.path.join(default_root_dir, 'last*.ckpt')))
     elif args.mode == 'test' or args.mode == 'val':
         if args.checkpoint_str is not None:
             models = sorted(glob.glob(os.path.join(default_root_dir, f'*{args.checkpoint_str}*.ckpt')))
@@ -165,6 +171,7 @@ if __name__ == '__main__':
     parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
     parser.add_argument('--val_every', '-ve', type=int, default=5)
     parser.add_argument('--trial_ds_size', '-dz', default=10, type=int, help='max size of dataset to load when using the --trial flag')
+    parser.add_argument('--randomize_trial_data', '-rtd', action='store_true', default=False)
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')
     parser.add_argument('--start_frame', '-sf', default=None, type=int, help="frame to start loading data from, if you don't want to load entire dataset")

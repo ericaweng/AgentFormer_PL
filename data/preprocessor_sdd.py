@@ -27,7 +27,7 @@ class SDDPreprocess(object):
         delimiter = ' '
 
         self.gt = np.genfromtxt(label_path, delimiter=delimiter, dtype=str)
-        assert np.all(self.gt[:, 0].astype(np.int) % 12) == 0
+        assert np.all(self.gt[:, 0].astype(float) % 12) == 0
         self.gt = self.gt.astype('float32')
         self.gt[:, 0] = np.round(self.gt[:, 0] / 12.0)
 

@@ -1,3 +1,4 @@
+import os
 import torch
 
 from itertools import zip_longest
@@ -16,7 +17,8 @@ from .ethucy_split import get_ethucy_split, get_ethucy_split_dagger
 class AgentFormerDataset(Dataset):
     """ torch Dataset """
 
-    def __init__(self, parser, split='train', phase='training', test_ds_size=None, frames_list=None, start_frame=None):
+    def __init__(self, parser, split='train', phase='training', trial_ds_size=None, randomize_trial_data=None,
+                 frames_list=None, start_frame=None):
         self.past_frames = parser.past_frames
         self.dagger = parser.get('dagger', False)
         self.dagger_data = parser.get('dagger_data', None)
@@ -24,9 +26,19 @@ class AgentFormerDataset(Dataset):
         self.frame_skip = parser.get('frame_skip', 1)
         self.phase = phase
         self.split = split
-        self.test_ds_size = test_ds_size
+        self.trial_ds_size = trial_ds_size
         self.data_max_agents = parser.get('data_max_agents', np.inf)
         self.data_min_agents = parser.get('data_min_agents', 0)
+        self.randomize_trial_data = randomize_trial_data
+        self.ped_categories = parser.get('ped_categories', None)
+        if self.ped_categories is not None:
+            if isinstance(self.ped_categories, str):
+                self.ped_categories = list(map(int, self.ped_categories.split(',')))
+            elif isinstance(self.ped_categories, int):
+                self.ped_categories = [self.ped_categories]
+            else:
+                raise ValueError('ped_categories should be a string or an int')
+
         assert phase in ['training', 'testing'], 'error'
         assert split in ['train', 'val', 'test'], 'error'
 
@@ -94,6 +106,18 @@ class AgentFormerDataset(Dataset):
                 continue
             if start_frame is not None and frame < start_frame:
                 continue
+            if self.ped_categories is not None:  # filter out pedestrians that are not in the specified categories
+                masks_dir = '../trajectory_reward/results/interactions'
+                mask_path = os.path.join(masks_dir, data['seq'], f"frame_{data['frame']*10:06d}.txt")
+                try:
+                    mask = np.loadtxt(mask_path)
+                    if len(mask.shape) == 1:
+                        mask = np.expand_dims(mask, axis=0)
+                    num_peds_in_cats = np.sum(mask[:, self.ped_categories])
+                    if num_peds_in_cats == 0:
+                        continue
+                except FileNotFoundError:
+                    print(f"mask file not found: {mask_path}")
             num_agents = len(data['pre_motion_3D'])
             # if 'hotel' in data['seq']:
             #     continue
@@ -102,9 +126,15 @@ class AgentFormerDataset(Dataset):
             if num_agents < self.data_min_agents:
                 continue
             datas.append(data)
-            if self.test_ds_size is not None and len(datas) == self.test_ds_size:
-                print(f"test mode: limiting to ds of size {self.test_ds_size}")
+            if self.trial_ds_size is not None and len(datas) == self.trial_ds_size and not self.randomize_trial_data:
+                print(f"test mode: limiting to ds of size {self.trial_ds_size}")
                 break
+        if self.randomize_trial_data:
+            print(f"taking elements from different parts of the dataset for diverse data")
+            # np.shuffle(datas)
+            # datas = datas[:self.trial_ds_size]
+            skip = len(datas) // self.trial_ds_size
+            datas = datas[::skip]
         self.sample_list = datas
 
         print(f'using {len(self.sample_list)} num samples')

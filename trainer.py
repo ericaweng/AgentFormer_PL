@@ -92,6 +92,8 @@ class AgentFormerTrainer(pl.LightningModule):
         self.collision_rad = cfg.get('collision_rad', 0.1)
         self.hparams.update(vars(cfg))
         self.hparams.update(vars(args))
+        self.model_name = "_".join(self.cfg.id.split("_")[1:])
+        self.dataset_name = self.cfg.id.split("_")[0]
 
     def on_test_start(self):
         self.model.set_device(self.device)
@@ -146,9 +148,7 @@ class AgentFormerTrainer(pl.LightningModule):
                 pred_motion, 'obs_motion': obs_motion, "num_samples_w_col": num_samples_w_col}
 
         if self.args.save_traj:
-            # save_dir = './trajectories'
-            # save_dir = './trajectories_optimized'
-            save_dir = f'../trajectory_reward/results/trajectories/{"_".join(self.cfg.id.split("_")[1:])}'
+            save_dir = f'../trajectory_reward/results/trajectories/{self.model_name}'
             frame = batch['frame'] * 10
             for idx, sample in enumerate(pred_motion.transpose(0,1)):
                 formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12, frame_scale=10, future=True)
@@ -242,9 +242,13 @@ class AgentFormerTrainer(pl.LightningModule):
             self._save_viz(*zip(*[(outputs[i], all_sample_vals[i], all_metrics[i], argmins[i], collision_mats[i])
                                   for i in idxs_to_plot]), mode)
         elif self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode:
-            self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
-                           all_metrics[:self.args.save_num], argmins[:self.args.save_num],
-                           collision_mats[:self.args.save_num], mode)
+            num_test_samples = len(outputs)
+            skip = int(num_test_samples / self.args.save_num)
+            self._save_viz(outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip],
+                           collision_mats[::skip], mode)
+            # self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
+            #                all_metrics[:self.args.save_num], argmins[:self.args.save_num],
+            #                collision_mats[:self.args.save_num], mode)
         # elif self.args.save_viz and (self.args.trial and self.current_epoch % 1 == 0 or not self.args.trial):
         #     self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
         #                    all_metrics[:self.args.save_num], argmins[:self.args.save_num],
@@ -262,21 +266,26 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'viz/{self.args.default_root_dir.replace("/", "--")}/epoch-{self.current_epoch}_{seq}' \
-                           f'_frame-{frame}_{tag}.mp4'
+            anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}", (5, 4)]
 
-            pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
-            # import ipdb; ipdb.set_trace()
-            # assert len(pred_fake_traj_min.shape) == 3
-            min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
-            args_dict = {'plot_title': f"best mADE sample",
+            # pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
+            # min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
+            if self.dataset_name == 'trajnet-sdd':
+                bkg_img_path = os.path.join(f'datasets/trajnet_sdd/reference_img/{seq[:-2]}/video{seq[-1]}/reference.jpg')
+            else:
+                bkg_img_path = None
+            SADE_min_i = np.argmin(seq_to_sample_metrics['ADE'])
+            pred_fake_traj_min = pred_fake_traj[SADE_min_i]
+            min_SADE_stats = get_metrics_str(seq_to_sample_metrics, SADE_min_i)
+            args_dict = {'plot_title': f"best mSADE sample",
                          'obs_traj': obs_traj,
                          'pred_traj_gt': pred_gt_traj,
                          'pred_traj_fake': pred_fake_traj_min,
                          'collision_mats': collision_mats[frame_i][-1],
-                         'text_fixed': min_ADE_stats}
+                         'bkg_img_path': bkg_img_path,
+                         'text_fixed': min_SADE_stats}
             plot_args_list.append(args_dict)
 
             for sample_i in range(num_samples - 1):
@@ -286,6 +295,7 @@ class AgentFormerTrainer(pl.LightningModule):
                              'pred_traj_gt': pred_gt_traj,
                              'pred_traj_fake': pred_fake_traj[sample_i],
                              'text_fixed': stats,
+                             'bkg_img_path': bkg_img_path,
                              'highlight_peds': argmins[frame_i],
                              'collision_mats': collision_mats[frame_i][sample_i]}
                 plot_args_list.append(args_dict)

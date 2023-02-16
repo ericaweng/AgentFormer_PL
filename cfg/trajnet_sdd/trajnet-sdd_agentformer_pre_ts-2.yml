@@ -1,9 +1,9 @@
-# used to be trajnet_sdd_pre3_s2.yml
+# trajnet trained on scaled data
 
 # ------------------- General Options -------------------------
 
 description: AgentFormer (Before DLow)
-results_root_dir: results
+results_root_dir: results-joint
 seed: 1
 dataset: trajnet_sdd
 data_root_ethucy: datasets/eth_ucy
@@ -19,7 +19,7 @@ future_frames: 12
 min_past_frames: 2
 min_future_frames: 2
 
-traj_scale: 30
+traj_scale: 2
 motion_dim: 2
 forecast_dim: 2
 

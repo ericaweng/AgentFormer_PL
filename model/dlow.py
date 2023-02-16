@@ -117,17 +117,15 @@ class DLow(nn.Module):
             model_cp = torch.load(cp_path, map_location='cpu')
             new_dict = {'.'.join(k.split('.')[1:]): v for k, v in model_cp['state_dict'].items()}
             pred_model.load_state_dict(new_dict)
-        elif cfg.pred_epoch > 0 and os.path.exists(pred_cfg.model_path % cfg.pred_epoch):
-            cp_path = pred_cfg.model_path % cfg.pred_epoch
-            model_cp = torch.load(cp_path, map_location='cpu')
-            pred_model.load_state_dict(model_cp['model_dict'])
+        # elif cfg.pred_epoch > 0 and os.path.exists(pred_cfg.model_path % cfg.pred_epoch):
+        #     cp_path = pred_cfg.model_path % cfg.pred_epoch
+        #     model_cp = torch.load(cp_path, map_location='cpu')
+        #     pred_model.load_state_dict(model_cp['model_dict'])
         else:
             glob_str = f'{cfg.results_root_dir}/{pred_cfg.id}/*.ckpt'
-            print("glob_str:", glob_str)
             cp_path = glob.glob(glob_str)
-            print("cp_path:", cp_path)
+            print("models:", cp_path)
             cp_path = cp_path[-1]
-            print("cp_path:", cp_path)
             model_cp = torch.load(cp_path, map_location='cpu')
             try:
                 new_dict = {'.'.join(k.split('.')[1:]): v for k, v in model_cp['state_dict'].items()}
