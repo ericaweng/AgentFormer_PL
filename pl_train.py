@@ -133,7 +133,7 @@ def main(args):
 
     if 'train' in args.mode:
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
-        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir)
+        trainer = pl.Trainer(devices=1, plugin=None, accelerator=None, default_root_dir=default_root_dir)
         args.mode = 'test'
         args.save_traj = True
         args.save_viz = True

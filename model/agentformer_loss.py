@@ -23,6 +23,21 @@ def compute_z_kld(data, cfg):
     return loss, loss_unweighted
 
 
+def compute_joint_sample_loss(data, cfg):
+    diff = data['infer_dec_motion'] - data['fut_motion_orig'].unsqueeze(1)
+    if cfg.get('mask', True):
+        mask = data['fut_mask'].unsqueeze(1).unsqueeze(-1)
+        diff *= mask
+    dist = diff.pow(2).sum(dim=-1).sum(dim=-1)  # (num_peds, num_samples)
+    if cfg.get('normalize', True):
+        samples = dist.mean(axis=0)
+    else:
+        samples = dist.sum(axis=0)  # (num_samples)
+    loss_unweighted = samples.min()
+    loss = loss_unweighted * cfg['weight']
+    return loss, loss_unweighted
+
+
 def compute_sample_loss(data, cfg):
     diff = data['infer_dec_motion'] - data['fut_motion_orig'].unsqueeze(1)
     if cfg.get('mask', True):
@@ -81,6 +96,7 @@ loss_func = {
     'mse': compute_motion_mse,
     'kld': compute_z_kld,
     'sample': compute_sample_loss,  # identical to recon loss in dlow training
+    'joint_sample': compute_joint_sample_loss,  #
     'recon_sfm': compute_recon_sfm,
     'sample_sfm': compute_sample_sfm
 }

@@ -841,7 +841,7 @@ class AgentFormer(nn.Module):
         self.max_train_agent = cfg.get('max_train_agent', 100)
         self.loss_cfg = self.cfg.loss_cfg
         self.loss_names = list(self.loss_cfg.keys())
-        self.compute_sample = 'sample' in self.loss_names
+        self.compute_sample = 'sample' in self.loss_names or 'joint_sample' in self.loss_names
         self.param_annealers = nn.ModuleList()
         if self.ctx['z_type'] == 'discrete':
             self.ctx['z_tau_annealer'] = z_tau_annealer = ExpParamAnnealer(cfg.z_tau.start, cfg.z_tau.finish, cfg.z_tau.decay)
@@ -1025,7 +1025,8 @@ class AgentFormer(nn.Module):
         self.future_encoder(self.data)
         self.future_decoder(self.data, mode='train', ped_one_at_a_time=self.ped_one_at_a_time, autoregress=self.ar_train)
         if self.compute_sample:
-            self.inference(sample_num=self.loss_cfg['sample']['k'])
+            k = self.loss_cfg.get('sample', self.loss_cfg.get('joint_sample'))['k']
+            self.inference(sample_num=k)
         return self.data
 
     def inference(self, mode='infer', sample_num=20, need_weights=False):
