@@ -162,6 +162,7 @@ class SDDPreprocess(object):
             return None
 
         pred_mask = self.get_pred_mask(valid_id, pre_data, fut_data)
+        # pred_mask = None
         heading = None
 
         pre_motion_3D, pre_motion_mask = self.PreMotion(pre_data, valid_id)
@@ -180,6 +181,7 @@ class SDDPreprocess(object):
             'pred_mask': pred_mask,
             'scene_map': self.geom_scene_map,
             'seq': self.seq_name,
+            'frame_scale': 12,
             'frame': frame
         }
 

@@ -64,10 +64,7 @@ def format_agentformer_trajectories(trajectory, data, cfg, timesteps=12, frame_s
 
     # Convert to numpy array and get [frame_id, track_id, x, y]
     formatted_trajectories = np.vstack(formatted_trajectories)
-    if cfg.dataset in [
-            'eth', 'hotel', 'univ', 'zara1', 'zara2', 'gen', 'real_gen',
-            'adversarial'
-    ]:
+    if cfg.dataset in [ 'eth', 'hotel', 'univ', 'zara1', 'zara2' ]:
         formatted_trajectories = formatted_trajectories[:, [0, 1, 13, 15]]
         formatted_trajectories[:, 0] *= frame_scale
     elif cfg.dataset == 'trajnet_sdd':
@@ -93,7 +90,10 @@ class AgentFormerTrainer(pl.LightningModule):
         self.hparams.update(vars(cfg))
         self.hparams.update(vars(args))
         self.model_name = "_".join(self.cfg.id.split("_")[1:])
-        self.dataset_name = self.cfg.id.split("_")[0]
+        self.dataset_name = self.cfg.id.split("_")[0].replace('-', '_')
+
+    def update_args(self, args):
+        self.args = args
 
     def on_test_start(self):
         self.model.set_device(self.device)
@@ -137,8 +137,12 @@ class AgentFormerTrainer(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         if self.cfg.get('collisions_ok', True):
-            return_dict = self.validation_step(batch, batch_idx)
-            pred_motion, gt_motion, obs_motion = return_dict['pred_motion'], return_dict['gt_motion'], return_dict['obs_motion']
+            data, loss_dict = self._step(batch, 'test')
+            gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
+            pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
+            obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()  # .transpose(1, 0).cpu()
+            return_dict = {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
+                            'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
         else:
             pred_motion, gt_motion, num_samples_w_col = run_model_w_col_rej(batch, self.model, self.cfg.traj_scale,
                                                                             self.cfg.sample_k, self.cfg.collision_rad,
@@ -148,16 +152,21 @@ class AgentFormerTrainer(pl.LightningModule):
                 pred_motion, 'obs_motion': obs_motion, "num_samples_w_col": num_samples_w_col}
 
         if self.args.save_traj:
-            save_dir = f'../trajectory_reward/results/trajectories/{self.model_name}'
-            frame = batch['frame'] * 10
-            for idx, sample in enumerate(pred_motion.transpose(0,1)):
-                formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12, frame_scale=10, future=True)
+            if self.dataset_name == 'trajnet_sdd':
+                save_dir = f'../trajectory_reward/results/trajectories/{self.model_name}/trajnet_sdd'
+            else:
+                save_dir = f'../trajectory_reward/results/trajectories/{self.model_name}'
+            frame = batch['frame'] * batch['frame_scale']
+            for idx, sample in enumerate(pred_motion.transpose(0, 1)):
+                formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12,
+                                                            frame_scale=batch['frame_scale'], future=True)
                 save_trajectories(formatted, save_dir, batch['seq'], frame, suffix=f"/sample_{idx:03d}")
-            formatted = format_agentformer_trajectories(gt_motion, batch, self.cfg, timesteps=12, frame_scale=10, future=True)
+            formatted = format_agentformer_trajectories(gt_motion, batch, self.cfg, timesteps=12,
+                                                        frame_scale=batch['frame_scale'], future=True)
             save_trajectories(formatted, save_dir, batch['seq'], frame, suffix='/gt')
-            formatted = format_agentformer_trajectories(obs_motion.transpose(0,1), batch, self.cfg, timesteps=8, frame_scale=10, future=False)
+            formatted = format_agentformer_trajectories(obs_motion.transpose(0, 1), batch, self.cfg, timesteps=8,
+                                                        frame_scale=batch['frame_scale'], future=False)
             save_trajectories(formatted, save_dir, batch['seq'], frame, suffix="/obs")
-            # os.system(f'chmod -R 777 {save_dir}')
 
         return return_dict
 
@@ -272,7 +281,7 @@ class AgentFormerTrainer(pl.LightningModule):
 
             # pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
             # min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
-            if self.dataset_name == 'trajnet-sdd':
+            if self.dataset_name == 'trajnet_sdd':
                 bkg_img_path = os.path.join(f'datasets/trajnet_sdd/reference_img/{seq[:-2]}/video{seq[-1]}/reference.jpg')
             else:
                 bkg_img_path = None

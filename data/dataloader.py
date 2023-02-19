@@ -35,7 +35,7 @@ class data_generator(object):
             data_root = parser.data_root_ethucy            
             seq_train, seq_val, seq_test = get_ethucy_split(parser.dataset)
             self.init_frame = 0
-        elif parser.dataset == 'trajnet_sdd':
+        elif 'trajnet_sdd' in parser.dataset:
             data_root = parser.data_root_trajnet_sdd
             seq_train, seq_val, seq_test = get_stanford_drone_split()
         else:

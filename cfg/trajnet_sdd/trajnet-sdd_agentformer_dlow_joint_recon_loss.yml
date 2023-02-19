@@ -16,8 +16,8 @@ data_root_trajnet_sdd: datasets/trajnet_sdd
 frame_skip: 1
 past_frames: 8
 future_frames: 12
-min_past_frames: 2
-min_future_frames: 2
+min_past_frames: 8
+min_future_frames: 12
 
 traj_scale: 10
 motion_dim: 2

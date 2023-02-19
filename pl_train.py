@@ -82,6 +82,8 @@ def main(args):
             models = sorted(glob.glob(os.path.join(default_root_dir, f'*{args.checkpoint_str}*.ckpt')))
         else:
             models = sorted(glob.glob(os.path.join(default_root_dir, f'*epoch=*.ckpt')))
+        if len(models) == 0:
+            raise FileNotFoundError(f'If testing, must exist model in {default_root_dir}')
     else:
         raise NotImplementedError
     print("models:", models)
@@ -133,14 +135,11 @@ def main(args):
 
     if 'train' in args.mode:
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
-        trainer = pl.Trainer(devices=1, plugin=None, accelerator=None, default_root_dir=default_root_dir)
-        args.mode = 'test'
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir)
         args.save_traj = True
         args.save_viz = True
-        dm = AgentFormerDataModule(cfg, args)
-        model = AgentFormerTrainer(cfg, args)
-        model.model.set_device(model.device)
-        trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
+        model.update_args(args)
+        trainer.test(model, datamodule=dm)
     elif 'test' in args.mode or 'val' in args.mode:
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
     else:

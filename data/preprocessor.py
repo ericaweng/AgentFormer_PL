@@ -187,7 +187,8 @@ class preprocess(object):
             'pred_mask': pred_mask,
             'scene_map': self.geom_scene_map,
             'seq': self.seq_name,
-            'frame': frame
+            'frame_scale': 10,
+            'frame': frame,
         }
         # print("pre_motion_3D.shape:", pre_motion_3D[0].shape)
         # print("len(pre_motion_3D):", len(pre_motion_3D))
