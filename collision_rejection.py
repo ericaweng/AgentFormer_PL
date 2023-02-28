@@ -9,13 +9,17 @@ from metrics import check_collision_per_sample_no_gt
 
 def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device):
     if isinstance(model, model_dict['dlow']) and 'nk' in model.cfg.id:
-        return col_rej_one_run_only(data, model, traj_scale, sample_k, collision_rad, device)
+        pred_motion, gt_motion, num_samples_w_col = col_rej_one_run_only(data, model, traj_scale, sample_k, collision_rad, device)
     elif isinstance(model, model_dict['dlow']):
-        return per_sample_col_rej(data, model, traj_scale, sample_k, collision_rad, device)
+        pred_motion, gt_motion, num_samples_w_col = per_sample_col_rej(data, model, traj_scale, sample_k, collision_rad, device)
     elif isinstance(model, model_dict['agentformer']):
-        return col_rej(data, model, traj_scale, sample_k, collision_rad, device)
+        pred_motion, gt_motion, num_samples_w_col = col_rej(data, model, traj_scale, sample_k, collision_rad, device)
     else:
         raise NotImplementedError
+    obs_motion = traj_scale * torch.stack(data[f'pre_motion_3D'], dim=1).cpu()
+    return {'frame': data['frame'], 'seq': data['seq'], 'gt_motion': gt_motion,
+            'pred_motion': pred_motion, 'obs_motion': obs_motion, "num_samples_w_col": num_samples_w_col}
+
 
 def col_rej_one_run_only(data, model, traj_scale, sample_k, collision_rad, device):
     """run model with collision rejection, except just eliminate colliding samples down to 20"""

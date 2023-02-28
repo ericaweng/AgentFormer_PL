@@ -113,43 +113,29 @@ class AgentFormerTrainer(pl.LightningModule):
         for loss_name, loss in loss_dict.items():
             self.log(f'{mode}/{loss_name}', loss, on_step=False, on_epoch=True, sync_dist=True, logger=True, batch_size=self.batch_size)
 
-        return data, {'loss': total_loss, **loss_dict}
+        gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
+        pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
+        obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()  # .transpose(1, 0).cpu()
+        return {'loss': total_loss, **loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
+                'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
 
     def training_step(self, batch, batch_idx):
         if self.args.tqdm_rate == 0 and batch_idx % 5 == 0:
             print(f"epoch: {self.current_epoch} batch: {batch_idx}")
-        data, loss_dict = self._step(batch, 'train')
-
-        gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
-        pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
-        obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()
-        return {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
-                'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
+        return self._step(batch, 'train')
 
     def validation_step(self, batch, batch_idx):
-        data, loss_dict = self._step(batch, 'val')
-        gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
-        pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
-        obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()#.transpose(1, 0).cpu()
-        # self.stats.update(gt_motion, pred_motion)
-        return {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
-                'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
+        return self._step(batch, 'val')
 
     def test_step(self, batch, batch_idx):
         if self.cfg.get('collisions_ok', True):
-            data, loss_dict = self._step(batch, 'test')
-            gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
-            pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
-            obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()  # .transpose(1, 0).cpu()
-            return_dict = {**loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
-                            'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
+            return_dict = self._step(batch, 'test')
         else:
-            pred_motion, gt_motion, num_samples_w_col = run_model_w_col_rej(batch, self.model, self.cfg.traj_scale,
-                                                                            self.cfg.sample_k, self.cfg.collision_rad,
-                                                                            self.model.device)
-            obs_motion = self.cfg.traj_scale * torch.stack(batch[f'pre_motion_3D'], dim=1).cpu()
-            return_dict = {'frame': batch['frame'], 'seq': batch['seq'], 'gt_motion': gt_motion, 'pred_motion':
-                pred_motion, 'obs_motion': obs_motion, "num_samples_w_col": num_samples_w_col}
+            return_dict = run_model_w_col_rej(batch, self.model, self.cfg.traj_scale, self.cfg.sample_k,
+                                              self.cfg.collision_rad, self.model.device)
+        pred_motion = return_dict['pred_motion']
+        gt_motion = return_dict['gt_motion']
+        obs_motion = return_dict['obs_motion']
 
         if self.args.save_traj:
             if self.dataset_name == 'trajnet_sdd':
@@ -243,8 +229,8 @@ class AgentFormerTrainer(pl.LightningModule):
 
         # log metrics to tensorboard
         for key, value in results_dict.items():
-            self.log(f'val/{key}', value, sync_dist=True, prog_bar=True, logger=True)
-        self.log(f'val/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
+            self.log(f'{mode}/{key}', value, sync_dist=True, prog_bar=True, logger=True)
+        self.log(f'{mode}/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
 
         # plot visualizations if there are collisions; or if args.save_viz and in test_mode
         if not self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode and len(idxs_to_plot) > 0:  # plot only certain scenes
