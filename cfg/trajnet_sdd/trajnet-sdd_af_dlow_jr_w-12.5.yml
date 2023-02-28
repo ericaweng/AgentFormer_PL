@@ -3,7 +3,7 @@
 # ------------------- General Options -------------------------
 
 description: AgentFormer (DLow)
-results_root_dir: results-joint-joint
+results_root_dir: results-joint
 seed: 1
 dataset: trajnet_sdd
 data_root_ethucy: datasets/eth_ucy
