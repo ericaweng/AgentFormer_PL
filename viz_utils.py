@@ -1,4 +1,4 @@
-import imageio
+import imageio.v2 as imageio
 import numpy as np
 
 import matplotlib.lines as mlines
@@ -6,9 +6,6 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.cm import ScalarMappable as sm
 import matplotlib.patches as patches
-
-from metrics import check_collision_per_sample_no_gt
-
 
 def get_metrics_str(sample_vals, i=None):
     stats = []
@@ -547,14 +544,18 @@ class AnimObj:
 
             # move the real and pred (fake) agent
             if frame_i < obs_len:
-                for ped_i, (circle_gt, circle_fake, line_obs_gt) in enumerate(zip(circles_gt, circles_fake, lines_obs_gt)):
+                for ped_i, (circle_gt, line_obs_gt) in enumerate(zip(circles_gt, lines_obs_gt)):
                     circle_gt.center = obs_traj[frame_i, ped_i]
-                    circle_fake[0][0].center = obs_traj[frame_i, ped_i]
                     line_obs_gt.set_data(*obs_traj[0:frame_i + 1, ped_i].T)
                     if show_ped_pos and len(ped_pos_texts_obs) > 0:
                         ped_pos_text = f"{circle_gt.center[0]:0.1f}, {circle_gt.center[1]:0.1f}"
                         ped_pos_texts_obs[ped_i].set_text(ped_pos_text)
                         ped_pos_texts_obs[ped_i].set_position((circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
+                for ped_i, circle_fake in enumerate(circles_fake):
+                    circle_fake[0][0].center = obs_traj[frame_i, ped_i]
+                if show_ped_pos:
+                    [text.set_visible(True) for text in ped_pos_texts_obs]
+                    [text.set_visible(False) for cf in ped_pos_texts for cf_inner in cf for text in cf_inner]
 
                 # move the pedestrian texts (ped number and relation)
                 for ped_text, circle in zip(ped_texts, circles_gt):  # circles_to_plot_ped_num):
@@ -674,132 +675,3 @@ class AnimObj:
             print(f"saved animation to {save_fn}")
             plt.close(fig)
 
-
-def main(args):
-    SEQUENCE_NAMES = {
-        'eth': ['biwi_eth'],
-        'hotel': ['biwi_hotel'],
-        'zara1': ['crowds_zara01'],
-        'zara2': ['crowds_zara02'],
-        'univ': ['students001', 'students003'],
-        'trajnet_sdd': [ 'coupa_0', 'hyang_3', 'quad_3', 'little_2', 'nexus_5', 'quad_2',
-                         'gates_2', 'coupa_1', 'quad_1', 'hyang_1', 'hyang_8', 'little_1',
-                         'nexus_6', 'hyang_0', 'quad_0', 'little_0', 'little_3']
-    }
-    seq_to_plot_args = []
-    for method in args.method:
-        for dset in args.dset:
-            for seq in SEQUENCE_NAMES[dset]:
-                if dset == 'trajnet_sdd':
-                    trajs_dir = os.path.join(args.trajs_dir, method, 'trajnet_sdd', seq)
-                else:
-                    trajs_dir = os.path.join(args.trajs_dir, method, seq)
-                all_frames = list(Path(trajs_dir).glob('frame_*'))
-                if args.save_num is None:
-                    args.save_num = len(all_frames)
-                skip = max(1, int(len(all_frames) / args.save_num))
-                print(f"Saving {args.save_num} frames from {seq}")
-                for frame_path in all_frames[::skip][:args.save_num]:
-                    pred_gt_traj = obs_traj = None
-                    samples = []
-                    frame = int(frame_path.name.split('_')[-1])
-                    for filename in frame_path.glob('*.txt'):
-                        if 'gt' in str(filename.name):
-                            pred_gt_traj = np.loadtxt(filename, delimiter=' ', dtype='float32')  # (frames x agents) x 4
-                            pred_gt_traj = peds_pandas_way(pred_gt_traj, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
-                        elif 'obs' in str(filename.name):
-                            obs_traj = np.loadtxt(filename, delimiter=' ', dtype='float32')  # (frames x agents) x 4
-                            obs_traj = peds_pandas_way(obs_traj, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
-                        elif 'sample' in str(filename.name):
-                            sample = np.loadtxt(filename, delimiter=' ', dtype='float32')  # (frames x agents) x 4
-                            sample = peds_pandas_way(sample, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
-                            samples.append(sample)
-                        else:
-                            raise RuntimeError(f"Unknown file {filename}")
-                    assert pred_gt_traj is not None, f"gt and obs should be loaded from {frame_path}"
-                    assert len(samples) == 20, f"20 samples should be loaded from {frame_path}"
-                    if obs_traj is None:
-                        # load obs from other method folder
-                        import ipdb; ipdb.set_trace()
-                        obs_path = os.path.join(str(frame_path).replace(method, 'agentformer'), 'obs.txt')
-                        obs_traj = np.loadtxt(obs_path, delimiter=' ', dtype='float32')  # (frames x agents) x 4
-                        obs_traj = peds_pandas_way(obs_traj, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
-                    assert obs_traj.shape[0] == 8
-                    assert pred_gt_traj.shape[0] == 12
-                    pred_fake_traj = np.stack(samples, axis=0)  # (num_samples, frames, agents, 2)
-
-                    num_samples, _, n_ped, _ = pred_fake_traj.shape
-
-                    anim_save_fn = os.path.join(args.save_dir, seq, f'frame_{frame:06d}', f'{method}.mp4')
-                    mkdir_if_missing(anim_save_fn)
-                    plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame} Method: {method}", (5, 4)]
-                    if dset == 'trajnet_sdd':
-                        bkg_img_path = os.path.join(f'datasets/trajnet_sdd/reference_img/{seq[:-2]}/video{seq[-1]}/reference.jpg')
-                    else:
-                        bkg_img_path = None
-                    # metrics_dict = {}
-                    # for metric in ['ADE_min', 'FDE_min', 'joint_ade_min', 'joint_fde_min', 'col_pred_mean']:
-                    #     metrics_path = os.path.join(args.metrics_path, method, args.dset, f'stats_{metric.lower()}.pkl')
-                    #     with open(metrics_path, 'rb') as f:
-                    #         avg_meter = pickle.load(f)
-                    #         print("avg_meter:", avg_meter)
-                    #         import ipdb; ipdb.set_trace()
-                    #         metrics_dict[metric] = avg_meter.avg
-                    collision_mats = [check_collision_per_sample_no_gt(pred.swapaxes(0,1))[1] for pred in pred_fake_traj]
-                    # SADE_min_i = np.argmin(seq_to_sample_metrics['ADE'])
-                    # pred_fake_traj_min = pred_fake_traj[SADE_min_i]
-                    # min_SADE_stats = get_metrics_str(metrics_dict, SADE_min_i)
-                    args_dict = {'plot_title': f"best mSADE sample",
-                                 'obs_traj': obs_traj,
-                                 'pred_traj_gt': pred_gt_traj,
-                                 # 'pred_traj_fake': pred_fake_traj_min,
-                                 # 'collision_mats': collision_mats[SADE_min_i],
-                                 'bkg_img_path': bkg_img_path,
-                                 # 'text_fixed': min_SADE_stats
-                                 }
-                    plot_args_list.append(args_dict)
-
-                    for sample_i in range(num_samples - 1):
-                        # stats = get_metrics_str(seq_to_sample_metrics, sample_i)
-                        args_dict = {'plot_title': f"Sample {sample_i}",
-                                     'obs_traj': obs_traj,
-                                     'pred_traj_gt': pred_gt_traj,
-                                     'pred_traj_fake': pred_fake_traj[sample_i],
-                                     # 'text_fixed': stats,
-                                     'bkg_img_path': bkg_img_path,
-                                     # 'highlight_peds': argmins[frame_i],
-                                     'collision_mats': collision_mats[sample_i]}
-                        plot_args_list.append(args_dict)
-                    seq_to_plot_args.append(plot_args_list)
-
-    print(f"plotting {len(seq_to_plot_args)} plots")
-    if args.mp:
-        with multiprocessing.Pool(args.num_workers) as pool:
-            pool.starmap(plot_fig, seq_to_plot_args)
-    else:
-        list(starmap(plot_fig, seq_to_plot_args))
-    print(f"done plotting {len(seq_to_plot_args)} plots")
-
-
-if __name__ == "__main__":
-    import os
-    import argparse
-    from pathlib import Path
-    from utils.utils import mkdir_if_missing
-    from scripts.evaluate_all import peds_pandas_way
-    import multiprocessing
-    from itertools import starmap
-
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--trajs_dir', type=str, default='../trajectory_reward/results/trajectories')
-    ap.add_argument('--method', '-m', type=str, nargs='+', default=['agentformer', 'af_mg1_jr1_w10'])
-    ap.add_argument('--dset', '-d', type=str, nargs='+', default=['eth', 'hotel', 'univ', 'zara1', 'zara2', 'trajnet_sdd'])
-    ap.add_argument('--num_workers', type=int, default=multiprocessing.cpu_count())
-    ap.add_argument('--save_num', type=int, default=None)
-    ap.add_argument('--metrics_path', '-mp', default='../trajectory_reward/results/evaluations_rad-0.1_samples-20')
-    ap.add_argument('--no_mp', dest='mp', action='store_false')
-    # ap.add_argument('--save_every', type=int, default=10)
-    ap.add_argument('--save_dir', type=str, default='viz')
-    args = ap.parse_args()
-
-    main(args)
