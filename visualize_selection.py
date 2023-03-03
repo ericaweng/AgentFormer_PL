@@ -3,7 +3,7 @@ import numpy as np
 
 from utils.utils import mkdir_if_missing
 from eval import *
-from viz_utils import plot_fig
+from viz_utils import plot_anim_grid
 
 
 def get_traj_from_file(data_file, indices=None):
@@ -322,7 +322,7 @@ def plot_frame(frame, cfgs):
     mkdir_if_missing('viz/comparison')
     anim_save_fn = f'viz/comparison/frame-{frame}.mp4'
     print(f'plotting frame {frame}')
-    plot_fig(anim_save_fn, f"frame {frame}", *plot_args_lists)
+    plot_anim_grid(anim_save_fn, f"frame {frame}", *plot_args_lists)
 
 
 if __name__ == "__main__":

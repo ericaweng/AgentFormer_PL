@@ -11,7 +11,7 @@ from eval import eval_one_seq2
 from metrics import stats_func
 from utils.utils import mkdir_if_missing
 from utils.torch import get_scheduler
-from viz_utils import plot_fig, get_metrics_str
+from viz_utils import plot_anim_grid, get_metrics_str
 from collision_rejection import run_model_w_col_rej
 
 
@@ -298,9 +298,9 @@ class AgentFormerTrainer(pl.LightningModule):
 
         if self.args.mp:
             with multiprocessing.Pool(self.num_workers) as pool:
-                pool.starmap(plot_fig, seq_to_plot_args)
+                pool.starmap(plot_anim_grid, seq_to_plot_args)
         else:
-            list(starmap(plot_fig, seq_to_plot_args))
+            list(starmap(plot_anim_grid, seq_to_plot_args))
 
     def train_epoch_end(self, outputs):
         self._epoch_end(outputs, 'train')

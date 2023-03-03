@@ -13,12 +13,19 @@ def get_metrics_str(sample_vals, i=None):
         if i is None:
             stats.append(f"{k} {v:0.4f}")
         else:
-            stats.append(f"{k} {v[i]:0.4f}")
+            stats.append(f"{k} {v[int(i)]:0.4f}")
     stats = "\n".join(stats)
     return stats
 
+def get_max_bounds(*trajs):
+    """from list of obs_traj, pred_traj
+    of shape (obs_len, num_peds, 2) or (pred_len, **, num_peds, 2)"""
+    bounds = np.concatenate([np.array(traj).reshape(-1, 2) for traj in trajs])
+    bounds = [*(np.min(bounds, axis=0) - 0.2), *(np.max(bounds, axis=0) + 0.2)]
+    return bounds
 
-def plot_fig(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
+
+def plot_anim_grid(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
     if plot_size is None:
         if len(list_of_arg_dicts) > 4:
             num_plots_height = 2
@@ -76,7 +83,7 @@ def plot_traj_anim(**kwargs):
     AnimObj().plot_traj_anim(**kwargs)
 
 
-def plot_traj_img(obs_traj, save_fn=None, attn_ped_i=None, pred_traj=None, ped_radius=0.2, pred_traj_gt=None,
+def plot_traj_img(obs_traj, save_fn=None, attn_ped_i=None, pred_traj=None, ped_radius=0.1, pred_traj_gt=None,
                   pred_traj_fake=None, bounds=None, plot_collisions=False,
                   collision_mats=None, plot_velocity_arrows=False, ax=None, agent_outline_colors=None,
                   agent_texts=None, small_arrows=False, cross_attn=None, self_attn=None):
@@ -115,6 +122,7 @@ def plot_traj_img(obs_traj, save_fn=None, attn_ped_i=None, pred_traj=None, ped_r
         text_offset_y = -0.2
 
         # attn
+        # if attn_ped_i is not None and cross_attn is not None and self_attn is not None:
         cross_attn = cross_attn[attn_ped_i]
         self_attn = self_attn[attn_ped_i]
 

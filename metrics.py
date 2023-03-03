@@ -34,7 +34,8 @@ def compute_FDE_joint(pred_arr, gt_arr, return_sample_vals=False, return_argmin=
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
-def compute_ADE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
+def compute_ADE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_ped_vals=False,
+                         return_argmin=False, **kwargs):
     """about 4 times faster due to numpy vectorization"""
     # assert pred_arr.shape[1] == 20, pred_arr.shape
     pred_arr = np.array(pred_arr)
@@ -47,12 +48,15 @@ def compute_ADE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_argm
     return_vals = [avg_made]
     if return_sample_vals:  # for each sample: the avg ped ADE
         return_vals.append(ades_per_sample.mean(axis=0))
+    if return_ped_vals:  # the ADE of each ped-sample (n_ped, samples)
+        return_vals.append(ades_per_sample)
     if return_argmin:  # for each ped: index of sample that is argmin
         return_vals.append(ades_per_sample.argmin(axis=-1))
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
-def compute_FDE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
+def compute_FDE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_ped_vals=False,
+                         return_argmin=False, **kwargs):
     """about 4 times faster due to numpy vectorization"""
     pred_arr = np.array(pred_arr)
     gt_arr = np.array(gt_arr)
@@ -64,6 +68,8 @@ def compute_FDE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_argm
     return_vals = [avg_mfde]
     if return_sample_vals:  # for each sample: the avg ped ADE (n_samples,)
         return_vals.append(fdes_per_sample.mean(axis=0))
+    if return_ped_vals: # the FDE of each ped-sample (n_ped, samples)
+        return_vals.append(fdes_per_sample)
     if return_argmin:  # for each ped: index of sample that is argmin (n_ped,)
         return_vals.append(fdes_per_sample.argmin(axis=-1))
     return return_vals[0] if len(return_vals) == 1 else return_vals
@@ -276,7 +282,7 @@ def compute_CR(pred_arr,
     n_ped, n_sample, _, _ = pred_arr.shape
 
     # if evaluating different indices
-    if callable(aggregation):
+    if callable(aggregation):  # aggregation can be marginal ADE or FDE
         indices = aggregation(pred_arr, gt_arr, return_argmin=True)[-1]
         n_sample = 1
         if indices.shape[0] == 1:
