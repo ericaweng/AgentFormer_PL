@@ -921,8 +921,8 @@ class AgentFormer(nn.Module):
                 theta = torch.randint(high=24, size=(1,)).to(device) * (np.pi / 12)
             else:
                 theta = torch.rand(1).to(device) * np.pi * 2
-            for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
-                self.data[f'{key}'], self.data[f'{key}_scene_norm'] = rotation_2d_torch(self.data[key], theta, self.data['scene_orig'])
+                for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
+                    self.data[f'{key}'], self.data[f'{key}_scene_norm'] = rotation_2d_torch(self.data[key], theta, self.data['scene_orig'])
             if in_data['heading'] is not None:
                 self.data['heading'] += theta
         else:

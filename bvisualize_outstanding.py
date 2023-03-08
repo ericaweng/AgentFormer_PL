@@ -22,9 +22,13 @@ def get_trajs(frame_path, method):
             pred_gt_traj = np.loadtxt(filename, delimiter=' ', dtype='float32')  # (frames x agents) x 4
             pred_gt_traj = peds_pandas_way(pred_gt_traj, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
         elif 'obs' in str(filename.name):
-            obs_traj = np.loadtxt(filename, delimiter=' ', dtype='float32')  # (frames x agents) x 4
-            obs_traj = peds_pandas_way(obs_traj, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])[:,
-                       ::-1]  # todo
+            obs_traj_raw = np.loadtxt(filename, delimiter=' ', dtype='float32')  # (frames x agents) x 4
+            obs_traj_ = peds_pandas_way(obs_traj_raw, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])  # todo
+            if method == 'agentformer' or 'af' in method:
+                obs_traj = obs_traj_[:,::-1]
+            else:
+                print("method:", method)
+                obs_traj = obs_traj_
         elif 'sample' in str(filename.name):
             sample = np.loadtxt(filename, delimiter=' ', dtype='float32')  # (frames x agents) x 4
             sample = peds_pandas_way(sample, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
@@ -34,13 +38,18 @@ def get_trajs(frame_path, method):
             raise RuntimeError(f"Unknown file {filename}")
     assert pred_gt_traj is not None, f"gt and obs should be loaded from {frame_path}"
     assert len(samples) == 20, f"20 samples should be loaded from {frame_path}"
-    if obs_traj is None:
+    if obs_traj is None or obs_traj.shape[0] != 8:
         # load obs from other method folder
         import ipdb;
         ipdb.set_trace()
         obs_path = os.path.join(str(frame_path).replace(method, 'agentformer'), 'obs.txt')
-        obs_traj = np.loadtxt(obs_path, delimiter=' ', dtype='float32')  # (frames x agents) x 4
-        obs_traj = peds_pandas_way(obs_traj, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
+        obs_traj_raw = np.loadtxt(obs_path, delimiter=' ', dtype='float32')  # (frames x agents) x 4
+        obs_traj_ = peds_pandas_way(obs_traj_raw, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
+        print("method:", method)
+        print(f"obs_traj_.shape: {obs_traj_.shape}")
+        obs_traj = obs_traj_[:,::-1]
+        print(f"obs_traj.shape: {obs_traj.shape}")
+        import ipdb; ipdb.set_trace()
     assert obs_traj.shape[0] == 8
     assert pred_gt_traj.shape[0] == 12
     pred_fake_traj = np.stack(samples, axis=0)  # (num_samples, frames, agents, 2)
@@ -64,9 +73,9 @@ def get_metrics_dict(pred_fake_traj, pred_gt_traj):
                     'fde_argmins': fde_argmins,
                     'sade_argmin': sade_argmin,
                     'sfde_argmin': sfde_argmin, }
-    samples_dict = {'SADE': sade_samples,
-                    'SFDE': sfde_samples,
-                    'CR': sample_collisions,}
+    samples_dict = {'SADE:': sade_samples,}
+                    # 'SFDE:': sfde_samples,}
+                    # 'CR': sample_collisions,}
     return samples_dict, metrics_dict
 
 def main(args):
@@ -97,8 +106,14 @@ def main(args):
                     trajs_dir = os.path.join(args.trajs_dir, placeholder_method, 'trajnet_sdd', seq)
                 else:
                     trajs_dir = os.path.join(args.trajs_dir, placeholder_method, seq)
-                frames_this_dset.extend(list(Path(trajs_dir).glob('frame_*')))
-                # all_frames.extend(list(Path(trajs_dir).glob('frame_*')))
+                if args.frames_to_plot is None:
+                    frames_this_dset.extend(list(Path(trajs_dir).glob('frame_*')))
+                else:
+                    for frame in args.frames_to_plot:
+                        print(frame)
+                        frames_this_dset.extend(list(Path(trajs_dir).glob(f'frame_*{frame}*')))
+                        # all_frames.extend(list(Path(trajs_dir).glob('frame_*')))
+                        # print(f"frames to plot: {frames_this_dset}")
 
         if args.save_num is None:
             skip = 1
@@ -112,92 +127,119 @@ def main(args):
     # gather list of args for plotting
     seq_to_plot_args = []
     sps = []
-    for frame_path in all_frames[::skip]:
-        seq = frame_path.parent.name
+    for frame_path_ in all_frames[::skip]:
+        seq = frame_path_.parent.name
         AF_best_SFDE, AF_best_SADE, AF_best_FDE, AF_best_ADE = None, None, None, None
         AF_SADEs = []
         AF_SFDEs = []
         AF_args_list = []
+        non_ours_args_list = []
         pred_fake_traj = None
         for method in args.method:
-            frame = int(frame_path.name.split('_')[-1])
-            frame_path = Path(str(frame_path).replace(placeholder_method, method))
+            frame = int(frame_path_.name.split('_')[-1])
+            frame_path = Path(str(frame_path_).replace(placeholder_method, method))
+            print(f"frame_path: {frame_path}")
             res = get_trajs(frame_path, method)
             if pred_fake_traj is not None:
                 bounds = get_max_bounds(pred_fake_traj, pred_gt_traj, obs_traj, *res)
             pred_fake_traj, pred_gt_traj, obs_traj = res
             num_samples, _, n_ped, _ = pred_fake_traj.shape
-            if args.refine and n_ped < 1 or n_ped > 5:
-                continue
+            # if n_ped <= 1 or n_ped > 3:
+            #     continue
+            print(f"{method}: {pred_fake_traj[0,0,:2]}")
 
             sample_metrics, all_metrics = get_metrics_dict(pred_fake_traj.transpose(2,0,1,3), pred_gt_traj.swapaxes(0,1))
             collision_mats = all_metrics['collision_mats']
             min_ADE, ade_argmins = all_metrics['ADE'], all_metrics['ade_argmins']
-            sample_crs = sample_metrics['CR']
-            sample_sades = sample_metrics['SADE']
-            sample_sfdes = sample_metrics['SFDE']
+            min_FDE, fde_argmins = all_metrics['FDE'], all_metrics['fde_argmins']
+            min_SADE, sade_argmin = all_metrics['SADE'], all_metrics['sade_argmin']
+            min_SFDE, sfde_argmin = all_metrics['SFDE'], all_metrics['sfde_argmin']
+            # sample_crs = sample_metrics['CR']
+            sample_sades = sample_metrics['SADE:']
+            # sample_sfdes = sample_metrics['SFDE']
 
-            if seq in SEQUENCE_NAMES['trajnet_sdd']:
-                # if dset == 'trajnet_sdd':
-                bkg_img_path = os.path.join(f'datasets/trajnet_sdd/reference_img/{seq[:-2]}/video{seq[-1]}/reference.jpg')
-                anim_save_fn = os.path.join(args.save_dir, 'trajnet_sdd', seq, f'frame_{frame:06d}', f'{method}.png')
-                # anim_save_fn = os.path.join(args.save_dir, 'trajnet_sdd', seq, f'frame_{frame:06d}', f'{method}_{sample_i:.02d}.png')
-            else:
-                bkg_img_path = None
-                anim_save_fn = os.path.join(args.save_dir, seq, f'frame_{frame:06d}', f'{method}.png')
-                # anim_save_fn = os.path.join(args.save_dir, seq, f'frame_{frame:06d}', f'{method}_{sample_i:.02d}.png')
+            anim_save_fn = os.path.join(args.save_dir, seq, f'frame_{frame:06d}', f'{method}.png')
 
+            # if AF_best_SFDE is not None and (AF_best_SFDE < min_SFDE or AF_best_SADE < min_SADE or AF_best_FDE > min_FDE or AF_best_ADE > min_ADE):
+            #     continue
             args_list = []
-            for sample_i in range(num_samples):
+            if method != 'af_mg1_jr1_w10':
+                selected_samples = ade_argmins[:3]
+                # selected_samples = np.concatenate([ade_argmins, fde_argmins])
+                print(f"{method} selected_samples: {selected_samples}")
+            else:
+                # selected_samples = np.concatenate([sade_argmin, sfde_argmin, ])
+                num_examples = 3
+                selected_samples = np.argpartition(-sample_sades, -num_examples)[-num_examples:]
+                # selected_samples = np.concatenate([np.argpartition(-sample_sades, -4)[-4:], np.argpartition(-sample_sfdes, -4)[-4:]])
+                #np.argsort(sample_sades), sfde_argmin, ])
+                print(f"ours selected_samples: {selected_samples}")
+            for sample_i, sample in enumerate(pred_fake_traj):
                 ade_ped_vals = all_metrics['ade_ped_val'][:,sample_i]
-                if len(args_list) == 10:  # only plot max 10 from each method
-                    break
+                fde_ped_vals = all_metrics['fde_ped_val'][:,sample_i]
+                other_text = dict(zip([f'A{i} ADE:' for i in range(n_ped)], ade_ped_vals))
+                # other_text = dict(zip([f'A{i}' for i in range(n_ped)], [f'{ped_ade:0.2f}' for ped_ade in ade_ped_vals]))
+                if sample_i not in selected_samples:
+                    continue
+                # if len(args_list) == 10:  # only plot max 10 from each method
+                #     break
 
-                if args.refine:
-                    if method == 'agentformer':
-                        if sample_crs[sample_i] == 0:
-                            if args.verbose:
-                                print(f"skipping {method} {sample_i} because of no collisions")
-                            continue
-                        # if np.sum(ade_ped_vals < 0.1) <= 0:
-                        #     if args.verbose:
-                        #         print(f"skipping {method} {sample_i} because only {np.sum(ade_ped_vals < 0.1)} ade_ped_vals < 0.1")
-                        #     continue
-                        # if np.sum(ade_ped_vals > 0.9) <= 0:
-                        #     if args.verbose:
-                        #         print(f"skipping {method} {sample_i} because only {np.sum(ade_ped_vals > 0.9)} ade_ped_vals > 0.9")
-                        #     continue
-                        AF_SADEs.append(sample_sades[sample_i])
-                        AF_SFDEs.append(sample_sfdes[sample_i])
-                    elif method != 'agentformer' and len(AF_args_list) > 0:
-                        if sample_crs[sample_i] > 0:
-                            if args.verbose:
-                                print(f"skipping {method} {sample_i} because of collisions")
-                            continue
-                        if np.min(ade_ped_vals) < 0.1:
-                            if args.verbose:
-                                print(f"skipping {method} {sample_i} because of ade_ped_vals {np.min(ade_ped_vals)} < 0.1")
-                            continue
-                        if np.max(ade_ped_vals) > 0.7:
-                            if args.verbose:
-                                print(f"skipping {method} {sample_i} because of ade_ped_vals {np.max(ade_ped_vals)} > 0.4")
-                            continue
-                        # if np.all(sample_sades[sample_i] > np.array(AF_SADEs)):
-                        #     if args.verbose:
-                        #         print(f"skipping {method} {sample_i} because sample SADE {sample_sades[sample_i]} > all AF_SADEs {AF_SADEs}")
-                        #     continue
-                        print(f"PLOTTING {method} {sample_i}")
-                    else:
-                        continue
+                # if args.refine and len(args_list) == 0 or args.refine and len(args_list) >= 3:  # only start refining after 3
+                #     if method == 'agentformer' or method == 'vv':
+                #         # if sample_crs[sample_i] == 0:
+                #         #     if args.verbose:
+                #         #         print(f"skipping {method} {sample_i} because of no collisions")
+                #         #     continue
+                #         # cond = np.sum((fde_ped_vals < 0.2) & (ade_ped_vals < 0.1))
+                #         # if cond <= 0:
+                #         #     if args.verbose:
+                #         #         print(f"skipping {method} {sample_i} because np.sum((fde_ped_vals < 0.2) & (ade_ped_vals < 0.1)) = {cond} > 0")
+                #         #     continue
+                #         # cond = np.sum((fde_ped_vals > 1.8) & (ade_ped_vals > 0.9))
+                #         # if cond <= 0:
+                #         #     if args.verbose:
+                #         #         print(f"skipping {method} {sample_i} because only {np.sum(fde_ped_vals < 0.1)} ade_ped_vals < 0.1")
+                #         #     continue
+                #         # if np.sum(fde_ped_vals > 0.9) <= 0:
+                #         #     if args.verbose:
+                #         #         print(f"skipping {method} {sample_i} because only {np.sum(fde_ped_vals > 0.9)} ade_ped_vals > 0.9")
+                #         #     continue
+                #         AF_min_ADE = min_ADE
+                #         AF_min_FDE = min_FDE
+                #         AF_SADEs.append(sample_sades[sample_i])
+                #         AF_SFDEs.append(sample_sfdes[sample_i])
+                #     elif method != 'agentformer' and len(AF_args_list) > 0:
+                #         # if sample_crs[sample_i] > 0:
+                #         #     if args.verbose:
+                #         #         print(f"skipping {method} {sample_i} because of collisions")
+                #         #     continue
+                #         # if np.min(ade_ped_vals) < 0.2 or np.min(fde_ped_vals) < 0.4:
+                #         #     if args.verbose:
+                #         #         print(f"skipping {method} {sample_i} because of ade_ped_vals {np.min(ade_ped_vals):0.2f} < 0.1")
+                #         #     continue
+                #         # if np.max(ade_ped_vals) > 0.5 or np.max(fde_ped_vals) > 1.0:
+                #         #     if args.verbose:
+                #         #         print(f"skipping {method} {sample_i} because of ade_ped_vals {np.max(ade_ped_vals):0.2f} > 0.4")
+                #         #     continue
+                #         # if np.all(sample_sades[sample_i] > np.array(AF_SADEs)):
+                #         #     if args.verbose:
+                #         #         print(f"skipping {method} {sample_i} because sample SADE {sample_sades[sample_i]} > all AF_SADEs {AF_SADEs}")
+                #         #     continue
+                #         print(f"PLOTTING {method} {sample_i}")
+                #     else:
+                #         continue
 
                 stats = get_metrics_str(sample_metrics, sample_i)
-                args_dict = {'plot_title': f"{method[:2]}" if sample_i == 2 and method == 'agentformer' else f"{method} {sample_i}",
+                other_text = get_metrics_str(other_text)
+                args_dict = {'plot_title': '',#f"" if sample_i == 2 and method == 'agentformer' else f"{method} {sample_i}",
                              # 'save_fn': save_fn,
                              'obs_traj': obs_traj,
                              'gt_traj': pred_gt_traj,
                              'pred_traj': pred_fake_traj[sample_i],
-                             'text_fixed': stats,
-                             'bkg_img_path': bkg_img_path,
+                             'text_fixed_tr': stats,
+                             # 'text_fixed': stats,
+                             'text_fixed_tl': other_text,
+                             # 'bkg_img_path': bkg_img_path,
                              'plot_velocity_arrows': True,
                              # 'highlight_peds': argmins[frame_i],
                              'collision_mats': collision_mats[sample_i]}
@@ -206,11 +248,22 @@ def main(args):
             if len(args_list) == 0:  # if not plots for this frame from af or ours
                 continue
 
-            if method == 'agentformer':
-                AF_args_list = args_list
+            if method != 'af_mg1_jr1_w10':
+                # print(f"{method}")
+                import copy
+                non_ours_args_list.extend(copy.deepcopy(args_list))
+                AF_best_ADE = min_ADE
+                AF_best_FDE = min_FDE
+                AF_best_SFDE = min_SFDE
+                AF_best_SADE = min_SADE
             else:
                 # seq_to_plot_args.append(AF_plot_args_list)
-                plot_args = [anim_save_fn, f"Seq: {seq} frame: {frame} Method: {method}", bounds, (5, 4), *AF_args_list, *args_list]
+                plot_args = [anim_save_fn, "",#f"Seq: {seq} frame: {frame} \n "
+                                           # f"AF XDE / SXDE: {AF_best_ADE:0.2f} {AF_best_FDE:0.2f} / {AF_best_SADE:0.2f} {AF_best_SFDE:0.2f}\n"
+                                           # f"ours XDE / SXDE: {min_ADE:0.2f} {min_FDE:0.2f} / {min_SADE:0.2f} {min_SFDE:0.2f}",
+                             bounds, (3, 3), *non_ours_args_list, *args_list]
+                # bounds, (3, 3), *AF_args_list, *AF2_args_list, *args_list]
+                # bounds, (5, 4), *AF_args_list, *args_list]
                 seq_to_plot_args.append(plot_args)
             if args.plot_online and len(seq_to_plot_args) > 0:
                 OURS_plot_args_list = seq_to_plot_args.pop(0)
@@ -246,6 +299,7 @@ def main(args):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument('--trajs_dir', type=str, default='../trajectory_reward/results/trajectories')
+    ap.add_argument('--frames_to_plot', '-f', nargs='+', type=int, default=None)
     ap.add_argument('--method', '-m', type=str, nargs='+', default=['agentformer', 'af_mg1_jr1_w10'])
     ap.add_argument('--dset', '-d', type=str, nargs='+', default=['eth', 'hotel', 'univ', 'zara1', 'zara2', 'trajnet_sdd'])
     ap.add_argument('--num_workers', type=int, default=multiprocessing.cpu_count())

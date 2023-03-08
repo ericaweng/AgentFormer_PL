@@ -11,9 +11,9 @@ def get_metrics_str(sample_vals, i=None):
     stats = []
     for k, v in sample_vals.items():
         if i is None:
-            stats.append(f"{k} {v:0.4f}")
+            stats.append(f"{k} {v:0.2f}")
         else:
-            stats.append(f"{k} {v[int(i)]:0.4f}")
+            stats.append(f"{k} {v[int(i)]:0.2f}")
     stats = "\n".join(stats)
     return stats
 
