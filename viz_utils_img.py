@@ -7,7 +7,7 @@ import matplotlib.patches as patches
 
 def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=None,
                pred_traj=None, bounds=None, collision_mats=None, text_fixed_bl=None, text_fixed_br=None,
-               bkg_img_path=None, text_fixed_tr=None, text_fixed_tl=None,
+               bkg_img_path=None, text_fixed_tr=None, text_fixed_tl=None, highlight_peds=None,
                plot_velocity_arrows=False, ax=None, agent_outline_colors=None, agent_texts=None):
     obs_ts, num_peds, _ = obs_traj.shape
     if pred_traj is not None:
@@ -45,9 +45,9 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
     # color and style properties
     text_offset_x = -0.5
     text_offset_y = -0.2
-    lw = 3
+    lw = 5
     obs_alpha = 1#0.2
-    gt_alpha = 0.3
+    gt_alpha = 0.4
     pred_alpha = 0.5
     cmap_name = 'tab10'
     cmap_gt = plt.get_cmap(cmap_name, max(10, num_peds))
@@ -77,11 +77,14 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
         # plot ped texts
         ped_texts = []
         for ped_i in range(num_peds):
-            # weight = 'bold' if ped_i in highlight_peds else None
-            weight = None
+            weight = 'bold' if highlight_peds is not None and ped_i in highlight_peds else None
+            # weight = None
             int_text = ax.text(gt_traj[-1, ped_i, 0] + text_offset_x,
                                gt_traj[-1, ped_i, 1] - text_offset_y,
                                f'A{ped_i}', color='black', fontsize=14, weight=weight)
+            # int_text = ax.text(pred_traj[-1, ped_i, 0] + text_offset_x,
+            #                    pred_traj[-1, ped_i, 1] - text_offset_y,
+            #                    f'A{ped_i}', color='black', fontsize=14, weight=weight)
             ped_texts.append(ax.add_artist(int_text))
 
     # plot pred futures
@@ -96,19 +99,18 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
                                         marker=None, linestyle='--', linewidth=lw, zorder=1))
         # plot collision circles
         if collision_mats is not None:
-            collide_circle_rad = (ped_radius + 0.3)
+            collide_circle_rad = (ped_radius + 0.5)
             yellow = (.8, .8, 0, .2)
-            last_ts_col = False
+            last_ts_cols = np.zeros((num_peds, num_peds))
             for t in range(pred_len):
                 for ped_i in range(num_peds):
                     for ped_j in range(ped_i):
-                        if collision_mats[t, ped_i, ped_j] and not last_ts_col:
+                        if collision_mats[t, ped_i, ped_j] and last_ts_cols[ped_i, ped_j] <= 0:
                             x = (pred_traj[t][ped_i][0] + pred_traj[t][ped_j][0]) / 2
                             y = (pred_traj[t][ped_i][1] + pred_traj[t][ped_j][1]) / 2
                             ax.add_artist(plt.Circle((x, y), collide_circle_rad, fc=yellow, zorder=1, ec='none'))
-                            last_ts_col = True
-                        else:
-                            last_ts_col = False
+                            last_ts_cols[ped_i, ped_j] = 3
+                        last_ts_cols[ped_i, ped_j] -= 1
 
     # plt.rcParams['font.sans-serif'] = ['Helvetica Neue', 'Tahoma', 'DejaVu Sans',
     #                                'Lucida Grande', 'Verdana']
@@ -175,7 +177,7 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
             arrow_style = patches.ArrowStyle("->", head_length=2, head_width=2)
         else:
             # arrow_style = patches.ArrowStyle("-|>", head_length=5, head_width=3)
-            arrow_style = patches.ArrowStyle("-|>", head_length=8, head_width=5)
+            arrow_style = patches.ArrowStyle("-|>", head_length=10, head_width=5)
         # arrow_color = (1, 1, 1, 1)
         arrow_color = (0, 0, 0, 1)
         if pred_traj is not None:
@@ -192,13 +194,22 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
         #                                           linewidth=0.4 if small_arrows else 1.5))
         last_arrow_starts = traj[-1]
         last_arrow_ends = traj[-1] + 0.1 * (traj[-1] - traj[-2]).reshape(-1, 2)
-        for ped_i, (arrow_start, arrow_end) in enumerate(zip(last_arrow_starts, last_arrow_ends)):
+        last_arrow_lengths = 0.1 * (traj[-1] - traj[-2]).reshape(-1, 2)
+        for ped_i, (arrow_start, arrow_end, arrow_length) in enumerate(zip(last_arrow_starts, last_arrow_ends, last_arrow_lengths)):
             arrow_color = cmap_pred(ped_i % num_peds)
-            ax.add_artist(patches.FancyArrowPatch(arrow_start, arrow_end,
-                                                  color=arrow_color,  # 'r',
-                                                  arrowstyle=arrow_style,
-                                                  zorder=obs_ts + 10,
-                                                  linewidth=0.4 if small_arrows else 2))
+            ax.add_artist(patches.FancyArrow(*arrow_start, *arrow_length,
+                                             overhang=3,
+                                             head_width=.5,
+                                             head_length=.2,
+                                             color=arrow_color,  # 'r',
+                                             # arrowstyle=arrow_style,
+                                             zorder=0,
+                                             linewidth=0.4 if small_arrows else 2))
+            # ax.add_artist(patches.FancyArrowPatch(arrow_start, arrow_end,
+            #                                       color=arrow_color,  # 'r',
+            #                                       arrowstyle=arrow_style,
+            #                                       zorder=obs_ts + 10,
+            #                                       linewidth=0.4 if small_arrows else 2))
 
     if fig is not None:
         if save_fn is not None:
@@ -230,7 +241,7 @@ def plot_img_grid(save_fn, title=None, bounds=None, plot_size=None, *list_of_arg
         plot_fn(**arg_dict, ax=ax, bounds=bounds)
 
     fig.tight_layout()
-    fig.subplots_adjust(hspace=0.5, wspace=-0.0)
+    fig.subplots_adjust(hspace=0.6, wspace=-0.0)
     if title is not None:
         fig.suptitle(title, fontsize=16)
     fig.savefig(save_fn)
