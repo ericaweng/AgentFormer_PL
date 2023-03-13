@@ -6,9 +6,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=None,
-               pred_traj=None, bounds=None, collision_mats=None, text_fixed_bl=None, text_fixed_br=None,
-               bkg_img_path=None, text_fixed_tr=None, text_fixed_tl=None, highlight_peds=None,
-               plot_velocity_arrows=False, ax=None, agent_outline_colors=None, agent_texts=None):
+               is_best_ADE_of_all=None, is_best_JADE_of_all=None, is_best_JADE=None, x_label=None,
+               pred_traj=None, bounds=None, collision_mats=None, text_fixed_bl=None, text_fixed_br=None, subtitle=None,
+               bkg_img_path=None, text_fixed_tr=None, text_fixed_tl=None, highlight_peds=None, plot_ped_texts=True,
+               plot_velocity_arrows=False, ax=None, agent_outline_colors=None, agent_texts=None,
+               fig=None):
     obs_ts, num_peds, _ = obs_traj.shape
     if pred_traj is not None:
         pred_len, _, _ = pred_traj.shape
@@ -23,12 +25,6 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
     else:
         fig = None
 
-    plot_title = f"{plot_title}\n" if plot_title is not None else ""
-    ax.set_title(plot_title, fontsize=16)
-    ax.set_aspect("equal")
-    ax.set_xticks([])
-    ax.set_yticks([])
-
     if bounds is None:  # calculate bounds automatically
         all_traj = obs_traj.reshape(-1, 2)
         if gt_traj is not None:
@@ -42,10 +38,30 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
     ax.set_xlim(x_low, x_high)
     ax.set_ylim(y_low, y_high)
 
+    fp = mpl.font_manager.FontProperties(fname="/root/code/HelveticaNeueBold.ttf")
+    ax.set_title(plot_title+'\n', fontproperties=fp, fontsize=30)
+    JADE_FS = 22
+    SUBTIT_FS = 18
+    ORANGE = '#D16D00'
+    YELLOW = '#AD9F1E'
+    GRAY = '#bbbbbb'
+    if subtitle is not None:
+        subtitle_l, subtitle_r = subtitle.split('   ')
+        color_l = YELLOW if is_best_ADE_of_all else GRAY
+        color_r = ORANGE if is_best_JADE_of_all else GRAY
+        ax.text((x_low + x_high)/2 - 0.5, y_high + 0.5, subtitle_l, fontproperties=fp, fontsize=SUBTIT_FS, ha='right', color=color_l)
+        ax.text((x_low + x_high)/2 + 0.5, y_high + 0.5, subtitle_r, fontproperties=fp, fontsize=SUBTIT_FS, ha='left', color=color_r)
+    # ax.text((x_low + x_high)/2, y_high + 0.5, subtitle, fontproperties=fp, fontsize=16, ha='center')
+    if x_label is not None:
+        ax.set_xlabel(x_label, fontsize=16, fontproperties=fp)
+    ax.set_aspect("equal")
+    ax.set_xticks([])
+    ax.set_yticks([])
+
     # color and style properties
     text_offset_x = -0.5
     text_offset_y = -0.2
-    lw = 5
+    lw = 4
     obs_alpha = 1#0.2
     gt_alpha = 0.4
     pred_alpha = 0.5
@@ -75,17 +91,18 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
             ax.add_artist(mlines.Line2D(*gt_plus_last_obs.T, color=gt_color, alpha=gt_alpha,
                                         marker=None, linestyle='-', linewidth=lw, zorder=1))
         # plot ped texts
-        ped_texts = []
-        for ped_i in range(num_peds):
-            weight = 'bold' if highlight_peds is not None and ped_i in highlight_peds else None
-            # weight = None
-            int_text = ax.text(gt_traj[-1, ped_i, 0] + text_offset_x,
-                               gt_traj[-1, ped_i, 1] - text_offset_y,
-                               f'A{ped_i}', color='black', fontsize=14, weight=weight)
-            # int_text = ax.text(pred_traj[-1, ped_i, 0] + text_offset_x,
-            #                    pred_traj[-1, ped_i, 1] - text_offset_y,
-            #                    f'A{ped_i}', color='black', fontsize=14, weight=weight)
-            ped_texts.append(ax.add_artist(int_text))
+        if plot_ped_texts:
+            ped_texts = []
+            for ped_i in range(num_peds):
+                weight = 'bold' if highlight_peds is not None and ped_i in highlight_peds else None
+                # weight = None
+                int_text = ax.text(gt_traj[-1, ped_i, 0] + text_offset_x,
+                                   gt_traj[-1, ped_i, 1] - text_offset_y,
+                                   f'A{ped_i}', color='black', fontsize=14, weight=weight)
+                # int_text = ax.text(pred_traj[-1, ped_i, 0] + text_offset_x,
+                #                    pred_traj[-1, ped_i, 1] - text_offset_y,
+                #                    f'A{ped_i}', color='black', fontsize=14, weight=weight)
+                ped_texts.append(ax.add_artist(int_text))
 
     # plot pred futures
     if pred_traj is not None:
@@ -100,7 +117,7 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
         # plot collision circles
         if collision_mats is not None:
             collide_circle_rad = (ped_radius + 0.5)
-            yellow = (.8, .8, 0, .2)
+            YELLOW = (.8, .8, 0, .2)
             last_ts_cols = np.zeros((num_peds, num_peds))
             for t in range(pred_len):
                 for ped_i in range(num_peds):
@@ -108,62 +125,55 @@ def plot_scene(obs_traj, save_fn=None, plot_title=None, ped_radius=0.1, gt_traj=
                         if collision_mats[t, ped_i, ped_j] and last_ts_cols[ped_i, ped_j] <= 0:
                             x = (pred_traj[t][ped_i][0] + pred_traj[t][ped_j][0]) / 2
                             y = (pred_traj[t][ped_i][1] + pred_traj[t][ped_j][1]) / 2
-                            ax.add_artist(plt.Circle((x, y), collide_circle_rad, fc=yellow, zorder=1, ec='none'))
+                            ax.add_artist(plt.Circle((x, y), collide_circle_rad, fc=YELLOW, zorder=1, ec='none'))
                             last_ts_cols[ped_i, ped_j] = 3
                         last_ts_cols[ped_i, ped_j] -= 1
 
-    # plt.rcParams['font.sans-serif'] = ['Helvetica Neue', 'Tahoma', 'DejaVu Sans',
-    #                                'Lucida Grande', 'Verdana']
-    # plt.rcParams["font.family"] = "sans-serif"
-    # plt.rcParams["font.sans-serif"] = ['Helvetica']
-    fp = mpl.font_manager.FontProperties(fname="/root/code/HelveticaNeueBold.ttf")
-    # fp = mpl.font_manager.FontProperties(fname="/root/code/HelveticaNeueMedium.ttf")
-    # fp = mpl.font_manager.FontProperties(fname="/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf")
-    # mpl.font_manager.findSystemFonts(fontpaths=None, fontext='ttf')
-    # font= mpl.font_manager.findfont("LiberationSans Bold")#/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf")
-    # print(f"font: {font}")
-    # import ipdb; ipdb.set_trace()
-    # plt.rcParams.update({
-    #         'font.family': 'sans-serif',
-    #         'font.sans-serif': ['LiberationSans-Bold'],
-    # })
-    ## text that stays fixed each frame
-    offset_lower = 0.1
-    text_fixed_fs = 16
-    if isinstance(text_fixed_bl, str):
-        ax.add_artist(ax.text(x_low + offset_lower, y_low + offset_lower, text_fixed_bl, fontsize=text_fixed_fs))
-    elif isinstance(text_fixed_bl, list):
-        text = "\n".join(text_fixed_bl)
-        ax.add_artist(ax.text(x_low + offset_lower, y_low + offset_lower, text, fontsize=text_fixed_fs))
-    elif isinstance(text_fixed_bl, dict):
-        text = "\n".join([f'{k}: {v:0.3f}' for k, v in text_fixed_bl.items()])
-        ax.add_artist(ax.text(x_low + offset_lower, y_low + offset_lower, text, fontsize=text_fixed_fs))
-    else:
-        if text_fixed_bl is not None:
+    texts_fixed = [text_fixed_tr, text_fixed_tl, text_fixed_br, text_fixed_bl]
+    offsets = [(x_high - 2.0, y_high - 2.6), (x_low + 0.2, y_high - 0.6), (0.2, -3.5), (0.1, 3.5)]  # fs = 12
+    offsets = [(x_high - 2.7, y_high - 3.4), (x_low + 0.3, y_high - 0.9), (0.2, -3.5), (0.1, 3.5)]  # fs = 16
+    offsets = [(x_high - 2.7, y_high - 3.4), (x_low + 0.3, y_high - 1.2), (0.2, -3.5), (0.1, 3.5)]  # fs = 16 and large JADE
+    # offsets = [(x_high - 2.7, y_high - 3.4), (x_low + 0.3, y_high - 1.2), (0.2, -3.5), (0.1, 3.5)]  # fs = 16 and large JADE
+    for text_i, (text_fixed, (pos_x, pos_y)) in enumerate(zip(texts_fixed, offsets)):
+        if text_fixed is None:
+            continue
+        if text_i == 1:
+            text_fixed_fs = JADE_FS
+            if is_best_JADE:
+                color = ORANGE
+            else:
+                color = GRAY
+        elif text_i == 0:
+            text_fixed_fs = 16
+            color = GRAY
+            # color = 'k'
+        else:
+            raise NotImplementedError("tbd")
+
+        # r = f.canvas.get_renderer()
+        # space = 0.1
+        # w = 0.5
+        # counter = 0
+        # for i in a:
+        #     t = ax.text(w, 1.2, a[counter], color=c[counter], fontsize=12, ha='left')
+        #     transf = ax.transData.inverted()
+        #     bb = t.get_window_extent(renderer=f.canvas.renderer)
+        #     bb = bb.transformed(transf)
+        #     w = w + bb.xmax - bb.xmin + space
+        #     counter = counter + 1
+
+
+        if isinstance(text_fixed, str):
+            text = ax.text(pos_x, pos_y, text_fixed, fontsize=text_fixed_fs, color=color, fontproperties=fp)
+            ax.add_artist(text)
+        elif isinstance(text_fixed, list):
+            text = "\n".join(text_fixed)
+            ax.add_artist(ax.text(pos_x, pos_y, text, fontsize=text_fixed_fs))
+        elif isinstance(text_fixed, dict):
+            text = "\n".join([f'{k}: {v:0.3f}' for k, v in text_fixed.items()])
+            ax.add_artist(ax.text(pos_x, pos_y, text, fontsize=text_fixed_fs))
+        else:
             raise NotImplementedError("text_fixed is unrecognized format")
-    offset_lower = 0.2
-    offset_right = 3.5
-    if isinstance(text_fixed_br, str):
-        ax.add_artist(ax.text(x_high - offset_right, y_low + offset_lower, text_fixed_br, fontsize=text_fixed_fs, fontproperties=fp))
-    else:
-        if text_fixed_br is not None:
-            raise NotImplementedError("text_fixed_br is unrecognized format")
-
-    offset_top = 0.6
-    offset_right = 2.9
-    if isinstance(text_fixed_tr, str):
-        ax.add_artist(ax.text(x_high - offset_right, y_high - offset_top, text_fixed_tr,
-                              fontsize=text_fixed_fs, fontproperties=fp))
-    else:
-        if text_fixed_tr is not None:
-            raise NotImplementedError("text_fixed_br is unrecognized format")
-
-    offset_top = 1.6
-    if isinstance(text_fixed_tl, str):
-        ax.add_artist(ax.text(x_low + offset_lower, y_high - offset_top, text_fixed_tl, fontsize=text_fixed_fs, fontproperties=fp))
-    else:
-        if text_fixed_tl is not None:
-            raise NotImplementedError("text_fixed_br is unrecognized format")
 
     # OTHER RANDO STUFF
     if agent_texts is not None:
@@ -232,7 +242,9 @@ def plot_img_grid(save_fn, title=None, bounds=None, plot_size=None, *list_of_arg
 
     assert num_plots_width * num_plots_height >= len(list_of_arg_dicts), \
         f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
-    fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(5.5 * num_plots_width, 5 * num_plots_height))
+    # fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(5.5 * num_plots_width, 5.5 * num_plots_height))
+    # fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(5.5 * num_plots_width, 7 * num_plots_height))
+    fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(5.5 * num_plots_width, 6.5 * num_plots_height))
     if isinstance(axes[0], np.ndarray):
         axes = [a for ax in axes for a in ax]
 
@@ -241,9 +253,10 @@ def plot_img_grid(save_fn, title=None, bounds=None, plot_size=None, *list_of_arg
         plot_fn(**arg_dict, ax=ax, bounds=bounds)
 
     fig.tight_layout()
-    fig.subplots_adjust(hspace=0.6, wspace=-0.0)
+    fig.subplots_adjust(hspace=0.3, wspace=-0.0)
+    # fig.subplots_adjust(hspace=0.6, wspace=-0.0)
     if title is not None:
-        fig.suptitle(title, fontsize=16)
+        fig.suptitle(title, fontsize=36)
     fig.savefig(save_fn)
     print(f"saved figure to {save_fn}")
     plt.close(fig)

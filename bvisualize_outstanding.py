@@ -16,6 +16,20 @@ from metrics import compute_ADE_marginal, compute_FDE_marginal, compute_ADE_join
 
 
 OURS = 'af_mg1_jr1_w10'
+OURS = 'af_mg-1,5_jr-1,7.5'
+
+METHOD_DISP_NAMES = {
+        'sgan': 'S-GAN []',
+        'trajectron': 'Trajectron++ []',
+        'pecnet': 'PECNet []',
+        'ynet': 'Y-Net []',
+        'memonet': 'MemoNet []',
+        'vv': 'View Vertically [52]',
+        'agentformer': 'AgentFormer [60]',
+        'af_mg1_jr1_w10': 'Joint AgentFormer (Ours) (old)',
+        'af_mg-1,5_jr-1,7.5': 'Joint AgentFormer (Ours)',
+}
+
 def get_trajs(frame_path, method):
     pred_gt_traj = obs_traj = None
     samples = []
@@ -26,7 +40,7 @@ def get_trajs(frame_path, method):
         elif 'obs' in str(filename.name):
             obs_traj_raw = np.loadtxt(filename, delimiter=' ', dtype='float32')  # (frames x agents) x 4
             obs_traj_ = peds_pandas_way(obs_traj_raw, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])  # todo
-            if method == 'agentformer' or 'af' in method:
+            if method == 'agentformer' or 'af' in method or method == 'memonet':
                 obs_traj = obs_traj_[:,::-1]
             else:
                 obs_traj = obs_traj_
@@ -40,18 +54,20 @@ def get_trajs(frame_path, method):
     assert pred_gt_traj is not None, f"gt and obs should be loaded from {frame_path}"
     assert len(samples) == 20, f"20 samples should be loaded from {frame_path}"
     if obs_traj is None or obs_traj.shape[0] != 8:
+        obs_traj = None
         # load obs from other method folder
-        import ipdb;
-        ipdb.set_trace()
-        obs_path = os.path.join(str(frame_path).replace(method, 'agentformer'), 'obs.txt')
-        obs_traj_raw = np.loadtxt(obs_path, delimiter=' ', dtype='float32')  # (frames x agents) x 4
-        obs_traj_ = peds_pandas_way(obs_traj_raw, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
-        print("method:", method)
-        print(f"obs_traj_.shape: {obs_traj_.shape}")
-        obs_traj = obs_traj_[:,::-1]
-        print(f"obs_traj.shape: {obs_traj.shape}")
-        import ipdb; ipdb.set_trace()
-    assert obs_traj.shape[0] == 8
+        # import ipdb;
+        # ipdb.set_trace()
+        # obs_path = os.path.join(str(frame_path).replace(method, 'agentformer'), 'obs.txt')
+        # obs_traj_raw = np.loadtxt(obs_path, delimiter=' ', dtype='float32')  # (frames x agents) x 4
+        # obs_traj_ = peds_pandas_way(obs_traj_raw, ['frame_id', 'ped_id', 'x', 'y'], ['frame_id', 'ped_id'])
+        # print("method:", method)
+        # print(f"obs_traj_.shape: {obs_traj_.shape}")
+        # obs_traj = obs_traj_[:,::-1]
+        # print(f"obs_traj.shape: {obs_traj.shape}")
+        # import ipdb; ipdb.set_trace()
+    else:
+        assert obs_traj.shape[0] == 8
     assert pred_gt_traj.shape[0] == 12
     pred_fake_traj = np.stack(samples, axis=0)  # (num_samples, frames, agents, 2)
     return pred_fake_traj, pred_gt_traj, obs_traj
@@ -74,8 +90,8 @@ def get_metrics_dict(pred_fake_traj, pred_gt_traj):
                     'fde_argmins': fde_argmins,
                     'sade_argmin': sade_argmin,
                     'sfde_argmin': sfde_argmin, }
-    samples_dict = {'SADE:': sade_samples,
-                    'SFDE:': sfde_samples,
+    samples_dict = {'SADE': sade_samples,
+                    'SFDE': sfde_samples,
                     'CR': sample_collisions,}
     return samples_dict, metrics_dict
 
@@ -132,14 +148,24 @@ def main(args):
         seq = frame_path_.parent.name
         other_mSFDE, other_mSADE, other_mFDE, other_mADE = [], [], [], []
         non_ours_args_list = []
+        non_ours_args_list_nl = []
         trajs_list_for_bounds_calculation = []
         at_least_one_method_has_cols = False
         for method in args.method:
             frame = int(frame_path_.name.split('_')[-1])
             frame_path = Path(str(frame_path_).replace(placeholder_method, method))
             res = get_trajs(frame_path, method)
-            trajs_list_for_bounds_calculation.extend(res)
-            pred_fake_traj, pred_gt_traj, obs_traj = res
+            if method == 'trajectron':
+                diff = obs_traj - res[-1]
+                assert np.allclose(diff, diff[0,0], atol=1e-3), f"diff: {diff[0,0]}"
+                res = tuple(r + diff[0,0] for r in res)
+            # borrow pecnet's obs_traj and gt_traj (mostly need just the obs_traj...
+            # but gt_traj just in case? bc the gt_trajs differ slightly)
+            trajs_list_for_bounds_calculation.extend([r for r in res if r is not None])
+            if method == 'ynet':
+                pred_fake_traj, pred_gt_traj, _ = res
+            else:
+                pred_fake_traj, pred_gt_traj, obs_traj = res
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
             sample_metrics, all_metrics = get_metrics_dict(pred_fake_traj.transpose(2,0,1,3), pred_gt_traj.swapaxes(0,1))
@@ -149,10 +175,8 @@ def main(args):
             mSADE, sade_argmin = all_metrics['SADE'], all_metrics['sade_argmin']
             mSFDE, sfde_argmin = all_metrics['SFDE'], all_metrics['sfde_argmin']
             sample_crs = sample_metrics['CR']
-            sample_sades = sample_metrics['SADE:']
-            sample_sfdes = sample_metrics['SFDE:']
-
-            anim_save_fn = os.path.join(args.save_dir, seq, f'frame_{frame:06d}', f'{method}.png')
+            sample_sades = sample_metrics['SADE']
+            sample_sfdes = sample_metrics['SFDE']
 
             # filter
             if args.refine and (n_ped <= 1 or n_ped > 4):
@@ -169,6 +193,7 @@ def main(args):
                 break
             num_samples = 3
             args_list = []
+            args_list_nl = []
 
             if method != OURS:
                 # pick out best XDE samples from other methods
@@ -197,27 +222,45 @@ def main(args):
                 # selected_samples = np.random.choice(np.argpartition(-sample_sades, -10)[-10:], 3)
                 print(f"ours selected_samples: {selected_samples}")
 
-            for sample_i, sample in enumerate(pred_fake_traj):
+            subplot_i = 0
+            selected_samples_SADE = sample_metrics['SADE'][selected_samples]
+            best_JADE_selected = np.argmin(selected_samples_SADE)
+            print(f"best_JADE_selected: {best_JADE_selected}")
+            selected_samples_ADE_ped_vals = all_metrics['ade_ped_val'][:, selected_samples]
+            selected_samples_mADE = np.mean(np.min(selected_samples_ADE_ped_vals, axis=-1))
+            for sample_i, sample in enumerate(pred_fake_traj[selected_samples]):
+                # for sample_i, sample in enumerate(pred_fake_traj):
                 ade_ped_vals = all_metrics['ade_ped_val'][:,sample_i]
-                other_text = dict(zip([f'A{i} ADE:' for i in range(n_ped)], ade_ped_vals))
+                other_text = dict(zip([f'A{i}:' for i in range(n_ped)], ade_ped_vals))
 
-                if sample_i not in selected_samples:
-                    continue
+                # if sample_i not in selected_samples:
+                #     continue
 
-                stats = get_metrics_str(sample_metrics, sample_i)
-                other_text = get_metrics_str(other_text)
+                stats = get_metrics_str({'JADE:': sample_metrics['SADE']}, sample_i)
+                other_text = 'ADE\n'+ get_metrics_str(other_text)
                 print("method:", method, "ADE", mADE)
-                args_dict = {'plot_title': "",#f'{mADE:0.2f}',#f"" if sample_i == 2 and method == 'agentformer' else f"{method} {sample_i}",
+                args_dict = {'plot_title': f"{METHOD_DISP_NAMES[method]}" if subplot_i == 1 else "",#f'{mADE:0.2f}',#f"" if sample_i == 2 and method == 'agentformer' else f"{method} {sample_i}",
                              'obs_traj': obs_traj,
                              'gt_traj': pred_gt_traj,
                              'pred_traj': pred_fake_traj[sample_i],
-                             # 'text_fixed_tr': stats,
-                             # 'text_fixed_tl': other_text,
-                             # 'bkg_img_path': bkg_img_path,
+                             'text_fixed_tr': other_text,
+                             'text_fixed_tl': stats,
+                             'is_best_JADE': subplot_i == best_JADE_selected,#sade_argmin,
+                             'x_label': f'Sample {subplot_i}',
+                             'subtitle': f"min ADE: {selected_samples_mADE:0.2f}   min JADE: {selected_samples_SADE.min():0.2f}" if subplot_i == 1 else None,  # sample_sades[sade_argmin]
                              'plot_velocity_arrows': True,
-                             # 'highlight_peds': ade_argmins if method != OURS else None,
+                             'is_best_JADE_of_all': True if method == OURS else False,
+                             'is_best_ADE_of_all': True if method == 'ynet' else False,
                              'collision_mats': collision_mats[sample_i]}
+                args_dict_nl = {'plot_title': "",
+                                'obs_traj': obs_traj,
+                                'gt_traj': pred_gt_traj,
+                                'pred_traj': pred_fake_traj[sample_i],
+                                'plot_velocity_arrows': True,
+                                'collision_mats': collision_mats[sample_i]}
                 args_list.append(args_dict)
+                args_list_nl.append(args_dict_nl)
+                subplot_i += 1
 
             if len(args_list) == 0:  # if not plots for this frame from af or ours
                 continue
@@ -228,21 +271,28 @@ def main(args):
                 other_mSFDE.append(mSFDE)
                 other_mSADE.append(mSADE)
                 non_ours_args_list.extend(args_list)
+                non_ours_args_list_nl.extend(args_list_nl)
                 continue
 
             else:  # method is OURS: plot
-                bounds = get_max_bounds(*trajs_list_for_bounds_calculation)
+                bounds = get_max_bounds(trajs_list_for_bounds_calculation, padding=0.1)
+                anim_save_fn = os.path.join(args.save_dir, seq, f'frame_{frame:06d}', f'{method}.png')
+                anim_save_fn_nl = os.path.join(args.save_dir, seq, f'frame_{frame:06d}', f'{method}-nl.png')
                 plot_args = [anim_save_fn, "",#f"Seq: {seq} frame: {frame} \n "
                                            # f"AF XDE / SXDE: {other_mADE:0.2f} {other_mFDE:0.2f} / {other_mSADE:0.2f} {other_mSFDE:0.2f}\n"
                                            # f"ours XDE / SXDE: {mADE:0.2f} {mFDE:0.2f} / {mSADE:0.2f} {mSFDE:0.2f}",
-                             bounds, (3, 3), *non_ours_args_list, *args_list]
+                             bounds, (3, len(args.method)), *non_ours_args_list, *args_list]
+                plot_args_nl = [anim_save_fn_nl, "", bounds, (3, len(args.method)), *non_ours_args_list_nl, *args_list_nl]
                 seq_to_plot_args.append(plot_args)
+                seq_to_plot_args.append(plot_args_nl)
             if args.plot_online and len(seq_to_plot_args) > 0:
                 OURS_plot_args_list = seq_to_plot_args.pop(0)
                 mkdir_if_missing(anim_save_fn)
                 plot_img_grid(*OURS_plot_args_list)
 
     # print(f"done plotting {len(sps)} plots")
+    for args_list in seq_to_plot_args:
+        plot_img_grid(*args_list)
     print(f"done plotting plots")
 
     # plot in parallel

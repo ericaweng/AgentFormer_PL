@@ -1,4 +1,4 @@
-import imageio.v2 as imageio
+# import imageio.v2 as imageio
 import numpy as np
 
 import matplotlib.lines as mlines
@@ -17,11 +17,11 @@ def get_metrics_str(sample_vals, i=None):
     stats = "\n".join(stats)
     return stats
 
-def get_max_bounds(*trajs):
+def get_max_bounds(trajs, padding=0.2):
     """from list of obs_traj, pred_traj
     of shape (obs_len, num_peds, 2) or (pred_len, **, num_peds, 2)"""
     bounds = np.concatenate([np.array(traj).reshape(-1, 2) for traj in trajs])
-    bounds = [*(np.min(bounds, axis=0) - 0.2), *(np.max(bounds, axis=0) + 0.2)]
+    bounds = [*(np.min(bounds, axis=0) - padding), *(np.max(bounds, axis=0) + padding)]
     return bounds
 
 
