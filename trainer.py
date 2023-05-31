@@ -1,4 +1,5 @@
 import os
+import time
 from itertools import starmap
 from functools import partial
 import multiprocessing
@@ -96,6 +97,7 @@ class AgentFormerTrainer(pl.LightningModule):
         self.args = args
 
     def on_test_start(self):
+        self.start = time.time()
         self.model.set_device(self.device)
 
     def on_fit_start(self):
@@ -157,6 +159,9 @@ class AgentFormerTrainer(pl.LightningModule):
         return return_dict
 
     def _epoch_end(self, outputs, mode='test'):
+        dt = time.time() - self.start
+        print(f"Time taken for {mode} epoch: {dt:.2f} seconds")
+
         args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]
 
         # calculate metrics for each sequence

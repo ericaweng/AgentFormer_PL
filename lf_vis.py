@@ -10,7 +10,7 @@ import numpy as np
 from utils.utils import mkdir_if_missing
 from scripts.evaluate_all import peds_pandas_way
 from viz_utils import plot_anim_grid, get_metrics_str, get_max_bounds
-from viz_utils_img import plot_scene, plot_img_grid
+from viz_utils_img import plot_scene, plot_img_grid, plot_img_grid_old
 from metrics import compute_ADE_marginal, compute_FDE_marginal, compute_ADE_joint, \
     compute_FDE_joint, compute_CR
 
@@ -141,19 +141,13 @@ def main(args):
                         print(frame)
                         frames_this_dset.extend(list(Path(trajs_dir).glob(f'frame_*{frame}*')))
 
-        if args.save_num is None:
-            skip = 1
-        else:
-            skip = max(1, int(len(frames_this_dset) / args.save_num))
-        all_frames.extend(frames_this_dset[::skip])
+        all_frames.extend(frames_this_dset)
 
     print(f"Saving {len(all_frames)} frames per method across all dsets except frames with only 1 ped")
 
-    skip = 1
     # gather list of args for plotting
     seq_to_plot_args = []
-    sps = []
-    for frame_path_ in all_frames[::skip]:
+    for frame_path_ in all_frames:
         seq = frame_path_.parent.name
         other_mSFDE, other_mSADE, other_mFDE, other_mADE = [], [], [], []
         non_ours_args_list = []
@@ -175,7 +169,7 @@ def main(args):
                 pred_fake_traj, pred_gt_traj, _ = res
             else:
                 pred_fake_traj, pred_gt_traj, obs_traj = res
-            NUM_SAMPLES, _, n_ped, _ = pred_fake_traj.shape
+            n_samples, _, n_ped, _ = pred_fake_traj.shape
 
             sample_metrics, all_metrics = get_metrics_dict(pred_fake_traj.transpose(2,0,1,3), pred_gt_traj.swapaxes(0,1))
             collision_mats = all_metrics['collision_mats']
@@ -184,95 +178,64 @@ def main(args):
             mSADE, sade_argmin = all_metrics['SADE'], all_metrics['sade_argmin']
             mSFDE, sfde_argmin = all_metrics['SFDE'], all_metrics['sfde_argmin']
             sample_crs = sample_metrics['CR']
-            sample_sades = sample_metrics['SADE']
-            sample_sfdes = sample_metrics['SFDE']
 
             # filter
             if args.refine and (n_ped <= 1 or n_ped > 5):
                 break
             # our method has to have better SXDE and worse XDE than other methods
             if args.refine and method == OURS and not (
-                    # np.all(other_mSFDE < mSFDE)
                                        np.all(other_mSADE > mSADE)
-                                       # and np.all(other_mFDE > mFDE)
                                        and np.any(other_mADE < mADE)
                                        ):
                 print(f"ours not better than other methods: "
                       f"other_mSADE ({np.array2string(np.array(other_mSADE), precision=2)}) !> mSADE ({mSADE:0.2f}) ")
-                      # f"or other_mADE ({np.array2string(np.array(other_mADE), precision=2)}) !< mADE ({mADE:0.2f})")
                 break
 
             NUM_SAMPLES = 20
             args_list = []
             args_list_nl = []
-            selected_samples = list(range(NUM_SAMPLES))
 
             if method != OURS:
                 # pick out best XDE samples from other methods
-                # selected_samples = ade_argmins[:NUM_SAMPLES]
-                # selected_samples = set(selected_samples)
-                # sades_reverse = np.argsort(sample_sades)[::-1]
-                # sade_i = 0
-                # while len(selected_samples) < 3:
-                #     selected_samples.add(sades_reverse[sade_i])
-                # selected_samples.add(np.random.choice(sample_sades))
-                # selected_samples = list(selected_samples)
-                if args.refine and sample_crs[selected_samples].sum() > 0:  # other methods must have collisions
-                    at_least_one_method_has_cols = True
-                # print(f"{method} selected_samples: {selected_samples}")
+                selected_samples = np.argsort(sample_crs)[-NUM_SAMPLES:]
+                if method == 'memonet':
+                    selected_samples = np.arange(NUM_SAMPLES)
+                    # selected_samples = np.array([0, 2, 9, 10, 18])[-NUM_SAMPLES:]
+                elif method == 'pecnet':
+                    selected_samples = np.arange(NUM_SAMPLES)
+                    # selected_samples = np.array([0, 3, 7, 9, 15])[-NUM_SAMPLES:]
+                elif method == 'trajectron':
+                    selected_samples = np.arange(NUM_SAMPLES)
+                    # selected_samples = np.array([0, 2, 6, 11, 19])[-NUM_SAMPLES:]
+                elif method == 'ynet':
+                    selected_samples = np.arange(NUM_SAMPLES)
+                    # selected_samples = np.array([0, 1, 5, 7, 12])[-NUM_SAMPLES:]
+                elif method == 'agentformer':
+                    selected_samples = np.array([2, 3, 4, 18, 19])[-NUM_SAMPLES:]
+                elif method == 'sgan':
+                    selected_samples = np.arange(NUM_SAMPLES)
             else:  # pick out best SXDE samples from OURS
                 if args.refine and not at_least_one_method_has_cols:
                     print("no other method has cols, so we can't compare ours to them")
                     break
-                # selected_samples = np.argpartition(-sample_sades, -num_samples)[-num_samples:]
-                # argsorted_sample_is = np.argsort(sample_sades)
-                # np.random.seed(0)
-                # last_sample = np.random.choice(argsorted_sample_is[2:8], 2)
-                # selected_samples = [*argsorted_sample_is[:1], *last_sample]
-                # selected_samples = np.random.choice(np.argpartition(-sample_sades, -10)[-10:], 3)
+                selected_samples = np.argsort(sample_crs)[:NUM_SAMPLES]
                 pass
+            np.random.shuffle(selected_samples)
 
             subplot_i = 0
-            selected_samples_SADE = sample_metrics['SADE'][selected_samples]
-            best_JADE_selected = np.argmin(selected_samples_SADE)
-            selected_samples_ADE_ped_vals = all_metrics['ade_ped_val'][:, selected_samples]
-            selected_samples_mADE = np.mean(np.min(selected_samples_ADE_ped_vals, axis=-1))
-            selected_samples_mADE_is = np.argmin(selected_samples_ADE_ped_vals, axis=-1)
             to_plot_pred_fake_traj = pred_fake_traj[selected_samples]
             MIDDLE_SUBPLOT_I = 0#len(selected_samples) // 2
             for sample_i, sample in enumerate(to_plot_pred_fake_traj):
-                # for sample_i, sample in enumerate(pred_fake_traj):
-                ade_ped_vals = all_metrics['ade_ped_val'][:,sample_i]
-                other_text = dict(zip([f'A{i}:' for i in range(n_ped)], ade_ped_vals))
-
-                # if sample_i not in selected_samples:
-                #     continue
-                stats = get_metrics_str({'JADE:': sample_metrics['SADE']}, sample_i)
-                other_text = 'ADE\n'+ get_metrics_str(other_text)
-                # print("method:", method, "ADE", mADE)
                 args_dict = {'plot_title': f"{METHOD_DISP_NAMES[method]}" if subplot_i == MIDDLE_SUBPLOT_I else "",#f'{mADE:0.2f}',#f"" if sample_i == 2 and method == 'agentformer' else f"{method} {sample_i}",
                              'obs_traj': obs_traj,
                              'gt_traj': pred_gt_traj,
-                             'pred_traj': sample,
-                             'text_fixed_tl': other_text,
-                             'text_fixed_tr': stats,
-                             'sample_i': subplot_i,
-                             'ade_is': selected_samples_mADE_is,
-                             'is_best_JADE': subplot_i == best_JADE_selected,#sade_argmin,
                              'y_label': f'Sample {subplot_i + 1}' if method_i == 0 else None,
-                             'subtitle': f"min JADE: {selected_samples_SADE.min():0.2f}   min ADE: {selected_samples_mADE:0.2f}" if subplot_i == MIDDLE_SUBPLOT_I else None,  # sample_sades[sade_argmin]
+                             'pred_traj': sample,
+                             'plot_ped_texts': False,
                              'plot_velocity_arrows': True,
-                             'is_best_JADE_of_all': True if method == OURS else False,
-                             'is_best_ADE_of_all': False,
-                             'collision_mats': collision_mats[selected_samples[sample_i]]}
-                args_dict_nl = {'plot_title': "",
-                                'obs_traj': obs_traj,
-                                'gt_traj': pred_gt_traj,
-                                'pred_traj': sample,
-                                'plot_velocity_arrows': True,
-                                'collision_mats': collision_mats[sample_i]}
+                             # 'collision_mats': collision_mats[selected_samples[sample_i]],
+                             }
                 args_list.append(args_dict)
-                args_list_nl.append(args_dict_nl)
                 subplot_i += 1
 
             if len(args_list) == 0:  # if not plots for this frame from af or ours
@@ -288,25 +251,15 @@ def main(args):
                 continue
 
             else:  # method is OURS: plot
-                if args.png:
-                    png_or_pdf = 'png'
-                    anim_save_fn = os.path.join(args.save_dir, seq, f'frame_{frame:06d}', f'{method}.{png_or_pdf}')
-                    anim_save_fn_nl = os.path.join(args.save_dir, seq, f'frame_{frame:06d}',
-                                                   f'{method}-nl.{png_or_pdf}')
-                else:
-                    png_or_pdf = 'pdf'
-                    anim_save_fn = os.path.join(args.save_dir, f'{seq}_frame_{frame:06d}.{png_or_pdf}')
-                    anim_save_fn_nl = os.path.join(args.save_dir, f'{seq}_frame_{frame:06d}-nl.{png_or_pdf}')
-                bounds = get_max_bounds(trajs_list_for_bounds_calculation, padding=0.2)
-                best_ADE_method_i = np.argmin(other_mADE)
-                best_JADE_method_i = len(args.method) - 1
-                non_ours_args_list[best_ADE_method_i][MIDDLE_SUBPLOT_I]['is_best_ADE_of_all'] = True
-                non_ours_args_list[best_ADE_method_i][MIDDLE_SUBPLOT_I]['plot_title'] = f"{METHOD_DISP_NAMES[args.method[best_ADE_method_i]]} (best ADE)"
-                args_list[MIDDLE_SUBPLOT_I]['plot_title'] = f"{METHOD_DISP_NAMES[args.method[best_JADE_method_i]]}\n(best JADE)"
+                png_or_pdf = 'pdf'
+                anim_save_fn = os.path.join(args.save_dir, f'collisions_{seq}_frame_{frame:06d}.{png_or_pdf}')
+                bounds = get_max_bounds(trajs_list_for_bounds_calculation, padding=-0.2)
+                x_offset = 0.0
+                y_offset_high = 2.8
+                y_offset_low = 2.8
+                bounds = [bounds[0] + x_offset, bounds[1] + y_offset_low, bounds[2] - x_offset, bounds[3] - y_offset_high]
                 plot_args = [anim_save_fn, "", bounds, (len(args.method), NUM_SAMPLES), *non_ours_args_list, args_list]
-                plot_args_nl = [anim_save_fn_nl, "", bounds, (len(args.method), NUM_SAMPLES), *non_ours_args_list_nl, args_list_nl]
                 seq_to_plot_args.append(plot_args)
-                # seq_to_plot_args.append(plot_args_nl)
             if args.plot_online and len(seq_to_plot_args) > 0:
                 OURS_plot_args_list = seq_to_plot_args.pop(0)
                 mkdir_if_missing(anim_save_fn)
