@@ -43,7 +43,8 @@ if you find this code useful, we would appreciate if you cite:
       eprint={2305.06292},
       archivePrefix={arXiv},
       primaryClass={cs.RO}
-}```
+}
+```
 
 ```@misc{yuan2021agentformer,
       title={AgentFormer: Agent-Aware Transformers for Socio-Temporal Multi-Agent Forecasting}, 
@@ -52,5 +53,6 @@ if you find this code useful, we would appreciate if you cite:
       eprint={2103.14023},
       archivePrefix={arXiv},
       primaryClass={cs.AI}
-}```
+}
+```
 
