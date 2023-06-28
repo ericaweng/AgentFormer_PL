@@ -35,21 +35,22 @@ Ye Yuan, Xinshuo Weng, Yanglan Ou, Kris Kitani
 [[website](https://www.ye-yuan.com/agentformer)] [[paper](https://arxiv.org/abs/2103.14023)]
 
 if you find this code useful, we would appreciate if you cite:
-@misc{weng2023joint,
+
+```@misc{weng2023joint,
       title={Joint Metrics Matter: A Better Standard for Trajectory Forecasting}, 
       author={Erica Weng and Hana Hoshino and Deva Ramanan and Kris Kitani},
       year={2023},
       eprint={2305.06292},
       archivePrefix={arXiv},
       primaryClass={cs.RO}
-}
+}```
 
-@misc{yuan2021agentformer,
+```@misc{yuan2021agentformer,
       title={AgentFormer: Agent-Aware Transformers for Socio-Temporal Multi-Agent Forecasting}, 
       author={Ye Yuan and Xinshuo Weng and Yanglan Ou and Kris Kitani},
       year={2021},
       eprint={2103.14023},
       archivePrefix={arXiv},
       primaryClass={cs.AI}
-}
+}```
 
