@@ -29,6 +29,7 @@ here are all available flags:
 ```
 
 The code is adapted for pytorch lightning (multi-gpu training) from:
+
 AgentFormer: Agent-Aware Transformers for Socio-Temporal Multi-Agent Forecasting  
 Ye Yuan, Xinshuo Weng, Yanglan Ou, Kris Kitani  
 **ICCV 2021**  
