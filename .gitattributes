@@ -1,0 +1,12 @@
+results/hotel_joint_pre/epoch=0084.ckpt filter=lfs diff=lfs merge=lfs -text
+results/trajnet-sdd_joint/epoch=0044.ckpt filter=lfs diff=lfs merge=lfs -text
+results/trajnet-sdd_joint_pre/epoch=0074.ckpt filter=lfs diff=lfs merge=lfs -text
+results/univ_joint_pre/epoch=0069.ckpt filter=lfs diff=lfs merge=lfs -text
+results/zara1_joint_pre/epoch=0099.ckpt filter=lfs diff=lfs merge=lfs -text
+results/zara2_joint/epoch=0039.ckpt filter=lfs diff=lfs merge=lfs -text
+results/zara2_joint_pre/epoch=0099.ckpt filter=lfs diff=lfs merge=lfs -text
+results/hotel_joint/epoch=0049.ckpt filter=lfs diff=lfs merge=lfs -text
+results/eth_joint_pre/epoch=0049.ckpt filter=lfs diff=lfs merge=lfs -text
+results/univ_joint/epoch=0014.ckpt filter=lfs diff=lfs merge=lfs -text
+results/zara1_joint/epoch=0044.ckpt filter=lfs diff=lfs merge=lfs -text
+results/eth_joint/epoch=0049.ckpt filter=lfs diff=lfs merge=lfs -text
