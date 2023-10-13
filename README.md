@@ -24,7 +24,9 @@ where `<config>` is in the format `<dset>_agentformer` for plain AgentFormer and
 `<dset` is one of `eth`, `hotel`, `univ`, `zara1`, `zara2`, `trajnet_sdd`.
 
 ### Testing
-
+We also include our own pre-trained models in the `results/` directory via [Git LFS](https://git-lfs.com/).
+You will need to install Git LFS to download our pretrained models. 
+After you download them, run:
 ```
 python pl_train.py --cfg <config> --mode test
 ```
