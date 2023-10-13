@@ -3,6 +3,7 @@ This is a PyTorch lightning implementation of Joint AgentFormer from the paper [
 ## Joint AgentFormer
 SOTA Trajectory Forecasting baselines like AgentFormer optimize for per-agent minimum displacement error metrics such as ADE. 
 Our method, Joint AgentFormer is optimized for multi-agent minimum displacement error metrics such as JADE -- _Joint_ ADE.
+
 ![Screenshot 2023-10-13 at 14 09 53](https://github.com/ericaweng/Joint_AgentFormer/assets/12485287/8c151916-82d7-45d6-9842-25c15f3c3d45)
 
 To train Joint AgentFormer:
