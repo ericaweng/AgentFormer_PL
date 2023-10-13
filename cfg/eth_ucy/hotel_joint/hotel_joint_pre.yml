@@ -1,7 +1,7 @@
 # ------------------- General Options -------------------------
 
 description                  : AgentFormer (Before DLow)
-results_root_dir             : results-joint
+results_root_dir             : results
 seed                         : 1
 dataset                      : hotel
 data_root_ethucy             : datasets/eth_ucy

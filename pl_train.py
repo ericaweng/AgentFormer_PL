@@ -125,7 +125,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
     parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
-    parser.add_argument('--logs_root', '-lr', default='results-joint', help='where to save checkpoints and tb logs')
+    parser.add_argument('--logs_root', '-lr', default='results', help='where to save checkpoints and tb logs')
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)

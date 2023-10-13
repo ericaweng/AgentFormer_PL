@@ -38,10 +38,10 @@ python pl_train.py --cfg <dset>_agentformer
 --batch_size: only batch size 1 is available right now, sorry :-(
 --no_gpu: specify if you want CPU-only training
 --dont_resume: specify if you don't want to resume from checkpoint if it exists
---checkpoint_path: specify if you want to resume from a model different than the default (which is ./results-joint/<args.cfg>)
+--checkpoint_path: specify if you want to resume from a model different than the default (which is ./results/<args.cfg>)
 --save_viz: save visualizations to ./viz
 --save_num: num  to visualizations save per eval step
---logs_root: default root dir to save logs and model checkpoints. default is ./results-joint and logs for a run will be saved to <args.logs_root>/<args. cfg>
+--logs_root: default root dir to save logs and model checkpoints. default is ./results and logs for a run will be saved to <args.logs_root>/<args. cfg>
 --save_traj: whether to save trajectories for offline evaluation
 ```
 
