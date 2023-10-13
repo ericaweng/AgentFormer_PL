@@ -18,6 +18,7 @@ from metrics import compute_ADE_marginal, compute_FDE_marginal, compute_ADE_join
 OURS = 'af_mg1_jr1_w10'
 OURS = 'af_mg-1,5_jr-1,7.5'
 OURS = 'af_mg-1,5_jr-1,5'
+OURS = 'vv_ml_a-0.5,0.5_b-0.4,0.4,0.2'
 
 METHOD_DISP_NAMES = {
         # 'sgan': 'S-GAN []',
@@ -35,6 +36,7 @@ METHOD_DISP_NAMES = {
         'ynet': 'Y-Net',
         'memonet': 'MemoNet',
         'vv': 'View Vertically',
+        'vv_ml_a-0.5,0.5_b-0.4,0.4,0.2': 'Joint View Vertically (Ours)',
         'agentformer': 'AgentFormer',
         'af_mg1_jr1_w10': 'Joint AgentFormer (Ours) (old)',
         'af_mg-1,5_jr-1,7.5': 'Joint AgentFormer (Ours)',
@@ -247,6 +249,11 @@ def main(args):
 
                 # if sample_i not in selected_samples:
                 #     continue
+                if seq in SEQUENCE_NAMES['trajnet_sdd']:
+                    bkg_img_path = os.path.join(f'datasets/trajnet_sdd/reference_img/{seq[:-2]}/video{seq[-1]}/reference.jpg')
+                else:
+                    bkg_img_path = None
+
                 stats = get_metrics_str({'JADE:': sample_metrics['SADE']}, sample_i)
                 other_text = 'ADE\n'+ get_metrics_str(other_text)
                 # print("method:", method, "ADE", mADE)
@@ -257,6 +264,7 @@ def main(args):
                              'text_fixed_tl': other_text,
                              'text_fixed_tr': stats,
                              'sample_i': subplot_i,
+                             'bkg_img_path': bkg_img_path,
                              'ade_is': selected_samples_mADE_is,
                              'is_best_JADE': subplot_i == best_JADE_selected,#sade_argmin,
                              'y_label': f'Sample {subplot_i + 1}' if method_i == 0 else None,
@@ -332,7 +340,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument('--trajs_dir', type=str, default='../trajectory_reward/results/trajectories')
     ap.add_argument('--frames_to_plot', '-f', nargs='+', type=int, default=None)
-    ap.add_argument('--method', '-m', type=str, nargs='+', default=['agentformer', 'af_mg1_jr1_w10'])
+    ap.add_argument('--method', '-m', type=str, nargs='+', default=['vv', 'vv_ml_a-0.5,0.5_b-0.4,0.4,0.2'])
     ap.add_argument('--dset', '-d', type=str, nargs='+', default=['eth', 'hotel', 'univ', 'zara1', 'zara2', 'trajnet_sdd'])
     ap.add_argument('--num_workers', type=int, default=multiprocessing.cpu_count())
     ap.add_argument('--save_num', '-s', type=int, default=None, help='number of frames to save per dset')

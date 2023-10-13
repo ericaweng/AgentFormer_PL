@@ -9,7 +9,7 @@ import numpy as np
 
 from utils.utils import mkdir_if_missing
 from scripts.evaluate_all import peds_pandas_way
-from viz_utils import plot_anim_grid, get_metrics_str
+from viz_utils2 import plot_anim_grid, get_metrics_str
 from metrics import compute_ADE_marginal, compute_FDE_marginal, compute_ADE_joint, \
     compute_FDE_joint, compute_CR
 
@@ -259,6 +259,7 @@ def main(args):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument('--trajs_dir', type=str, default='../trajectory_reward/results/trajectories')
+    ap.add_argument('--frames_to_plot', '-f', nargs='+', type=int, default=None)
     ap.add_argument('--method', '-m', type=str, nargs='+', default=['agentformer', 'af_mg1_jr1_w10'])
     ap.add_argument('--dset', '-d', type=str, nargs='+', default=['eth', 'hotel', 'univ', 'zara1', 'zara2', 'trajnet_sdd'])
     ap.add_argument('--num_workers', type=int, default=multiprocessing.cpu_count())

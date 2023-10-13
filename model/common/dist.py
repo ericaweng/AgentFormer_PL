@@ -15,10 +15,11 @@ class Normal:
             self.logvar = logvar
         self.sigma = torch.exp(0.5 * self.logvar)
 
-    def rsample(self):
+    def rsample(self, get_probs=False):
         eps = torch.randn_like(self.sigma)
-        return self.mu + eps * self.sigma
-
+        return self.mu + eps * self.sigma#, return np.exp(-self.mu)
+    # def sample_and_probs(self):
+        
     def sample(self):
         return self.rsample()
 
