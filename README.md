@@ -6,30 +6,30 @@ Our method, Joint AgentFormer is optimized for multi-agent minimum displacement 
 
 ![Screenshot 2023-10-13 at 14 09 53](https://github.com/ericaweng/Joint_AgentFormer/assets/12485287/8c151916-82d7-45d6-9842-25c15f3c3d45)
 
-To train Joint AgentFormer:
-```
-python pl_train.py --cfg <dset>_joint_pre
-```
+## Training
+All datasets are already pre-included in the repository in the `datasets/` directory.
 
-where `<dset>` is one of `eth`, `hotel`, `univ`, `zara1`, `zara2`, `trajnet_sdd`.
+```
+python pl_train.py --cfg <config>
+```
+where `<config>` is in the format `<dset>_agentformer_pre` for plain AgentFormer models and `<dset>_joint_pre` for Joint AgentFormer.
+`<dset` is one of `eth`, `hotel`, `univ`, `zara1`, `zara2`, `trajnet_sdd`.
+
 After that finishes training, train the DLow model, which
 improves diversity of trajectory predictions:
 ```
-python pl_train.py --cfg <dset>_joint
+python pl_train.py --cfg <config>
+```
+where `<config>` is in the format `<dset>_agentformer` for plain AgentFormer and `<dset>_joint` for Joint AgentFormer.
+`<dset` is one of `eth`, `hotel`, `univ`, `zara1`, `zara2`, `trajnet_sdd`.
+
+### Testing
+
+```
+python pl_train.py --cfg <config> --mode test
 ```
 
-## AgentFormer
-To train plain AgentFormer:
-```
-python pl_train.py --cfg <dset>_agentformer_pre
-```
-
-where `<dset>` is one of `eth`, `hotel`, `univ`, `zara1`, `zara2`, `trajnet_sdd`.
-After that finishes training, train the DLow model, which improves diversity of trajectory predictions:
-```
-python pl_train.py --cfg <dset>_agentformer
-```
-
+where `<config>` is the same as described in the above section.
 
 ## Flag Descriptions
 ```
@@ -38,10 +38,10 @@ python pl_train.py --cfg <dset>_agentformer
 --batch_size: only batch size 1 is available right now, sorry :-(
 --no_gpu: specify if you want CPU-only training
 --dont_resume: specify if you don't want to resume from checkpoint if it exists
---checkpoint_path: specify if you want to resume from a model different than the default (which is ./results/<args.cfg>)
+--checkpoint_path: specify if you want to resume from a model different than the default (which is ./results-joint/<args.cfg>)
 --save_viz: save visualizations to ./viz
 --save_num: num  to visualizations save per eval step
---logs_root: default root dir to save logs and model checkpoints. default is ./results and logs for a run will be saved to <args.logs_root>/<args. cfg>
+--logs_root: default root dir to save logs and model checkpoints. default is ./results-joint and logs for a run will be saved to <args.logs_root>/<args. cfg>
 --save_traj: whether to save trajectories for offline evaluation
 ```
 
@@ -73,4 +73,3 @@ if you find this code useful, we would appreciate if you cite:
       primaryClass={cs.AI}
 }
 ```
-
