@@ -1,3 +1,0 @@
-zara 9950
-AgentFormer vs. OURS
-AF order by collisions
