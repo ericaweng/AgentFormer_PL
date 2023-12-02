@@ -12,7 +12,10 @@ from eval import eval_one_seq2
 from metrics import stats_func
 from utils.utils import mkdir_if_missing
 from utils.torch import get_scheduler
-from viz_utils import plot_anim_grid, get_metrics_str
+# from viz_utils import get_metrics_str, plot_anim_grid
+from viz_utils import get_metrics_str
+from visualization_scripts.viz_utils2 import plot_anim_grid
+from visualization_scripts.viz_utils_3d import AnimObjPose
 from collision_rejection import run_model_w_col_rej
 
 
@@ -159,8 +162,8 @@ class AgentFormerTrainer(pl.LightningModule):
         return return_dict
 
     def _epoch_end(self, outputs, mode='test'):
-        dt = time.time() - self.start
-        print(f"Time taken for {mode} epoch: {dt:.2f} seconds")
+        # dt = time.time() - self.start
+        # print(f"Time taken for {mode} epoch: {dt:.2f} seconds")
 
         args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]
 
@@ -238,21 +241,79 @@ class AgentFormerTrainer(pl.LightningModule):
         self.log(f'{mode}/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
 
         # plot visualizations if there are collisions; or if args.save_viz and in test_mode
-        if not self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode and len(idxs_to_plot) > 0:  # plot only certain scenes
-            self._save_viz(*zip(*[(outputs[i], all_sample_vals[i], all_metrics[i], argmins[i], collision_mats[i])
-                                  for i in idxs_to_plot]), mode)
-        elif self.cfg.get('collisions_ok', True) and self.args.save_viz and is_test_mode:
+        if self.args.save_viz:
             num_test_samples = len(outputs)
-            skip = int(num_test_samples / self.args.save_num)
-            self._save_viz(outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip],
-                           collision_mats[::skip], mode)
-            # self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
-            #                all_metrics[:self.args.save_num], argmins[:self.args.save_num],
-            #                collision_mats[:self.args.save_num], mode)
-        # elif self.args.save_viz and (self.args.trial and self.current_epoch % 1 == 0 or not self.args.trial):
-        #     self._save_viz(outputs[:self.args.save_num], all_sample_vals[:self.args.save_num],
-        #                    all_metrics[:self.args.save_num], argmins[:self.args.save_num],
-        #                    collision_mats[:self.args.save_num], mode)
+            skip = max(1, int(num_test_samples / self.args.save_num))
+            all_figs = self._save_viz(outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip], collision_mats[::skip], mode)
+
+            # plot videos to tensorboard
+            instance_is = np.arange(0, num_test_samples, skip)
+            for idx, (instance_i, figs) in enumerate(zip(instance_is, all_figs)):
+                video_tensor = np.stack(all_figs).transpose(0, 1, 4, 2, 3)
+                # self.logger.experiment.add_video(f'{mode}/traj', video_tensor, self.global_step, fps=6)
+                self.logger.experiment.add_video(f'{mode}/traj_{instance_i}', video_tensor[idx:idx+1], self.global_step, fps=6)
+
+
+    def _save_viz_w_pose(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats, tag=''):
+        seq_to_plot_args = []
+        for frame_i, (output, seq_to_sample_metrics) in enumerate(zip(outputs, all_sample_vals)):
+            frame = output['frame']
+            seq = output['seq']
+            obs_traj = output['obs_motion'].numpy()
+            assert obs_traj.shape[0] == 8
+            pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
+            pred_fake_traj = output['pred_motion'].numpy().transpose(1, 2, 0, 3)  # (samples, ts, n_peds, 2)
+
+            num_samples, _, n_ped, _ = pred_fake_traj.shape
+
+            anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            mkdir_if_missing(anim_save_fn)
+            title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
+            plot_args_list = {'save_fn': None, 'title': title, 'plot_size': (5, 4), }
+            list_of_arg_dicts = []
+
+            # pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
+            # min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
+            if self.dataset_name == 'trajnet_sdd':
+                bkg_img_path = os.path.join(
+                    f'datasets/trajnet_sdd/reference_img/{seq[:-2]}/video{seq[-1]}/reference.jpg')
+            else:
+                bkg_img_path = None
+            SADE_min_i = np.argmin(seq_to_sample_metrics['ADE'])
+            pred_fake_traj_min = pred_fake_traj[SADE_min_i]
+            min_SADE_stats = get_metrics_str(seq_to_sample_metrics, SADE_min_i)
+            args_dict = {'plot_title': f"best mSADE sample",
+                         'obs_traj': obs_traj,
+                         'gt_traj': pred_gt_traj,
+                         'pred_traj': pred_fake_traj_min,
+                         'collision_mats': collision_mats[frame_i][-1],
+                         'bkg_img_path': bkg_img_path,
+                         'text_fixed': min_SADE_stats}
+            list_of_arg_dicts.append(args_dict)
+
+            for sample_i in range(num_samples - 1):
+                stats = get_metrics_str(seq_to_sample_metrics, sample_i)
+                args_dict = {'plot_title': f"Sample {sample_i}",
+                             'obs_traj': obs_traj,
+                             'gt_traj': pred_gt_traj,
+                             'pred_traj': pred_fake_traj[sample_i],
+                             'text_fixed': stats,
+                             'bkg_img_path': bkg_img_path,
+                             # 'highlight_peds': argmins[frame_i],
+                             'collision_mats': collision_mats[frame_i][sample_i]}
+                list_of_arg_dicts.append(args_dict)
+                plot_args_list['list_of_arg_dicts'] = list_of_arg_dicts
+            seq_to_plot_args.append(plot_args_list)
+
+        if self.args.mp:
+            with multiprocessing.Pool(self.num_workers) as pool:
+                all_figs = pool.starmap(plot_anim_grid, seq_to_plot_args)
+
+        else:
+            all_figs = list(starmap(plot_anim_grid, seq_to_plot_args))
+
+        return all_figs
+
 
     def _save_viz(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats, tag=''):
         seq_to_plot_args = []
@@ -268,7 +329,9 @@ class AgentFormerTrainer(pl.LightningModule):
 
             anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
-            plot_args_list = [anim_save_fn, f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}", (5, 4)]
+            title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
+            plot_args_list = {'save_fn': None, 'title': title, 'plot_size': (5, 4),}
+            list_of_arg_dicts = []
 
             # pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
             # min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
@@ -281,31 +344,36 @@ class AgentFormerTrainer(pl.LightningModule):
             min_SADE_stats = get_metrics_str(seq_to_sample_metrics, SADE_min_i)
             args_dict = {'plot_title': f"best mSADE sample",
                          'obs_traj': obs_traj,
-                         'pred_traj_gt': pred_gt_traj,
-                         'pred_traj_fake': pred_fake_traj_min,
+                         'gt_traj': pred_gt_traj,
+                         'pred_traj': pred_fake_traj_min,
                          'collision_mats': collision_mats[frame_i][-1],
                          'bkg_img_path': bkg_img_path,
                          'text_fixed': min_SADE_stats}
-            plot_args_list.append(args_dict)
+            list_of_arg_dicts.append(args_dict)
 
             for sample_i in range(num_samples - 1):
                 stats = get_metrics_str(seq_to_sample_metrics, sample_i)
                 args_dict = {'plot_title': f"Sample {sample_i}",
                              'obs_traj': obs_traj,
-                             'pred_traj_gt': pred_gt_traj,
-                             'pred_traj_fake': pred_fake_traj[sample_i],
+                             'gt_traj': pred_gt_traj,
+                             'pred_traj': pred_fake_traj[sample_i],
                              'text_fixed': stats,
                              'bkg_img_path': bkg_img_path,
-                             'highlight_peds': argmins[frame_i],
+                             # 'highlight_peds': argmins[frame_i],
                              'collision_mats': collision_mats[frame_i][sample_i]}
-                plot_args_list.append(args_dict)
+                list_of_arg_dicts.append(args_dict)
+                plot_args_list['list_of_arg_dicts'] = list_of_arg_dicts
             seq_to_plot_args.append(plot_args_list)
 
         if self.args.mp:
             with multiprocessing.Pool(self.num_workers) as pool:
-                pool.starmap(plot_anim_grid, seq_to_plot_args)
+                all_figs = pool.starmap(plot_anim_grid, seq_to_plot_args)
+
         else:
-            list(starmap(plot_anim_grid, seq_to_plot_args))
+            all_figs = list(starmap(plot_anim_grid, seq_to_plot_args))
+
+        return all_figs
+
 
     def train_epoch_end(self, outputs):
         self._epoch_end(outputs, 'train')

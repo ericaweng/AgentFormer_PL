@@ -1,5 +1,6 @@
 # import imageio.v2 as imageio
 import numpy as np
+import tempfile
 
 import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
@@ -8,7 +9,15 @@ from matplotlib.cm import ScalarMappable as sm
 import matplotlib.patches as patches
 
 
-def plot_anim_grid(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
+def plot_anim_grid(save_fn=None, title=None, plot_size=None, AO=None, list_of_arg_dicts=None):
+    """
+    AO: the animation object to use. different AOs plot different things, and take different arguments.
+        also, AO can be a list of different Animatin objects to use.
+        the AO object should have a function called plot_traj_anim, which takes in at the very least,
+        two args called ax and bounds
+    list_of_arg_dicts: a list of dicts, where each dict is a set of arguments to pass to AO.plot_traj_anim
+    """
+    # set up figure
     if plot_size is None:
         if len(list_of_arg_dicts) > 4:
             num_plots_height = 2
@@ -21,14 +30,21 @@ def plot_anim_grid(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
 
     assert num_plots_width * num_plots_height >= len(list_of_arg_dicts), \
         f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
+
     fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(7.5 * num_plots_width, 5 * num_plots_height))
+    fig.tight_layout()
+    fig.subplots_adjust(hspace=0.2)
+    if title is not None:
+        fig.suptitle(title, fontsize=16)
+
     if isinstance(axes[0], np.ndarray):
         axes = [a for ax in axes for a in ax]
-    anim_graphs = []
 
+    # observation steps and prediction steps
     obs_len = 8
     pred_len = 12
 
+    # set global plotting bounds (same for each sample)
     bounds = []
     for graph in list_of_arg_dicts:
         for key, val in graph.items():
@@ -37,21 +53,40 @@ def plot_anim_grid(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
     bounds = np.concatenate(bounds)
     bounds = [*(np.min(bounds, axis=0) - 0.2), *(np.max(bounds, axis=0) + 0.2)]
 
-
+    # instantiate animation object for each graph
+    anim_graphs = []
+    figs = []
     for ax_i, (arg_dict, ax) in enumerate(zip(list_of_arg_dicts, axes)):
-        ao = AnimObj()
+        if isinstance(AO, list):
+            ao = AO[ax_i]()
+        else:
+            ao = AO()
         anim_graphs.append(ao)
         ao.plot_traj_anim(**arg_dict, ax=ax, bounds=bounds)
 
-    anim = animation.FuncAnimation(fig, lambda frame_i: [ag.update(frame_i) for ag in anim_graphs],
-                                   frames=obs_len + pred_len, interval=500)
-    fig.tight_layout()
-    fig.subplots_adjust(hspace=0.1)
-    if title is not None:
-        fig.suptitle(title, fontsize=16)
-    anim.save(save_fn)
-    print(f"saved animation to {save_fn}")
-    plt.close(fig)
+    def mass_update(frame_i):
+        nonlocal figs, fig
+        for ag in anim_graphs:
+            ag.update(frame_i)
+        figs.append(fig_to_array(fig))
+
+    anim = animation.FuncAnimation(fig, mass_update, frames=obs_len + pred_len, interval=500)
+    # save animation
+    if save_fn is not None:
+        anim.save(save_fn)
+        print(f"saved animation to {save_fn}")
+        plt.close(fig)
+    else:
+        with tempfile.TemporaryDirectory() as output_dir:
+            anim.save(f"{output_dir}/temp.gif")
+    return figs
+
+
+def fig_to_array(fig):
+    fig.canvas.draw()
+    fig_image = np.array(fig.canvas.renderer._renderer)
+
+    return fig_image
 
 
 class AnimObj:

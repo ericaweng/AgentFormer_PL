@@ -3,15 +3,15 @@ import sys
 import glob
 import argparse
 from functools import partial
-
-import torch
 import wandb
+import torch
 torch.set_default_dtype(torch.float32)
-
+torch.set_float32_matmul_precision('medium')
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
 from pytorch_lightning.strategies import DDPStrategy
+
 from data.datamodule import AgentFormerDataModule
 from utils.config import Config
 from utils.utils import get_timestring
@@ -160,8 +160,8 @@ if __name__ == '__main__':
     parser.add_argument('--trial', '-t', action='store_true', default=False, help='if true, then does a trial run (without save checkpoints or logs, and allows user to specify smaller dataset size for sanity checking)')
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
-    parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
-    parser.add_argument('--logs_root', '-lr', default='results-joint', help='where to save checkpoints and tb logs')
+    parser.add_argument('--save_num', '-vn', type=int, default=3, help='number of visualizations to save per eval')
+    parser.add_argument('--logs_root', '-lr', default='results-new', help='where to save checkpoints and tb logs')
     parser.add_argument('--log_on_trial', '-l', action='store_true', default=False, help='if true, then also writes logs when --trial is also specified (o/w does not)')
     parser.add_argument('--ckpt_on_trial', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)

@@ -526,7 +526,7 @@ class FutureDecoder(nn.Module):
                 pred_traj_gt = data['fut_motion'].cpu().numpy()
                 if sample_num == 1 and False:
                     pred_traj = (torch.cat(seq_outs).reshape(-1, 2) + data['scene_orig']).cpu().numpy()
-                    plot_traj_img(obs_traj, save_fn, pred_traj=pred_traj, pred_traj_gt=pred_traj_gt,
+                    plot_traj_img(obs_traj, save_fn, pred_traj=pred_traj, traj_gt=pred_traj_gt,
                                   attn_ped_i=attn_ped_i, ped_radius=0.1, pred_traj_fake=None, self_attn=s_attn_w,
                                   cross_attn=x_attn_w)
                 elif sample_num == 20:
@@ -535,7 +535,7 @@ class FutureDecoder(nn.Module):
                         save_fn = f'viz/sample-{sample_i}_test_t-{pred_i}_ai-{a_i}.png'
                         plot_traj_img(obs_traj[:, sample_i::sample_num], save_fn,
                                       pred_traj=pred_traj[:, sample_i].reshape(-1, 2),
-                                      pred_traj_gt=pred_traj_gt,
+                                      traj_gt=pred_traj_gt,
                                       attn_ped_i=attn_ped_i, ped_radius=0.1, pred_traj_fake=None, self_attn=s_attn_w,
                                       cross_attn=x_attn_w)
                     import ipdb; ipdb.set_trace()

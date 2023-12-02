@@ -9,8 +9,8 @@ import numpy as np
 
 from utils.utils import mkdir_if_missing
 from scripts.evaluate_all import peds_pandas_way
-from viz_utils import plot_anim_grid, get_metrics_str, get_max_bounds
-from viz_utils_img import plot_scene, plot_img_grid, plot_img_grid_old
+from viz_utils import plot_anim_grid, get_max_bounds
+from viz_utils_img import plot_img_grid, plot_img_grid_old
 from metrics import compute_ADE_marginal, compute_FDE_marginal, compute_ADE_joint, \
     compute_FDE_joint, compute_CR
 

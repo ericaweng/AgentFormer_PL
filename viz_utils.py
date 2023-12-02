@@ -1,5 +1,6 @@
 # import imageio.v2 as imageio
 import numpy as np
+import tempfile
 
 import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
@@ -25,7 +26,8 @@ def get_max_bounds(trajs, padding=0.2):
     return bounds
 
 
-def plot_anim_grid(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
+def plot_anim_grid(save_fn=None, title=None, plot_size=None, *list_of_arg_dicts):
+    # set up figure
     if plot_size is None:
         if len(list_of_arg_dicts) > 4:
             num_plots_height = 2
@@ -38,23 +40,21 @@ def plot_anim_grid(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
 
     assert num_plots_width * num_plots_height >= len(list_of_arg_dicts), \
         f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
+
     fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(7.5 * num_plots_width, 5 * num_plots_height))
+    fig.tight_layout()
+    fig.subplots_adjust(hspace=0.2)
+    if title is not None:
+        fig.suptitle(title, fontsize=16)
+
     if isinstance(axes[0], np.ndarray):
         axes = [a for ax in axes for a in ax]
-    # fig, axes = plt.subplots(1, len(list_of_arg_dicts), figsize=(10 * len(list_of_arg_dicts), 10))
-    anim_graphs = []
 
-    # determine obs_len and pred_len automatically
-    # obs_len = list_of_arg_dicts[0]['obs_traj'].shape[0]
-    # if list_of_arg_dicts[0]['pred_traj_gt'] is not None:
-    #     pred_len = list_of_arg_dicts[0]['pred_traj_gt'].shape[0]
-    # elif list_of_arg_dicts[0]['pred_traj_fake'] is not None:
-    #     pred_len = list_of_arg_dicts[0]['pred_traj_fake'].shape[0]
-    # else:
-    #     pred_len = 0
+    # observation steps and prediction steps
     obs_len = 8
     pred_len = 12
 
+    # set global plotting bounds (same for each sample)
     bounds = []
     for graph in list_of_arg_dicts:
         for key, val in graph.items():
@@ -62,28 +62,46 @@ def plot_anim_grid(save_fn, title=None, plot_size=None, *list_of_arg_dicts):
                 bounds.append(np.array(val).reshape(-1, 2))
     bounds = np.concatenate(bounds)
     bounds = [*(np.min(bounds, axis=0) - 0.2), *(np.max(bounds, axis=0) + 0.2)]
+    # min xyz, then max xyz
 
+    # instantiate animation object for each graph
+    anim_graphs = []
+    figs = []
     for ax_i, (arg_dict, ax) in enumerate(zip(list_of_arg_dicts, axes)):
         ao = AnimObj()
         anim_graphs.append(ao)
         ao.plot_traj_anim(**arg_dict, ax=ax, bounds=bounds)
 
-    anim = animation.FuncAnimation(fig, lambda frame_i: [ag.update(frame_i) for ag in anim_graphs],
-                                   frames=obs_len + pred_len, interval=500)
-    fig.tight_layout()
-    fig.subplots_adjust(hspace=0.2)
-    if title is not None:
-        fig.suptitle(title, fontsize=16)
-    anim.save(save_fn)
-    print(f"saved animation to {save_fn}")
-    plt.close(fig)
+    def mass_update(frame_i):
+        nonlocal figs, fig
+        for ag in anim_graphs:
+            ag.update(frame_i)
+        figs.append(fig_to_array(fig))
+
+    anim = animation.FuncAnimation(fig, mass_update, frames=obs_len + pred_len, interval=500)
+    # save animation
+    if save_fn is not None:
+        anim.save(save_fn)
+        print(f"saved animation to {save_fn}")
+        plt.close(fig)
+    else:
+        with tempfile.TemporaryDirectory() as output_dir:
+            anim.save(f"{output_dir}/temp.gif")
+    return figs
+
+
+def fig_to_array(fig):
+    fig.canvas.draw()
+    fig_image = np.array(fig.canvas.renderer._renderer)
+
+    return fig_image
 
 
 def plot_traj_anim(**kwargs):
     AnimObj().plot_traj_anim(**kwargs)
 
 
-def plot_traj_img(obs_traj, save_fn=None, attn_ped_i=None, pred_traj=None, ped_radius=0.1, pred_traj_gt=None,
+def plot_traj_img(obs_traj, save_fn=None, attn_ped_i=None, pred_traj=None, ped_radius=0.1, traj_gt=None,
                   pred_traj_fake=None, bounds=None, plot_collisions=False,
                   collision_mats=None, plot_velocity_arrows=False, ax=None, agent_outline_colors=None,
                   agent_texts=None, small_arrows=False, cross_attn=None, self_attn=None):
@@ -106,8 +124,8 @@ def plot_traj_img(obs_traj, save_fn=None, attn_ped_i=None, pred_traj=None, ped_r
             all_traj = obs_traj.reshape(-1, 2)
             if pred_traj is not None:
                 all_traj = np.concatenate([all_traj, pred_traj.reshape(-1, 2)])
-            if pred_traj_gt is not None:
-                all_traj = np.concatenate([all_traj, pred_traj_gt.reshape(-1, 2)])
+            if traj_gt is not None:
+                all_traj = np.concatenate([all_traj, traj_gt.reshape(-1, 2)])
             if pred_traj_fake is not None:
                 all_traj = np.concatenate([all_traj, pred_traj_fake.reshape(-1, 2)])
             x_low, x_high = np.min(all_traj[:, 0]) - ped_radius, np.max(all_traj[:, 0]) + ped_radius
@@ -187,16 +205,16 @@ def plot_traj_img(obs_traj, save_fn=None, attn_ped_i=None, pred_traj=None, ped_r
             cbaxes_pred.set_ylabel("attention to future")
             fig.colorbar(pred_sm, cax=cbaxes_pred, orientation='horizontal')
 
-        if pred_traj_gt is not None:
+        if traj_gt is not None:
             # plot future lines
             for ped_i in range(num_peds):
                 pred_color = 'r'
-                stuffs = np.concatenate([obs_traj[-1:], pred_traj_gt])
+                stuffs = np.concatenate([obs_traj[-1:], traj_gt])
                 ax.add_artist(mlines.Line2D(*stuffs[:, ped_i].T, color=pred_color, marker='.', linestyle='-',
                                             linewidth=1, zorder=-1))
-                for t in range(pred_traj_gt.shape[0]):
+                for t in range(traj_gt.shape[0]):
                     color = 'r'
-                    ax.add_artist(plt.Circle(pred_traj_gt[t, ped_i], ped_radius, fill=True, facecolor=color, zorder=-2))
+                    ax.add_artist(plt.Circle(traj_gt[t, ped_i], ped_radius, fill=True, facecolor=color, zorder=-2))
 
         # OTHER RANDO STUFF
         if agent_texts is not None:
@@ -595,7 +613,6 @@ class AnimObj:
 
             if obs_len <= frame_i < obs_len + pred_len:
                 # if frame_i == 12 or frame_i == 11:
-                #     import ipdb; ipdb.set_trace()
                 if pred_traj_gt is not None:
                     # traj_gt = np.concatenate([obs_traj, pred_traj_gt])
                     assert len(circles_gt) == len(lines_pred_gt) == len(ped_texts), f'{len(circles_gt)}, {len(lines_pred_gt)}, {len(ped_texts)} should all be equal'

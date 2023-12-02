@@ -10,8 +10,9 @@ import numpy as np
 
 from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
+from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
-from .ethucy_split import get_ethucy_split, get_ethucy_split_dagger
+from .ethucy_split import get_ethucy_split
 
 
 class AgentFormerDataset(Dataset):
@@ -20,8 +21,6 @@ class AgentFormerDataset(Dataset):
     def __init__(self, parser, split='train', phase='training', trial_ds_size=None, randomize_trial_data=None,
                  frames_list=None, start_frame=None):
         self.past_frames = parser.past_frames
-        self.dagger = parser.get('dagger', False)
-        self.dagger_data = parser.get('dagger_data', None)
         self.min_past_frames = parser.min_past_frames
         self.frame_skip = parser.get('frame_skip', 1)
         self.phase = phase
@@ -46,11 +45,6 @@ class AgentFormerDataset(Dataset):
             data_root = parser.data_root_nuscenes_pred
             seq_train, seq_val, seq_test = get_nuscenes_pred_split(data_root)
             self.init_frame = 0
-        elif self.dagger:
-            data_root = parser.data_root_ethucy
-            seq_train, seq_val, seq_test = get_ethucy_split_dagger(parser.dataset, self.dagger_data)
-            print("len(seq_test):", len(seq_test))
-            self.init_frame = 0
         elif parser.dataset in {'eth', 'hotel', 'univ', 'zara1', 'zara2'}:
             data_root = parser.data_root_ethucy
             seq_train, seq_val, seq_test = get_ethucy_split(parser.dataset)
@@ -58,10 +52,22 @@ class AgentFormerDataset(Dataset):
         elif parser.dataset == 'trajnet_sdd':
             data_root = parser.data_root_trajnet_sdd
             seq_train, seq_val, seq_test = get_stanford_drone_split()
+        elif parser.dataset == 'pedx':
+            data_root = parser.data_root_pedx
+            # use capture date as sequences
+            seq_train, seq_val, seq_test = ['20171130T2000_2', '20171130T2000_3', '20171207T2024'], ['20171130T2000_0'], ['20171130T2000_1']
         else:
             raise ValueError('Unknown dataset!')
 
-        process_func = SDDPreprocess if 'sdd' in parser.dataset else preprocess
+        if 'sdd' in parser.dataset:
+            process_func = SDDPreprocess
+        elif parser.dataset in {'eth', 'hotel', 'univ', 'zara1', 'zara2'}:
+            process_func = preprocess
+        elif parser.dataset == 'nuscenes_pred':
+            process_func = preprocess
+        else:
+            assert parser.dataset == 'pedx'
+            process_func = PedXPreprocess
         self.data_root = data_root
 
         print("\n-------------------------- loading %s data --------------------------" % split)
@@ -90,10 +96,6 @@ class AgentFormerDataset(Dataset):
 
         print(f'total num samples: {num_total_samples}')
 
-        # test each frame to make sure it's valid
-        # if self.is_test_mode:
-        #     self.sample_list = self.sequence
-        # else:
         datas = []
         for idx in list(range(num_total_samples)):
             seq_index, frame = self.get_seq_and_frame(idx)
@@ -119,8 +121,6 @@ class AgentFormerDataset(Dataset):
                 except FileNotFoundError:
                     print(f"mask file not found: {mask_path}")
             num_agents = len(data['pre_motion_3D'])
-            # if 'hotel' in data['seq']:
-            #     continue
             if num_agents > self.data_max_agents:
                 continue
             if num_agents < self.data_min_agents:
@@ -165,11 +165,7 @@ class AgentFormerDataset(Dataset):
             Returns:
                 output: Necessary values for scenario
         """
-        # if not self.is_test_mode:
         return self.sample_list[idx]
-        # seq_index, frame = self.get_seq_and_frame(idx)
-        # seq = self.sequence[seq_index]
-        # return seq(frame)
 
     @staticmethod
     def collate(batch):

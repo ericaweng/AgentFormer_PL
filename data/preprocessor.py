@@ -1,6 +1,5 @@
 import torch, os, numpy as np, copy
 import cv2
-import glob
 from .map import GeometricMap
 
 
@@ -26,9 +25,7 @@ class preprocess(object):
         if parser.dataset == 'nuscenes_pred':
             label_path = os.path.join(data_root, 'label/{}/{}.txt'.format(split, seq_name))
             delimiter = ' '
-        elif parser.dataset in {'eth', 'hotel', 'univ', 'zara1', 'zara2'} or 'dagger' in parser.dataset:
-            if 'dagger' in parser.dataset:
-                parser.dataset = parser.dataset.split('-')[0]
+        elif parser.dataset in {'eth', 'hotel', 'univ', 'zara1', 'zara2'}:
             label_path = f'{data_root}/{parser.dataset}/{seq_name}.txt'
             delimiter = ' '
         else:
@@ -63,6 +60,7 @@ class preprocess(object):
         return self.num_fr
 
     def PreData(self, frame):
+        """history is backwards"""
         DataList = []
         for i in range(self.past_frames):
             if frame - i < self.init_frame:              
@@ -79,18 +77,18 @@ class preprocess(object):
         return DataList
 
     def get_valid_id(self, pre_data, fut_data):
-        cur_id = self.GetID(pre_data[0])
+        cur_ped_id = self.GetID(pre_data[0])  # ped_ids this frame
         valid_id = []
-        for idx in cur_id:
-            exist_pre = [(False if isinstance(data, list) else (idx in data[:, 1])) for data in pre_data[:self.min_past_frames]]
-            exist_fut = [(False if isinstance(data, list) else (idx in data[:, 1])) for data in fut_data[:self.min_future_frames]]
+        for idx in cur_ped_id:
+            exist_pre = [(False if isinstance(frame, list) else (idx in frame[:, 1])) for frame in pre_data[:self.min_past_frames]]
+            exist_fut = [(False if isinstance(frame, list) else (idx in frame[:, 1])) for frame in fut_data[:self.min_future_frames]]
             if np.all(exist_pre) and np.all(exist_fut):
                 valid_id.append(idx)
         return valid_id
 
     def get_pred_mask(self, cur_data, valid_id):
         pred_mask = np.zeros(len(valid_id), dtype=np.int)
-        for i, idx in enumerate(valid_id):
+        for i, idx in enumerate(valid_id):  # for each valid ped, get the data of the last frame
             pred_mask[i] = cur_data[cur_data[:, 1] == idx].squeeze()[-1]
         return pred_mask
 

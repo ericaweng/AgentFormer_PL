@@ -1,5 +1,4 @@
 import glob
-import numpy as np
 
 from utils.utils import mkdir_if_missing
 from eval import *

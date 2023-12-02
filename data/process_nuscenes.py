@@ -117,6 +117,7 @@ if __name__ == "__main__":
                         category = annotation['category_name']
                         instance = annotation['instance_token']
                         cur_data = instance + '_' + annotation['sample_token']
+                        print(f"cur_data: {cur_data}")
                         if cur_data not in scene_data:
                             continue
                         instances_in_frame.append(instance)
@@ -132,6 +133,8 @@ if __name__ == "__main__":
                         data[15] = annotation['translation'][1]
                         data[16] = Quaternion(annotation['rotation']).yaw_pitch_roll[0]
                         data[17] = 1 if cur_data in scene_data_orig_set else 0
+                        print(f"scene_data_orig_set: {scene_data_orig_set}")
+                        import ipdb; ipdb.set_trace()
                         data = data.astype(str)
                         if 'car' in category:
                             data[2] = 'Car'
