@@ -169,29 +169,30 @@ class preprocess(object):
             pred_mask = None
             heading = None
 
-        pre_motion_3D, pre_motion_mask = self.PreMotion(pre_data, valid_id)
-        fut_motion_3D, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
+        pre_motion, pre_motion_mask = self.PreMotion(pre_data, valid_id)  # reverses history
+        fut_motion, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
 
         data = {
-            'pre_motion_3D': pre_motion_3D,
-            'fut_motion_3D': fut_motion_3D,
+            'pre_motion': pre_motion,
+            'fut_motion': fut_motion,
             'fut_motion_mask': fut_motion_mask,
             'pre_motion_mask': pre_motion_mask,
             'pre_data': pre_data,
             'fut_data': fut_data,
-            'heading': heading,
+            'heading': heading,  # only the heading for the last obs timestep
             'valid_id': valid_id,
             'traj_scale': self.traj_scale,
             'pred_mask': pred_mask,
             'scene_map': self.geom_scene_map,
+            'scene_vis_map': self.scene_vis_map,
             'seq': self.seq_name,
             'frame_scale': 10,
             'frame': frame,
         }
-        # print("pre_motion_3D.shape:", pre_motion_3D[0].shape)
-        # print("len(pre_motion_3D):", len(pre_motion_3D))
-        # print("fut_motion_3D.shape:", fut_motion_3D[0].shape)
-        # print("len(fut_motion_3D):", len(fut_motion_3D))
+        # print("pre_motion.shape:", pre_motion[0].shape)
+        # print("len(pre_motion):", len(pre_motion))
+        # print("fut_motion.shape:", fut_motion[0].shape)
+        # print("len(fut_motion):", len(fut_motion))
         # print("fut_motion_mask.shape:", fut_motion_mask[0].shape)
         # print("len(fut_motion_mask):", len(fut_motion_mask))
         # print("pre_motion_mask.shape:", pre_motion_mask[0].shape)

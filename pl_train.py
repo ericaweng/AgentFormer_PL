@@ -6,7 +6,7 @@ from functools import partial
 import wandb
 import torch
 torch.set_default_dtype(torch.float32)
-torch.set_float32_matmul_precision('medium')
+# torch.set_float32_matmul_precision('medium')
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
@@ -20,15 +20,7 @@ from trainer import AgentFormerTrainer
 
 def main(args):
     # initialize AgentFormer config from wandb sweep config or from full config filename
-    if args.wandb_sweep:
-        run = wandb.init()
-        run.name = full_config_name = f'{args.cfg}_w-{wandb.config.weight:0.1f}_b-{wandb.config.b:0.2f}'
-        # run.name = full_config_name = f'{args.cfg}_w-{wandb.config.weight:0.1f}_s-{wandb.config.sigma_d:0.2f}'
-        cfg = Config(full_config_name)
-        wandb.config.update(args)
-        wandb.config.update(cfg)
-    else:
-        cfg = Config(args.cfg)
+    cfg = Config(args.cfg)
 
     # Set global random seed
     pl.seed_everything(cfg.seed)
@@ -44,14 +36,14 @@ def main(args):
 
     if args.no_gpu:
         accelerator = None
-        plugin = None
+        plugin = 'ddp'
     else:
         if not in_ipdb and not args.mode == 'test':
             plugin = DDPStrategy(find_unused_parameters=args.find_unused_params)
             args.devices = torch.cuda.device_count()
             accelerator = 'gpu'
         else:
-            plugin = None
+            plugin = None#'ddp_notebook'
             args.devices = 1
             accelerator = 'gpu'
 
@@ -68,11 +60,13 @@ def main(args):
     # load checkpoint model
     default_root_dir = args.default_root_dir = os.path.join(args.logs_root, cfg.id)
     if args.mode == 'train':
-        # specify checkpoint to resume
+        # specify checkpoint to resume for dlow
         resume_cfg = cfg.get('resume_cfg', None)
         if resume_cfg is not None:
             models = sorted(glob.glob(os.path.join(args.logs_root, resume_cfg, '*epoch=*.ckpt')))
             print("tuning via resuming from best checkpoint of other model")
+        elif args.checkpoint_str is not None:
+            models = sorted(glob.glob(os.path.join(default_root_dir, f'*{args.checkpoint_str}*.ckpt')))
         else:  # resume from last checkpoint
             models = sorted(glob.glob(os.path.join(default_root_dir, 'last-v*.ckpt')))
             if len(models) == 0:
@@ -91,12 +85,16 @@ def main(args):
     if args.checkpoint_path is not None and args.resume:
         resume_from_checkpoint = args.checkpoint_path
         print("LOADING from custom checkpoint:", resume_from_checkpoint)
+        print("LOADING from default model directory:", resume_from_checkpoint)
+        args.current_epoch_model = resume_from_checkpoint.split('.ckpt')[0].split('epoch=')[-1]
     elif len(models) > 0 and os.path.isfile(models[-1]) and args.resume:
         resume_from_checkpoint = models[-1]
         print("LOADING from default model directory:", resume_from_checkpoint)
+        args.current_epoch_model = resume_from_checkpoint.split('.ckpt')[0].split('epoch=')[-1]
     else:
         resume_from_checkpoint = None
         print("STARTING new run from scratch")
+        args.current_epoch_model = None
 
     # initialize DataModule and Trainer
     dm = AgentFormerDataModule(cfg, args)
@@ -106,13 +104,13 @@ def main(args):
     model.model.set_device(model.device)
 
     # initialize logging and checkpointing and other training utils
-    if args.mode == 'train' and (not args.trial or args.log_on_trial):
-        logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
-        if args.wandb_sweep:
-            wandb_logger = WandbLogger(save_dir=args.logs_root, log_model=True, name=run.name)
-            logger = [logger, wandb_logger]
-    else:
-        logger = None
+    # if args.mode == 'train' and (not args.trial or args.log_on_trial):
+    logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
+    if args.wandb_sweep:
+        wandb_logger = WandbLogger(save_dir=args.logs_root, log_model=True, name=run.name)
+        logger = [logger, wandb_logger]
+    # else:
+    #     logger = None
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_joint')
     checkpoint_callback = ModelCheckpoint(monitor='val/ADE_joint', mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
@@ -135,8 +133,7 @@ def main(args):
 
     if 'train' in args.mode:
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
-        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir)
-        args.save_traj = True
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=logger)
         args.save_viz = True
         model.update_args(args)
         trainer.test(model, datamodule=dm)
@@ -148,7 +145,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', default='eth_agentformer_sfm_pre8-2')
+    parser.add_argument('cfg')
     parser.add_argument('--mode', '-m', default='train')
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_workers', type=int, default=24)
@@ -169,7 +166,7 @@ if __name__ == '__main__':
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
     parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
     parser.add_argument('--val_every', '-ve', type=int, default=5)
-    parser.add_argument('--trial_ds_size', '-dz', default=10, type=int, help='max size of dataset to load when using the --trial flag')
+    parser.add_argument('--trial_ds_size', '-dz', default=10, type=int, help='max number of scenesj to load when using the --trial flag')
     parser.add_argument('--randomize_trial_data', '-rtd', action='store_true', default=False)
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')

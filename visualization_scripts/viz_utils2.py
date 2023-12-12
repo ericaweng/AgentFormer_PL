@@ -9,7 +9,7 @@ from matplotlib.cm import ScalarMappable as sm
 import matplotlib.patches as patches
 
 
-def plot_anim_grid(save_fn=None, title=None, plot_size=None, AO=None, list_of_arg_dicts=None):
+def plot_anim_grid(save_fn=None, title=None, plot_size=None, list_of_arg_dicts=None):
     """
     AO: the animation object to use. different AOs plot different things, and take different arguments.
         also, AO can be a list of different Animatin objects to use.
@@ -41,15 +41,18 @@ def plot_anim_grid(save_fn=None, title=None, plot_size=None, AO=None, list_of_ar
         axes = [a for ax in axes for a in ax]
 
     # observation steps and prediction steps
-    obs_len = 8
-    pred_len = 12
+    obs_len = list_of_arg_dicts[0]['obs_traj'].shape[0]
+    pred_len = list_of_arg_dicts[0]['pred_traj'].shape[0]
 
     # set global plotting bounds (same for each sample)
     bounds = []
     for graph in list_of_arg_dicts:
         for key, val in graph.items():
             if 'traj' in key:
-                bounds.append(np.array(val).reshape(-1, 2))
+                if len(bounds) > 0:
+                    assert val.shape[-1] == bounds[-1].shape[-1], \
+                        f"all trajectories must have same number of dimensions ({val.shape[-1]} != {bounds[-1].shape[-1]})"
+                bounds.append(np.array(val).reshape(-1, val.shape[-1]))
     bounds = np.concatenate(bounds)
     bounds = [*(np.min(bounds, axis=0) - 0.2), *(np.max(bounds, axis=0) + 0.2)]
 
@@ -57,10 +60,7 @@ def plot_anim_grid(save_fn=None, title=None, plot_size=None, AO=None, list_of_ar
     anim_graphs = []
     figs = []
     for ax_i, (arg_dict, ax) in enumerate(zip(list_of_arg_dicts, axes)):
-        if isinstance(AO, list):
-            ao = AO[ax_i]()
-        else:
-            ao = AO()
+        ao = AnimObj()
         anim_graphs.append(ao)
         ao.plot_traj_anim(**arg_dict, ax=ax, bounds=bounds)
 
@@ -95,7 +95,7 @@ class AnimObj:
 
     def plot_traj_anim(self, obs_traj=None, save_fn=None, ped_radius=0.2, ped_discomfort_dist=0.2, gt_traj=None,
                        pred_traj=None, ped_num_label_on='gt', show_ped_pos=False, bkg_img_path=None,
-                       bounds=None, int_cat_abbv=None, scene_stats=None, cfg_names=None,
+                       bounds=None, int_cat_abbv=None, scene_stats=None, cfg_names=None, last_heading=None,
                        collision_mats=None, cmap_name='tab10', extend_last_frame=3, show_ped_stats=False,
                        text_time=None, text_fixed=None, grid_values=None, plot_collisions_all=False, plot_title=None,
                        ax=None, update=None, pred_alpha=None):
@@ -261,6 +261,7 @@ class AnimObj:
         # plot circles to represent peds
         legend_lines = []
         legend_labels = []
+        last_heading_arrows = []
 
         for ped_i in range(num_peds):
             color_real = cmap_real(ped_i % num_peds)
@@ -272,6 +273,20 @@ class AnimObj:
                 line_obs_gt = mlines.Line2D(*obs_traj[0:1].T, color=color_real, marker=None, linestyle='-', linewidth=10,
                                             alpha=obs_alpha, zorder=0)
                 lines_obs_gt.append(ax.add_artist(line_obs_gt))
+
+                # Plot body heading direction
+                if last_heading is not None:
+                    last_obs_circles.append(ax.add_artist(plt.Circle(obs_traj[-1, ped_i], ped_radius, fill=True,
+                                                                     alpha=0.3, color=color_real, zorder=10,
+                                                                     visible=False)))
+                    last_heading_arrows.append(ax.arrow(*obs_traj[-1, ped_i], *last_heading[0], head_width=0.05,
+                                                        head_length=0.1, fc='r', ec='r', visible=False, zorder=15))
+
+                # # Plot head heading direction (different color)
+                # # Replace head_heading with your actual head heading data
+                # head_heading = head_headings[sorted_frame_ids[frame_id]][ped_id][0]
+                # ax.arrow(pos[0], pos[1], head_heading[0], head_heading[1], head_width=0.05, head_length=0.1, fc='g',
+                #          ec='g')
 
             if gt_traj is not None:
                 if obs_traj is None:
@@ -407,6 +422,14 @@ class AnimObj:
                 # move the pedestrian texts (ped number and relation)
                 for ped_text, circle in zip(ped_texts, circles_gt):  # circles_to_plot_ped_num):
                     ped_text.set_position((circle.center[0] + text_offset_x, circle.center[1] - text_offset_y))
+
+                # set last heading vector and obs circles
+                if frame_i == obs_len - 1:
+                    if last_heading is not None:
+                        for last_heading_arrow in last_heading_arrows:
+                            last_heading_arrow.set_visible(True)
+                    for last_obs_circ in last_obs_circles:
+                        last_obs_circ.set_visible(True)
 
             elif frame_i == obs_len:
                 [circle_fake.set_visible(True) for cf in circles_fake for cf_inner in cf for circle_fake in cf_inner]

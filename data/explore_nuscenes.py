@@ -11,10 +11,11 @@ import numpy as np
 import cv2
 import argparse
 
-
 NUM_IN_TRAIN_VAL = 200
 past_frames = 4
 future_frames = 12
+
+
 # past_frames = 0
 # future_frames = 0
 
@@ -28,7 +29,7 @@ def get_prediction_challenge_split(split: str, dataroot: str) -> List[str]:
     """
     if split not in {'mini_train', 'mini_val', 'train', 'train_val', 'val'}:
         raise ValueError("split must be one of (mini_train, mini_val, train, train_val, val)")
-    
+
     if split == 'train_val':
         split_name = 'train'
     else:
@@ -38,7 +39,7 @@ def get_prediction_challenge_split(split: str, dataroot: str) -> List[str]:
     prediction_scenes = json.load(open(path_to_file, "r"))
     scenes = create_splits_scenes()
     scenes_for_split = scenes[split_name]
-    
+
     if split == 'train':
         scenes_for_split = scenes_for_split[NUM_IN_TRAIN_VAL:]
     if split == 'train_val':
@@ -59,7 +60,7 @@ if __name__ == "__main__":
     DATAROOT = args.data_root
     DATAOUT = args.data_out
 
-    nuscenes = NuScenes('v1.0-trainval', dataroot=DATAROOT)
+    nuscenes = NuScenes('v1.0-mini', dataroot=DATAROOT)
     map_version = '0.1'
     splits = ['train', 'val', 'test']
 
@@ -119,6 +120,7 @@ if __name__ == "__main__":
                         category = annotation['category_name']
                         instance = annotation['instance_token']
                         cur_data = instance + '_' + annotation['sample_token']
+                        # print(f"cur_data: {cur_data}")
                         if cur_data not in scene_data:
                             continue
                         instances_in_frame.append(instance)
@@ -158,7 +160,7 @@ if __name__ == "__main__":
                     sample = nuscenes.get('sample', sample['next'])
                 else:
                     break
-                
+
             cvt_data = np.stack(cvt_data)
 
             # Generate Maps
@@ -177,20 +179,22 @@ if __name__ == "__main__":
             patch_angle = 0
             canvas_size = (np.round(scale * y_size).astype(int), np.round(scale * x_size).astype(int))
             homography = np.array([[scale, 0., 0.], [0., scale, 0.], [0., 0., scale]])
-            layer_names = ['lane', 'road_segment', 'drivable_area', 'road_divider', 'lane_divider', 'stop_line', 'ped_crossing', 'walkway']
+            layer_names = ['lane', 'road_segment', 'drivable_area', 'road_divider', 'lane_divider', 'stop_line',
+                           'ped_crossing', 'walkway']
             colors = {
-                'rest': [255, 240, 243],
-                'lane': [206, 229, 223],
-                'road_segment': [206, 229, 223],
-                'drivable_area': [206, 229, 223],
-                'ped_crossing': [226, 228, 234],
-                'walkway': [169, 209, 232],
-                'road_divider': [255, 251, 242],
-                'lane_divider': [100, 100, 100],
-                'stop_line': [0, 255, 255],
+                    'rest': [255, 240, 243],
+                    'lane': [206, 229, 223],
+                    'road_segment': [206, 229, 223],
+                    'drivable_area': [206, 229, 223],
+                    'ped_crossing': [226, 228, 234],
+                    'walkway': [169, 209, 232],
+                    'road_divider': [255, 251, 242],
+                    'lane_divider': [100, 100, 100],
+                    'stop_line': [0, 255, 255],
             }
 
-            map_mask = (nusc_map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size) * 255.0).astype(np.uint8)
+            map_mask = (nusc_map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size) * 255.0).astype(
+                np.uint8)
             map_mask = np.swapaxes(map_mask, 1, 2)  # x axis comes first
             map_mask_vehicle = np.stack((np.max(map_mask[:3], axis=0), map_mask[3], map_mask[4]), axis=0)
 
@@ -212,5 +216,5 @@ if __name__ == "__main__":
             #
             # np.savetxt(f'{DATAOUT}/label/{split}/{scene_name}.txt', cvt_data, fmt='%s')
             # print(f'{scene_name} finished! map_shape {map_mask_plot.shape}')
-        
+
         print(f'{split}_len: {len(split_data)} total_pred: {total_pred}')

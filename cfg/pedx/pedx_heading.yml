@@ -30,7 +30,7 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel']
+input_type: ['scene_norm', 'vel', 'heading']
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 19
@@ -57,7 +57,7 @@ learn_prior                  : true
 
 # ------------------- Training Parameters -------------------------
 
-lr                           : 1.e-4
+lr                           : 5.e-5
 loss_cfg:
   mse:
     weight: 1.0

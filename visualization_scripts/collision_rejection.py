@@ -16,7 +16,7 @@ def run_model_w_col_rej(data, model, traj_scale, sample_k, collision_rad, device
         pred_motion, gt_motion, num_samples_w_col = col_rej(data, model, traj_scale, sample_k, collision_rad, device)
     else:
         raise NotImplementedError
-    obs_motion = traj_scale * torch.stack(data[f'pre_motion_3D'], dim=1).cpu()
+    obs_motion = traj_scale * torch.stack(data[f'pre_motion'], dim=1).cpu()
     return {'frame': data['frame'], 'seq': data['seq'], 'gt_motion': gt_motion,
             'pred_motion': pred_motion, 'obs_motion': obs_motion, "num_samples_w_col": num_samples_w_col}
 
@@ -29,7 +29,7 @@ def col_rej_one_run_only(data, model, traj_scale, sample_k, collision_rad, devic
         sample_motion_3D = model.inference(mode='infer', sample_num=None,
                                            need_weights=False)[0].transpose(0, 1).contiguous()
     sample_motion_3D *= traj_scale
-    gt_motion_3D = (torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale).cpu()
+    gt_motion_3D = (torch.stack(data['fut_motion'], dim=0).to(device) * traj_scale).cpu()
 
     # compute number of colliding samples
     pred_arr = sample_motion_3D.cpu().numpy()
@@ -72,7 +72,7 @@ def per_sample_col_rej(data, model, traj_scale, sample_k, collision_rad, device)
     all_non_collide_idx = set()
     while num_samples_wo_col < model.nk:
         if num_tries * NUM_SAMPLES_PER_FORWARD >= MAX_NUM_SAMPLES:
-            print(f"frame {data['frame']} with {len(data['pre_motion_3D'])} peds: "
+            print(f"frame {data['frame']} with {len(data['pre_motion'])} peds: "
                   f"collected {num_tries * NUM_SAMPLES_PER_FORWARD} samples, only {num_samples_wo_col} non-colliding. \n")
             collision_info = num_peds, model.nk - num_samples_wo_col
             samples_to_return = sample_motion_3D_prev
@@ -116,7 +116,7 @@ def per_sample_col_rej(data, model, traj_scale, sample_k, collision_rad, device)
         # update set of non-colliding samples with the just-collected non-colliding samples
         all_non_collide_idx = all_non_collide_idx.union(set(indices_wo_cols))
 
-    gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
+    gt_motion_3D = torch.stack(data['fut_motion'], dim=0).to(device) * traj_scale
     samples_to_return = samples_to_return.transpose(0, 1)
     return samples_to_return.cpu(), gt_motion_3D.cpu(), collision_info
 
@@ -160,7 +160,7 @@ def col_rej(data, model, traj_scale, sample_k, collision_rad, device):
             num_zeros += 1
             if num_tries * NUM_SAMPLES_PER_FORWARD >= MAX_NUM_SAMPLES:
                 # if num_zeros > MAX_NUM_ZEROS or num_tries > MAX_NUM_TRIES:
-                print(f"frame {data['frame']} with {len(data['pre_motion_3D'])} peds: "
+                print(f"frame {data['frame']} with {len(data['pre_motion'])} peds: "
                   f"collected {num_tries * NUM_SAMPLES_PER_FORWARD} samples, only {samples_to_return.shape[0]} non-colliding. \n")
                 collision_info = num_peds, sample_k - samples_to_return.shape[0]
                 samples_to_return = torch.cat([samples_to_return, sample_motion_3D])[:sample_k]  # append some colliding samples to the end
@@ -169,7 +169,7 @@ def col_rej(data, model, traj_scale, sample_k, collision_rad, device):
         # append new non-colliding samples to list
         # at_least_1_col = np.any([np.any([np.any(ped) for ped in sample]) for sample in mask])
         # if at_least_1_col:
-        #     print(f"Seq {data['seq']} frame {data['frame']} with {len(data['pre_motion_3D'])} peds has {maskk.shape[0]} non-colliding samples in 50 samples")
+        #     print(f"Seq {data['seq']} frame {data['frame']} with {len(data['pre_motion'])} peds has {maskk.shape[0]} non-colliding samples in 50 samples")
         non_collide_idx = torch.LongTensor(maskk)
         assert torch.max(non_collide_idx) < sample_motion_3D.shape[0]
         assert 0 <= torch.max(non_collide_idx)
@@ -179,6 +179,6 @@ def col_rej(data, model, traj_scale, sample_k, collision_rad, device):
     if samples_to_return.shape[0] == 0:  # should not get here
         print("should not get here")
         import ipdb; ipdb.set_trace()
-    gt_motion_3D = torch.stack(data['fut_motion_3D'], dim=0).to(device) * traj_scale
+    gt_motion_3D = torch.stack(data['fut_motion'], dim=0).to(device) * traj_scale
     samples_to_return = samples_to_return.transpose(0, 1)
     return samples_to_return.cpu(), gt_motion_3D.cpu(), collision_info

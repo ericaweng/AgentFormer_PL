@@ -2,28 +2,26 @@
 
 description                  : AgentFormer (Before DLow)
 results_root_dir             : results
-seed                         : 1
-dataset                      : pedx
-data_root_h36m               : datasets/h36m
-data_root_pedx               : datasets/pedx
+seed                         : 10
+dataset                      : nuscenes_pred
 data_root_ethucy             : datasets/eth_ucy
 data_root_nuscenes_pred      : datasets/nuscenes_pred
-vis_freq                     : 1
+load_map                     : true
+map_version                  : 0.1
 
 # ------------------- Feature Extractor -------------------------
 
-past_frames                  : 8
+past_frames                  : 4
 future_frames                : 12
-min_past_frames              : 8  # for fps=6, 8 frames = 1.3 sec
-min_future_frames            : 12  # for fps=6, 12 frames = 2 sec
+min_past_frames              : 2
+min_future_frames            : 12
 
-traj_scale                   : 1
+traj_scale                   : 10
 motion_dim                   : 2
 forecast_dim                 : 2
 
 # ------------------- Model -------------------------
 
-#joints_mask:
 model_id: agentformer
 tf_version: v2
 tf_model_dim: 256
@@ -31,12 +29,13 @@ tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
 input_type: ['scene_norm', 'vel']
+fut_input_type: ['scene_norm', 'vel']
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
-max_train_agent: 19
 pos_concat: true
-rand_rot_scene: false
-scene_orig_all_past: true
+rand_rot_scene: true
+
+use_map: false
 
 context_encoder:
   nlayer: 2
@@ -47,7 +46,6 @@ future_decoder:
 
 future_encoder:
   nlayer: 2
-  out_mlp_dim: [512, 256]
 
 # ------------------- VAE-------------------------
 
@@ -68,7 +66,6 @@ loss_cfg:
     weight: 1.0
     k: 5
 
-batch_size                   : 1
 num_epochs                   : 100
 lr_fix_epochs                : 10
 lr_scheduler: 'step'

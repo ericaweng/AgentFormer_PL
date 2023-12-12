@@ -22,11 +22,16 @@ class PedXPreprocess(object):
         self.split = split
         self.phase = phase
 
-        self.data_file = os.path.join(data_root, 'pedx_joint_pos.npz')
-        self.splits_file = os.path.join(data_root, 'pedx_joint_pos_splits.npz')
+        self.data_file = os.path.join(data_root, 'pedx_joint_pos2.npz')
         self.all_data = np.load(self.data_file, allow_pickle=True)[split].item()
         self.all_joints_data = self.all_data['joints'][capture_date]
         self.all_trajs_data = self.all_data['pos'][capture_date]
+        self.all_head_heading_data = self.all_data['head_heading'][capture_date]
+        self.all_body_heading_data = self.all_data['body_heading'][capture_date]
+
+        self.joints_mask = np.arange(24)#([0,1,2,3,4,5,6,7,8,9,10,11,12,16,18,19,20,26,27,28])-1  # 19 joints
+        # self.joints_mask = np.array(list(map(int, parser.joints_mask)))  # todo
+        self.num_joints = len(self.joints_mask)
         # check that frame_ids are equally-spaced
         frames = sorted(map(int, self.all_joints_data.keys()))
         frame_ids_diff = np.diff(frames)
@@ -41,8 +46,6 @@ class PedXPreprocess(object):
         assert num_fr == self.num_fr, f"num_fr ({num_fr}) must be equal to self.num_fr ({self.num_fr})"
 
         self.geom_scene_map = None
-        # self.gt =
-
         # self.gt = self.gt.astype('float32')
 
     def GetID(self, data):
@@ -59,7 +62,10 @@ class PedXPreprocess(object):
         for i in range(self.past_frames):
             data_joints = self.all_joints_data[str(frame - i * self.frame_skip).zfill(7)]
             data_pos = self.all_trajs_data[str(frame - i * self.frame_skip).zfill(7)]
-            DataList.append({'joints': data_joints, 'pos': data_pos})
+            data_body_heading = self.all_body_heading_data[str(frame - i * self.frame_skip).zfill(7)]
+            data_head_heading = self.all_head_heading_data[str(frame - i * self.frame_skip).zfill(7)]
+            DataList.append({'joints': data_joints, 'pos': data_pos,
+                             'head_heading': data_head_heading, 'body_heading': data_body_heading})
         return DataList
 
     def FutureData(self, frame):
@@ -88,54 +94,60 @@ class PedXPreprocess(object):
         return pred_mask
 
     def get_heading(self, cur_data, valid_id):
-        heading = np.zeros(len(valid_id))
-        for i, idx in enumerate(valid_id):
-            heading[i] = cur_data[cur_data[:, 1] == idx].squeeze()[16]
+        heading = np.zeros((len(valid_id), 2))
+        for i, ped_id in enumerate(valid_id):
+            heading[i] = cur_data['body_heading'][ped_id]
         return heading
 
     def PreMotion(self, history, valid_id):
         motion = []
         mask = []
-        # same difference
-        joints_motion = np.array([[single_frame['joints'][k].squeeze() for k in single_frame['joints']] for single_frame in history])
-        # import ipdb; ipdb.set_trace()
+        joints_motion = []
         for ped_id in valid_id:
             mask_i = torch.zeros(self.past_frames)
             box_3d = torch.zeros([self.past_frames, 2])
+            joints_3d = torch.zeros([self.past_frames, len(self.joints_mask), 3])
             for frame_i in range(self.past_frames):
                 single_frame = history[frame_i]
                 if len(single_frame['pos'][ped_id]) > 0 and ped_id in single_frame['pos']:
                     found_data = single_frame['pos'][ped_id] / self.past_traj_scale
                     box_3d[self.past_frames-1 - frame_i, :] = torch.from_numpy(found_data).float()
                     mask_i[self.past_frames-1 - frame_i] = 1.0
+                    joints_3d[self.past_frames-1 - frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
                 elif frame_i > 0:
                     box_3d[self.past_frames-1 - frame_i, :] = box_3d[self.past_frames - frame_i, :]    # if none, copy from previous
+                    joints_3d[self.past_frames-1 - frame_i, :, :] = joints_3d[self.past_frames - frame_i, :, :]
                 else:
                     raise ValueError('current id missing in the first frame!')
             motion.append(box_3d)
             mask.append(mask_i)
+            joints_motion.append(joints_3d)
         return motion, joints_motion, mask
 
     def FutureMotion(self, history, valid_id):
         motion = []
         mask = []
-        joints_motion = np.array([[single_frame['joints'][k].squeeze() for k in single_frame['joints']] for single_frame in history])
+        joints = []
         for ped_id in valid_id:
             mask_i = torch.zeros(self.future_frames)
             box_3d = torch.zeros([self.future_frames, 2])
+            joints_3d = torch.zeros([self.future_frames, len(self.joints_mask), 3])
             for frame_i in range(self.future_frames):
                 single_frame = history[frame_i]
                 if len(single_frame['pos'][ped_id]) > 0 and ped_id in single_frame['pos']:
                     found_data = single_frame['pos'][ped_id] / self.traj_scale
                     box_3d[frame_i, :] = torch.from_numpy(found_data).float()
                     mask_i[frame_i] = 1.0
-                elif frame_i > 0:
+                    joints_3d[frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
+                elif frame_i > 0:  # if the ped doesn't exist, then just copy previous frame? will it be masked out?
                     box_3d[frame_i, :] = box_3d[frame_i - 1, :]
+                    joints_3d[frame_i, :, :] = joints_3d[frame_i - 1, :, :]
                 else:
                     raise ValueError('current id missing in the first frame!')
             motion.append(box_3d)
             mask.append(mask_i)
-        return motion, joints_motion, mask
+            joints.append(joints_3d)
+        return motion, joints, mask
 
     def __call__(self, frame):
 
@@ -150,21 +162,21 @@ class PedXPreprocess(object):
 
         # if self.dataset == 'nuscenes_pred':
         # pred_mask = self.get_pred_mask(pre_data[0], valid_id)
-        # heading = self.get_heading(pre_data[0], valid_id)
+        heading = self.get_heading(pre_data[0], valid_id)
 
-        pre_motion_3D, pre_motion_joints, pre_motion_mask = self.PreMotion(pre_data, valid_id)
-        fut_motion_3D, fut_motion_joints, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
+        pre_motion, pre_motion_joints, pre_motion_mask = self.PreMotion(pre_data, valid_id)
+        fut_motion, fut_motion_joints, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
 
         data = {
-            'pre_motion_3D': pre_motion_3D,
-                'pre_motion_joints': pre_motion_joints,
-            'fut_motion_3D': fut_motion_3D,
-                'fut_motion_joints': fut_motion_joints,
+            'pre_motion': pre_motion,
+            'pre_joints': pre_motion_joints,
+            'fut_motion': fut_motion,
+            'fut_joints': fut_motion_joints,
             'fut_motion_mask': fut_motion_mask,
             'pre_motion_mask': pre_motion_mask,
             'pre_data': pre_data,
             'fut_data': fut_data,
-            'heading': None, #heading,
+            'heading': heading,
             'valid_id': valid_id,
             'traj_scale': self.traj_scale,
             'pred_mask': None, # pred_mask,
@@ -173,10 +185,10 @@ class PedXPreprocess(object):
             'frame_scale': 1,
             'frame': frame,
         }
-        # print("pre_motion_3D.shape:", pre_motion_3D[0].shape)
-        # print("len(pre_motion_3D):", len(pre_motion_3D))
-        # print("fut_motion_3D.shape:", fut_motion_3D[0].shape)
-        # print("len(fut_motion_3D):", len(fut_motion_3D))
+        # print("pre_motion.shape:", pre_motion[0].shape)
+        # print("len(pre_motion):", len(pre_motion))
+        # print("fut_motion.shape:", fut_motion[0].shape)
+        # print("len(fut_motion):", len(fut_motion))
         # print("fut_motion_mask.shape:", fut_motion_mask[0].shape)
         # print("len(fut_motion_mask):", len(fut_motion_mask))
         # print("pre_motion_mask.shape:", pre_motion_mask[0].shape)

@@ -121,7 +121,7 @@ class GeometricMap(Map):
         context_padding_x = int(np.ceil(np.sqrt(2) * long_size))
         context_padding_y = int(np.ceil(np.sqrt(2) * long_size))
 
-        centers = torch.tensor([s_map.to_map_points(scene_pts[np.newaxis, i]) for i, s_map in enumerate(maps)],
+        centers = torch.tensor(np.array([s_map.to_map_points(scene_pts[np.newaxis, i]) for i, s_map in enumerate(maps)]),
                                dtype=torch.long, device=device).squeeze(dim=1) \
                   + torch.tensor([context_padding_x, context_padding_y], device=device, dtype=torch.long)
 
@@ -191,9 +191,9 @@ class GeometricMap(Map):
         return map_points
 
 
-    def visualize_data(self, data):
-        pre_motion = np.stack(data['pre_motion_3D']) * data['traj_scale']
-        fut_motion = np.stack(data['fut_motion_3D']) * data['traj_scale']
+    def visualize_data(self, data, fname=None):
+        pre_motion = np.stack(data['pre_motion']) * data['traj_scale']
+        fut_motion = np.stack(data['fut_motion']) * data['traj_scale']
         heading = data['heading']
         img = np.transpose(self.data, (1, 2, 0))
         for i in range(pre_motion.shape[0]):
@@ -218,7 +218,8 @@ class GeometricMap(Map):
             vend = np.round(self.to_map_points(vend)).astype(int)
             img = cv2.line(img, (cur_pos[1], cur_pos[0]), (vend[1], vend[0]), (0, 255, 255), 2) 
 
-        fname = f'out/agent_maps/{data["seq"]}_{data["frame"]}_vis.png'
+        if fname is not None:
+            fname = f'result-new/viz/{data["seq"]}_{data["frame"]}_vis.png'
         os.makedirs(os.path.dirname(fname), exist_ok=True)
         cv2.imwrite(fname, img)
 

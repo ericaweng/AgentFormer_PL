@@ -15,7 +15,7 @@ from utils.torch import get_scheduler
 # from viz_utils import get_metrics_str, plot_anim_grid
 from viz_utils import get_metrics_str
 from visualization_scripts.viz_utils2 import plot_anim_grid
-from visualization_scripts.viz_utils_3d import AnimObjPose
+from visualization_scripts.viz_utils_3d import plot_anim_grid_3d
 from collision_rejection import run_model_w_col_rej
 
 
@@ -43,6 +43,7 @@ def format_agentformer_trajectories(trajectory, data, cfg, timesteps=12, frame_s
     if not future:
         trajectory = torch.flip(trajectory, [0, 1])
     for i, track_id in enumerate(data['valid_id']):
+        # don't print trajs that are not part of this scene
         if data['pred_mask'] is not None and data['pred_mask'][i] != 1.0:
             continue
         for j in range(timesteps):
@@ -53,8 +54,7 @@ def format_agentformer_trajectories(trajectory, data, cfg, timesteps=12, frame_s
             # Get data with the same track_id
             updated_data = curr_data[curr_data[:, 1] == track_id].squeeze()
             if cfg.dataset in [
-                    'eth', 'hotel', 'univ', 'zara1', 'zara2', 'gen',
-                    'real_gen', 'adversarial'
+                    'eth', 'hotel', 'univ', 'zara1', 'zara2'
             ]:
                 # [13, 15] correspoinds to the 2D position
                 updated_data[[13, 15]] = trajectory[i, j].cpu().numpy()
@@ -87,6 +87,7 @@ class AgentFormerTrainer(pl.LightningModule):
         self.model = model_dict[model_id](cfg)
         self.cfg = cfg
         self.args = args
+        self.current_epoch_model = args.current_epoch_model
         num_workers = int(multiprocessing.cpu_count() / (args.devices + 1e-5)) if args.devices is not None else float('inf')
         self.num_workers = min(args.num_workers, num_workers)
         self.batch_size = args.batch_size
@@ -100,7 +101,6 @@ class AgentFormerTrainer(pl.LightningModule):
         self.args = args
 
     def on_test_start(self):
-        self.start = time.time()
         self.model.set_device(self.device)
 
     def on_fit_start(self):
@@ -118,7 +118,8 @@ class AgentFormerTrainer(pl.LightningModule):
         for loss_name, loss in loss_dict.items():
             self.log(f'{mode}/{loss_name}', loss, on_step=False, on_epoch=True, sync_dist=True, logger=True, batch_size=self.batch_size)
 
-        gt_motion = self.cfg.traj_scale * data['fut_motion'].transpose(1, 0).cpu()
+        # make gt_motion and pred_motion both have peds first, for the sake of evaluation
+        gt_motion = self.cfg.traj_scale * data['fut_motion'].cpu().transpose(1, 0).cpu()
         pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
         obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()  # .transpose(1, 0).cpu()
         return {'loss': total_loss, **loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
@@ -138,9 +139,9 @@ class AgentFormerTrainer(pl.LightningModule):
         else:
             return_dict = run_model_w_col_rej(batch, self.model, self.cfg.traj_scale, self.cfg.sample_k,
                                               self.cfg.collision_rad, self.model.device)
-        pred_motion = return_dict['pred_motion']
-        gt_motion = return_dict['gt_motion']
-        obs_motion = return_dict['obs_motion']
+        pred_motion = return_dict['pred_motion']  # (num_peds, num_samples, pred_steps, 2)
+        gt_motion = return_dict['gt_motion']  # (pred_steps, num_peds, 2)
+        obs_motion = return_dict['obs_motion']  # (obs_steps, num_peds, 2)
 
         if self.args.save_traj:
             if self.dataset_name == 'trajnet_sdd':
@@ -161,10 +162,8 @@ class AgentFormerTrainer(pl.LightningModule):
 
         return return_dict
 
-    def _epoch_end(self, outputs, mode='test'):
-        # dt = time.time() - self.start
-        # print(f"Time taken for {mode} epoch: {dt:.2f} seconds")
 
+    def _epoch_end(self, outputs, mode='test'):
         args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]
 
         # calculate metrics for each sequence
@@ -184,14 +183,15 @@ class AgentFormerTrainer(pl.LightningModule):
         total_num_agents = np.sum(num_agent_per_seq)
         results_dict = {}
         for key, values in zip(stats_func.keys(), zip(*all_metrics)):
-            if '_joint' in key or 'CR' in key:  # sequence-based metric
-                value = np.mean(values)
-            else:  # agent-based metric
-                value = np.sum(values * num_agent_per_seq) / np.sum(num_agent_per_seq)
+            value = np.mean(values)
             results_dict[key] = value
+            if 'marginal' in key or key == "MR":
+                value = np.sum(values * num_agent_per_seq) / np.sum(num_agent_per_seq)
+                results_dict[f"{key}_agent"] = value
 
         # get stats related to collision_rejection sampling
         is_test_mode = mode == 'test'
+
         if not self.cfg.get('collisions_ok', True) and is_test_mode:
             tot_samples_w_col = np.sum([0 if output['num_samples_w_col'] is None
                                         else output['num_samples_w_col'][1] for output in outputs])
@@ -200,33 +200,22 @@ class AgentFormerTrainer(pl.LightningModule):
             results_dict['tot_frames_w_col'] = tot_frames_w_col
 
         # log and print results
-        test_results_filename = f'../trajectory_reward/results/trajectories/test_results/{self.args.cfg}.tsv'
+        test_results_filename = f'{self.args.logs_root}/test_results/{self.cfg.id}.tsv'
         mkdir_if_missing(test_results_filename)
 
         # save results to file
         if is_test_mode and self.args.save_test_results and not self.args.trial:
             with open(test_results_filename, 'w') as f:
-                with open(os.path.join(self.args.default_root_dir, f'test_results.tsv'), 'w') as g:
-                    f.write(f"epoch\t{self.current_epoch}\n")
-                    g.write(f"epoch\t{self.current_epoch}\n")
-                    metrics_to_print = {'ADE_marginal', 'FDE_marginal', 'CR_mean', 'ADE_joint', 'FDE_joint'}
-                    for key, value in results_dict.items():
-                        if key not in metrics_to_print:
-                            continue
-                        f.write(f"{key}\t{value:.4f}\n")
-                        g.write(f"{key}\t{value:.4f}\n")
-                    f.write(f"total_peds\t{total_num_agents}")
-                    g.write(f"total_peds\t{total_num_agents}")
+                f.write(f"{self.cfg.id}\n")
+                # f.write(f"epoch\t{self.current_epoch}\n")
+                f.write(f"epoch\t{self.current_epoch_model if self.current_epoch_model is not None else self.current_epoch}\n")
+                metrics_to_print = {'ADE_marginal', 'FDE_marginal', 'CR_mean', 'ADE_joint', 'FDE_joint'}
+                for key, value in results_dict.items():
+                    if key not in metrics_to_print:
+                        continue
+                    f.write(f"{value:.4f}\n")
+                f.write(f"total_peds\t{total_num_agents}")
             print(f"wrote test results to {test_results_filename}")
-
-        # save the frame numbers of the scenes with collisions, label with the number of samples with collisions
-        if not self.cfg.get('collisions_ok', True) and is_test_mode:
-            idxs_to_plot = [i for i, output in enumerate(outputs) if output['num_samples_w_col'] is not None]
-            # save the frame numbers of the scenes with collisions, label with the number of samples with collisions
-            frames = np.array([[outputs[i]['seq'], outputs[i]['frame'], *outputs[i]['num_samples_w_col']] for i in idxs_to_plot])
-            collision_failure_stats_filename = os.path.join(self.args.logs_root, 'test_results', f'colliding_frame_nums_{self.args.cfg}.tsv')
-            mkdir_if_missing(test_results_filename)
-            np.savetxt(collision_failure_stats_filename, frames, fmt='%s')
 
         # print results to console for easy copy-and-paste
         if is_test_mode:
@@ -237,57 +226,57 @@ class AgentFormerTrainer(pl.LightningModule):
 
         # log metrics to tensorboard
         for key, value in results_dict.items():
-            self.log(f'{mode}/{key}', value, sync_dist=True, prog_bar=True, logger=True)
+            self.log(f'{mode}/{key}', value, sync_dist=True, on_epoch=True, prog_bar=True, logger=True)
         self.log(f'{mode}/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
 
-        # plot visualizations if there are collisions; or if args.save_viz and in test_mode
-        if self.args.save_viz:
+        # plot visualizations
+        if self.args.save_viz:# and (not mode == 'train' or mode == 'train' and self.current_epoch % 10 == 0):
             num_test_samples = len(outputs)
             skip = max(1, int(num_test_samples / self.args.save_num))
-            all_figs = self._save_viz(outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip], collision_mats[::skip], mode)
+            if 'nuscenes' in self.cfg.id:
+                all_figs = self._save_viz_nuscenes(outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
+            elif np.any(['joint' in key for key in self.model.input_type]):
+                all_figs = self._save_viz_w_pose(outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
+            elif 'heading' in self.model.input_type:
+                all_figs = self._save_viz_w_heading(outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
+            else:
+                all_figs = self._save_viz(outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip], collision_mats[::skip], mode)
 
             # plot videos to tensorboard
             instance_is = np.arange(0, num_test_samples, skip)
             for idx, (instance_i, figs) in enumerate(zip(instance_is, all_figs)):
                 video_tensor = np.stack(all_figs).transpose(0, 1, 4, 2, 3)
-                # self.logger.experiment.add_video(f'{mode}/traj', video_tensor, self.global_step, fps=6)
                 self.logger.experiment.add_video(f'{mode}/traj_{instance_i}', video_tensor[idx:idx+1], self.global_step, fps=6)
 
-
-    def _save_viz_w_pose(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats, tag=''):
+    def _save_viz_w_heading(self, outputs, all_sample_vals, collision_mats, tag=''):
         seq_to_plot_args = []
         for frame_i, (output, seq_to_sample_metrics) in enumerate(zip(outputs, all_sample_vals)):
             frame = output['frame']
             seq = output['seq']
             obs_traj = output['obs_motion'].numpy()
-            assert obs_traj.shape[0] == 8
+            heading = output['data']['heading'].detach().cpu().numpy()  # (1,2)
+            # swap (num_peds, ts, 2) --> (ts, num_peds, 2) for visualization
             pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
-            pred_fake_traj = output['pred_motion'].numpy().transpose(1, 2, 0, 3)  # (samples, ts, n_peds, 2)
+            # (samples, ts, n_peds, 2) --> (samples, ts, n_peds, 2)
+            pred_fake_traj = output['pred_motion'].numpy().transpose(1, 2, 0, 3)
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
             anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
-            plot_args_list = {'save_fn': None, 'title': title, 'plot_size': (5, 4), }
+            plot_args_list = [anim_save_fn, title, (4, 2)]
             list_of_arg_dicts = []
 
-            # pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
-            # min_ADE_stats = get_metrics_str(dict(zip(stats_func.keys(), all_meters_values[frame_i])))
-            if self.dataset_name == 'trajnet_sdd':
-                bkg_img_path = os.path.join(
-                    f'datasets/trajnet_sdd/reference_img/{seq[:-2]}/video{seq[-1]}/reference.jpg')
-            else:
-                bkg_img_path = None
             SADE_min_i = np.argmin(seq_to_sample_metrics['ADE'])
             pred_fake_traj_min = pred_fake_traj[SADE_min_i]
             min_SADE_stats = get_metrics_str(seq_to_sample_metrics, SADE_min_i)
             args_dict = {'plot_title': f"best mSADE sample",
                          'obs_traj': obs_traj,
                          'gt_traj': pred_gt_traj,
+                         'last_heading': heading,
                          'pred_traj': pred_fake_traj_min,
                          'collision_mats': collision_mats[frame_i][-1],
-                         'bkg_img_path': bkg_img_path,
                          'text_fixed': min_SADE_stats}
             list_of_arg_dicts.append(args_dict)
 
@@ -296,13 +285,14 @@ class AgentFormerTrainer(pl.LightningModule):
                 args_dict = {'plot_title': f"Sample {sample_i}",
                              'obs_traj': obs_traj,
                              'gt_traj': pred_gt_traj,
+                             'last_heading': heading,
                              'pred_traj': pred_fake_traj[sample_i],
                              'text_fixed': stats,
-                             'bkg_img_path': bkg_img_path,
                              # 'highlight_peds': argmins[frame_i],
                              'collision_mats': collision_mats[frame_i][sample_i]}
                 list_of_arg_dicts.append(args_dict)
-                plot_args_list['list_of_arg_dicts'] = list_of_arg_dicts
+
+            plot_args_list.append(list_of_arg_dicts)
             seq_to_plot_args.append(plot_args_list)
 
         if self.args.mp:
@@ -314,6 +304,64 @@ class AgentFormerTrainer(pl.LightningModule):
 
         return all_figs
 
+    def _save_viz_w_pose(self, outputs, all_sample_vals, collision_mats, tag=''):
+        seq_to_plot_args = []
+        for frame_i, (output, seq_to_sample_metrics) in enumerate(zip(outputs, all_sample_vals)):
+            frame = output['frame']
+            seq = output['seq']
+            obs_traj = output['obs_motion'].numpy()
+            joints_history = output['data']['pre_joints'].detach().cpu().numpy().transpose(1,2,0,3)
+            joints_future = output['data']['fut_joints'].detach().cpu().numpy().transpose(1,2,0,3)
+            # swap (num_peds, ts, 2) --> (ts, num_peds, 2) for visualization
+            pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
+            # (samples, ts, n_peds, 2) --> (samples, ts, n_peds, 2)
+            pred_fake_traj = output['pred_motion'].numpy().transpose(1, 2, 0, 3)
+
+            num_samples, _, n_ped, _ = pred_fake_traj.shape
+
+            anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            mkdir_if_missing(anim_save_fn)
+            title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
+            plot_args_list = [anim_save_fn, title, (4, 2)]
+            list_of_arg_dicts = []
+
+            args_dict = {'gt_history': joints_history,
+                         'gt_future': joints_future}
+            list_of_arg_dicts.append(args_dict)
+
+            SADE_min_i = np.argmin(seq_to_sample_metrics['ADE'])
+            pred_fake_traj_min = pred_fake_traj[SADE_min_i]
+            min_SADE_stats = get_metrics_str(seq_to_sample_metrics, SADE_min_i)
+            args_dict = {'plot_title': f"best mSADE sample",
+                         'obs_traj': obs_traj,
+                         'gt_traj': pred_gt_traj,
+                         'pred_traj': pred_fake_traj_min,
+                         'collision_mats': collision_mats[frame_i][-1],
+                         'text_fixed': min_SADE_stats}
+            list_of_arg_dicts.append(args_dict)
+
+            for sample_i in range(num_samples - 1):
+                stats = get_metrics_str(seq_to_sample_metrics, sample_i)
+                args_dict = {'plot_title': f"Sample {sample_i}",
+                             'obs_traj': obs_traj,
+                             'gt_traj': pred_gt_traj,
+                             'pred_traj': pred_fake_traj[sample_i],
+                             'text_fixed': stats,
+                             # 'highlight_peds': argmins[frame_i],
+                             'collision_mats': collision_mats[frame_i][sample_i]}
+                list_of_arg_dicts.append(args_dict)
+
+            plot_args_list.append(list_of_arg_dicts)
+            seq_to_plot_args.append(plot_args_list)
+
+        if self.args.mp:
+            with multiprocessing.Pool(self.num_workers) as pool:
+                all_figs = pool.starmap(plot_anim_grid_3d, seq_to_plot_args)
+
+        else:
+            all_figs = list(starmap(plot_anim_grid_3d, seq_to_plot_args))
+
+        return all_figs
 
     def _save_viz(self, outputs, all_sample_vals, all_meters_values, argmins, collision_mats, tag=''):
         seq_to_plot_args = []
@@ -321,7 +369,6 @@ class AgentFormerTrainer(pl.LightningModule):
             frame = output['frame']
             seq = output['seq']
             obs_traj = output['obs_motion'].numpy()
-            assert obs_traj.shape[0] == 8
             pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
             pred_fake_traj = output['pred_motion'].numpy().transpose(1, 2, 0, 3)  # (samples, ts, n_peds, 2)
 
@@ -330,7 +377,7 @@ class AgentFormerTrainer(pl.LightningModule):
             anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
-            plot_args_list = {'save_fn': None, 'title': title, 'plot_size': (5, 4),}
+            plot_args_list = [anim_save_fn, title, (5, 4)]
             list_of_arg_dicts = []
 
             # pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
@@ -342,7 +389,7 @@ class AgentFormerTrainer(pl.LightningModule):
             SADE_min_i = np.argmin(seq_to_sample_metrics['ADE'])
             pred_fake_traj_min = pred_fake_traj[SADE_min_i]
             min_SADE_stats = get_metrics_str(seq_to_sample_metrics, SADE_min_i)
-            args_dict = {'plot_title': f"best mSADE sample",
+            args_dict = {'plot_title': f"best mSADE sample ({SADE_min_i})",
                          'obs_traj': obs_traj,
                          'gt_traj': pred_gt_traj,
                          'pred_traj': pred_fake_traj_min,
@@ -351,7 +398,7 @@ class AgentFormerTrainer(pl.LightningModule):
                          'text_fixed': min_SADE_stats}
             list_of_arg_dicts.append(args_dict)
 
-            for sample_i in range(num_samples - 1):
+            for sample_i in range(num_samples):
                 stats = get_metrics_str(seq_to_sample_metrics, sample_i)
                 args_dict = {'plot_title': f"Sample {sample_i}",
                              'obs_traj': obs_traj,
@@ -362,7 +409,71 @@ class AgentFormerTrainer(pl.LightningModule):
                              # 'highlight_peds': argmins[frame_i],
                              'collision_mats': collision_mats[frame_i][sample_i]}
                 list_of_arg_dicts.append(args_dict)
-                plot_args_list['list_of_arg_dicts'] = list_of_arg_dicts
+                plot_args_list.append(list_of_arg_dicts)
+            seq_to_plot_args.append(plot_args_list)
+
+        if self.args.mp:
+            with multiprocessing.Pool(self.num_workers) as pool:
+                all_figs = pool.starmap(plot_anim_grid, seq_to_plot_args)
+
+        else:
+            all_figs = list(starmap(plot_anim_grid, seq_to_plot_args))
+
+        return all_figs
+
+    def _save_viz_nuscenes(self, outputs, all_sample_vals, collision_mats, tag=''):
+        # log
+        # map_name
+        # nusc_map = NuScenesMap(dataroot='dataset/nuscenes', map_name=map_name)
+        # Plotting the map
+        # fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        # nusc_map.render_map_patch(ax, nusc_map.extract_map_patch([-500, 1500, -1000, 1000], map_location),
+        #                           layers=['drivable_area', 'lane', 'ped_crossing', 'walkway'])
+        seq_to_plot_args = []
+        for frame_i, (output, seq_to_sample_metrics) in enumerate(zip(outputs, all_sample_vals)):
+            frame = output['frame']
+            seq = output['seq']
+            obs_traj = output['obs_motion'].numpy()
+            pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
+            pred_fake_traj = output['pred_motion'].numpy().transpose(1, 2, 0, 3)  # (samples, ts, n_peds, 2)
+
+            heading = output['data']['heading'].detach().cpu().numpy()  # (1,2)
+            map = output['data']['scene_vis_map']
+            print(f"map: {map.shape}")
+            import ipdb; ipdb.set_trace()
+            num_samples, _, n_ped, _ = pred_fake_traj.shape
+
+            anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            mkdir_if_missing(anim_save_fn)
+            title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
+            plot_args_list = [anim_save_fn, title, (3, 2)]
+            list_of_arg_dicts = []
+
+            SADE_min_i = np.argmin(seq_to_sample_metrics['ADE'])
+            pred_fake_traj_min = pred_fake_traj[SADE_min_i]
+            min_SADE_stats = get_metrics_str(seq_to_sample_metrics, SADE_min_i)
+            args_dict = {'plot_title': f"best mSADE sample ({SADE_min_i})",
+                         'obs_traj': obs_traj,
+                         'gt_traj': pred_gt_traj,
+                         'pred_traj': pred_fake_traj_min,
+                         'last_heading': heading,
+                         'collision_mats': collision_mats[frame_i][-1],
+                         'map': map,
+                         'text_fixed': min_SADE_stats}
+            list_of_arg_dicts.append(args_dict)
+
+            for sample_i in range(num_samples):
+                stats = get_metrics_str(seq_to_sample_metrics, sample_i)
+                args_dict = {'plot_title': f"Sample {sample_i}",
+                             'obs_traj': obs_traj,
+                             'gt_traj': pred_gt_traj,
+                             'pred_traj': pred_fake_traj[sample_i],
+                             'text_fixed': stats,
+                             'last_heading': heading,
+                             'map': map,
+                             'collision_mats': collision_mats[frame_i][sample_i]}
+                list_of_arg_dicts.append(args_dict)
+                plot_args_list.append(list_of_arg_dicts)
             seq_to_plot_args.append(plot_args_list)
 
         if self.args.mp:
@@ -375,7 +486,7 @@ class AgentFormerTrainer(pl.LightningModule):
         return all_figs
 
 
-    def train_epoch_end(self, outputs):
+    def training_epoch_end(self, outputs):
         self._epoch_end(outputs, 'train')
         self.model.step_annealer()
 

@@ -168,8 +168,8 @@ class PedXDataset(Dataset):
         traj_scale = 1
 
         data = {
-                'pre_motion_3D': pre_motion_3d.to(torch.float32),
-                'fut_motion_3D': fut_motion_3d.to(torch.float32),
+                'pre_motion': pre_motion_3d.to(torch.float32),
+                'fut_motion': fut_motion_3d.to(torch.float32),
                 'fut_motion_mask': fut_motion_mask,
                 'pre_motion_mask': pre_motion_mask,
                 'pre_data': pre_data.to(torch.float32),
@@ -206,11 +206,11 @@ class PedXDataset(Dataset):
         in_data = self.seq_labels[seq_name][frame]
         data = defaultdict(lambda: None)
         data['batch_size'] = self.cfg.batch_size
-        data['agent_num'] = in_data['pre_motion_3D'].shape[1]
-        data['pre_motion'] = in_data['pre_motion_3D'].contiguous()
-        data['fut_motion'] = in_data['fut_motion_3D'].contiguous()
-        data['fut_motion_orig'] = in_data['fut_motion_3D'].transpose(0, 1).contiguous()
-        data['pre_motion_orig'] = in_data['pre_motion_3D'].transpose(0, 1).contiguous()
+        data['agent_num'] = in_data['pre_motion'].shape[1]
+        data['pre_motion'] = in_data['pre_motion'].contiguous()
+        data['fut_motion'] = in_data['fut_motion'].contiguous()
+        data['fut_motion_orig'] = in_data['fut_motion'].transpose(0, 1).contiguous()
+        data['pre_motion_orig'] = in_data['pre_motion'].transpose(0, 1).contiguous()
         data['fut_mask'] = in_data['fut_motion_mask']
         data['pre_mask'] = in_data['pre_motion_mask']
 

@@ -372,8 +372,8 @@ def main(args):
         data = generator()
         if data is None:
             continue
-        pre_motion = np.array([g.cpu().numpy() for g in data['pre_motion_3D']]).transpose(1, 0, 2)
-        args_list.append((data['fut_motion_3D'], stats_meter, stats_func, pre_motion, f"{data['seq']}-{data['frame']}"))
+        pre_motion = np.array([g.cpu().numpy() for g in data['pre_motion']]).transpose(1, 0, 2)
+        args_list.append((data['fut_motion'], stats_meter, stats_func, pre_motion, f"{data['seq']}-{data['frame']}"))
     print("num sequences:", len(args_list))
     all_meters_values, all_meters_agent_traj_nums = [], []
 

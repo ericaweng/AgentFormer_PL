@@ -165,12 +165,12 @@ class SDDPreprocess(object):
         # pred_mask = None
         heading = None
 
-        pre_motion_3D, pre_motion_mask = self.PreMotion(pre_data, valid_id)
-        fut_motion_3D, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
+        pre_motion, pre_motion_mask = self.PreMotion(pre_data, valid_id)
+        fut_motion, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
 
         data = {
-            'pre_motion_3D': pre_motion_3D,
-            'fut_motion_3D': fut_motion_3D,
+            'pre_motion': pre_motion,
+            'fut_motion': fut_motion,
             'fut_motion_mask': fut_motion_mask,
             'pre_motion_mask': pre_motion_mask,
             'pre_data': pre_data,

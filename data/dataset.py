@@ -55,7 +55,14 @@ class AgentFormerDataset(Dataset):
         elif parser.dataset == 'pedx':
             data_root = parser.data_root_pedx
             # use capture date as sequences
-            seq_train, seq_val, seq_test = ['20171130T2000_2', '20171130T2000_3', '20171207T2024'], ['20171130T2000_0'], ['20171130T2000_1']
+            # split 1
+            # seq_train, seq_val, seq_test = (['20171130T2000_2', '20171130T2000_3', '20171207T2024'],
+            #                                 ['20171130T2000_0'],
+            #                                 ['20171130T2000_1'])
+            # split 2
+            seq_train, seq_val, seq_test = (['20171130T2000_2', '20171130T2000_3', '20171130T2000_4', '20171207T2024_0', ],
+                                            ['20171130T2000_0', '20171207T2024_1'],
+                                            ['20171130T2000_1', '20171207T2024_2'])
         else:
             raise ValueError('Unknown dataset!')
 
@@ -120,7 +127,7 @@ class AgentFormerDataset(Dataset):
                         continue
                 except FileNotFoundError:
                     print(f"mask file not found: {mask_path}")
-            num_agents = len(data['pre_motion_3D'])
+            num_agents = len(data['pre_motion'])
             if num_agents > self.data_max_agents:
                 continue
             if num_agents < self.data_min_agents:
@@ -171,8 +178,8 @@ class AgentFormerDataset(Dataset):
     def collate(batch):
         """batch: list of data objects
         data = {
-            'pre_motion_3D': pre_motion_3D,
-            'fut_motion_3D': fut_motion_3D,
+            'pre_motion': pre_motion,
+            'fut_motion': fut_motion,
             'fut_motion_mask': fut_motion_mask,
             'pre_motion_mask': pre_motion_mask,
             'pre_data': pre_data,
@@ -197,7 +204,7 @@ class AgentFormerDataset(Dataset):
 
         data_all = {}
         for key in batch[0]:
-            if key in 'pre_motion_3D,fut_motion_3D,fut_motion_mask,pre_motion_mask,pre_data,fut_data':
+            if key in 'pre_motion,fut_motion,fut_motion_mask,pre_motion_mask,pre_data,fut_data':
                 data_all[key] = pad_and_stack([data[key] for data in batch])
             elif True:
                 pass
