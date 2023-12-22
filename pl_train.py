@@ -3,7 +3,6 @@ import sys
 import glob
 import argparse
 from functools import partial
-import wandb
 import torch
 torch.set_default_dtype(torch.float32)
 # torch.set_float32_matmul_precision('medium')
@@ -157,8 +156,8 @@ if __name__ == '__main__':
     parser.add_argument('--trial', '-t', action='store_true', default=False, help='if true, then does a trial run (without save checkpoints or logs, and allows user to specify smaller dataset size for sanity checking)')
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
-    parser.add_argument('--save_num', '-vn', type=int, default=3, help='number of visualizations to save per eval')
-    parser.add_argument('--logs_root', '-lr', default='results-new', help='where to save checkpoints and tb logs')
+    parser.add_argument('--save_num', '-vn', type=int, default=20, help='number of visualizations to save per eval')
+    parser.add_argument('--logs_root', '-lr', default='results2', help='where to save checkpoints and tb logs')
     parser.add_argument('--log_on_trial', '-l', action='store_true', default=False, help='if true, then also writes logs when --trial is also specified (o/w does not)')
     parser.add_argument('--ckpt_on_trial', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
@@ -178,49 +177,4 @@ if __name__ == '__main__':
     parser.add_argument('--project_name', '-p', default='af_dlow_sfm', help='wandb project name')
     args = parser.parse_args()
 
-    time_str = get_timestring()
-    print(f"time str: {time_str}")
-    print("python version : {}".format(sys.version.replace('\n', ' ')))
-    print(f"torch version : {torch.__version__}")
-    print(f"cudnn version : {torch.backends.cudnn.version()}")
-
-    if args.wandb_sweep:
-        configs = {
-                'weight': None,
-                'sigma_d': None,
-        }
-        sweep_config = {
-            'method': 'grid',
-            'metric': {
-                'goal': 'minimize',
-                'name': 'val/ADE_joint'
-            },
-            'parameters': {
-                'weight': {
-                    'values': [10, 15, 20, 25, 30, 35, 40]
-                },
-                # 'sigma_d': {
-                #     'values': [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25,2.5]
-                # }
-                'b': {
-                    'values': [0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.25,2.5]
-                }
-            }
-        }
-        # get sweep id from file if not given as arg
-        if args.sweep_id is None and not args.new_sweep:
-            try:
-                with open('sweep_id.txt', 'r') as f:
-                    args.sweep_id = f.read().strip()
-            except:
-                args.sweep_id = wandb.sweep(sweep_config, project=args.project_name)
-                with open('sweep_id.txt', 'w') as f:
-                    f.write(args.sweep_id)
-        else:
-            args.sweep_id = wandb.sweep(sweep_config, project=args.project_name)
-            with open('sweep_id.txt', 'w') as f:
-                f.write(args.sweep_id)
-        wandb.agent(args.sweep_id, function=partial(main, args), project=args.project_name)
-        print(f"sweep id: {args.sweep_id}")
-    else:
-        main(args)
+    main(args)

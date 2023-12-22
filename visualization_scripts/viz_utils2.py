@@ -279,7 +279,7 @@ class AnimObj:
                     last_obs_circles.append(ax.add_artist(plt.Circle(obs_traj[-1, ped_i], ped_radius, fill=True,
                                                                      alpha=0.3, color=color_real, zorder=10,
                                                                      visible=False)))
-                    last_heading_arrows.append(ax.arrow(*obs_traj[-1, ped_i], *last_heading[0], head_width=0.05,
+                    last_heading_arrows.append(ax.arrow(*obs_traj[-1, ped_i], *last_heading[ped_i], head_width=0.05,
                                                         head_length=0.1, fc='r', ec='r', visible=False, zorder=15))
 
                 # # Plot head heading direction (different color)

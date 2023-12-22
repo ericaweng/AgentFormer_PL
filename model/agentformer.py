@@ -124,7 +124,7 @@ class ContextEncoder(nn.Module):
         if 'map' in self.input_type:
             in_dim += ctx['map_enc_dim'] - self.motion_dim
         # stuff for accomodating joints into the embedding
-        if 'joints_scene_norm' in self.input_type:
+        if 'joints_norm' in self.input_type:
             num_joints = 24
             in_dim_joints = num_joints * 3
             if 'joints_vel' in self.input_type:
@@ -168,8 +168,8 @@ class ContextEncoder(nn.Module):
                 traj_in.append(data['pre_motion_norm'])
             elif key == 'scene_norm':
                 traj_in.append(data['pre_motion_scene_norm'])
-            elif key == 'joints_scene_norm':
-                other.append(data['pre_joints_scene_norm'].reshape(data['pre_joints_scene_norm'].shape[0], data['pre_joints_scene_norm'].shape[1], -1))
+            elif key == 'joints_norm':
+                other.append(data['pre_joints_norm'].reshape(data['pre_joints_norm'].shape[0], data['pre_joints_norm'].shape[1], -1))
             elif key == 'joints_vel':
                 vel = data['pre_joints_vel']
                 if len(self.input_type) > 1:
@@ -242,7 +242,7 @@ class FutureEncoder(nn.Module):
         in_dim = forecast_dim * len([t for t in self.input_type if 'joints' not in t])
         if 'map' in self.input_type:
             in_dim += ctx['map_enc_dim'] - forecast_dim
-        if 'joints_scene_norm' in self.input_type:
+        if 'joints_norm' in self.input_type:
             num_joints = 24
             in_dim_joints = num_joints * 3
             if 'joints_vel' in self.input_type:
@@ -293,9 +293,9 @@ class FutureEncoder(nn.Module):
                 traj_in.append(data['fut_motion_norm'])
             elif key == 'scene_norm':
                 traj_in.append(data['fut_motion_scene_norm'])
-            elif key == 'joints_scene_norm':
-                other.append(data['fut_joints_scene_norm'].reshape(data['fut_joints_scene_norm'].shape[0],
-                                                                   data['fut_joints_scene_norm'].shape[1], -1))
+            elif key == 'joints_norm':
+                other.append(data['fut_joints_norm'].reshape(data['fut_joints_norm'].shape[0],
+                                                                   data['fut_joints_norm'].shape[1], -1))
             elif key == 'joints_vel':
                 vel = data['fut_joints_vel']
                 # vel = torch.cat([vel[[0]], vel], dim=0)  # unsure what this is for
@@ -431,9 +431,9 @@ class FutureDecoder(nn.Module):
             elif key == 'map':
                 map_enc = data['map_enc'].unsqueeze(1).repeat((1, sample_num, 1))
                 in_arr.append(map_enc)
-            elif key == 'joints_scene_norm':
-                joints_scene_norm = data['pre_joints_scene_norm'].unsqueeze(1).repeat((1, sample_num, 1))
-                in_arr.append(joints_scene_norm)
+            elif key == 'joints_norm':
+                joints_norm = data['pre_joints_norm'].unsqueeze(1).repeat((1, sample_num, 1))
+                in_arr.append(joints_norm)
             else:
                 raise ValueError('wrong decode input type!')
         dec_in_z = torch.cat(in_arr, dim=-1)
@@ -478,8 +478,8 @@ class FutureDecoder(nn.Module):
                     in_arr.append(heading)  # just append the last obs heading
                 elif key == 'map':
                     in_arr.append(map_enc)
-                elif key == 'joints_scene_norm':
-                    in_arr.append(joints_scene_norm)
+                elif key == 'joints_norm':
+                    in_arr.append(joints_norm)
                 else:
                     raise ValueError('wrong decoder input type!')
             out_in_z = torch.cat(in_arr, dim=-1)
@@ -660,12 +660,8 @@ class AgentFormer(nn.Module):
         scene_orig_all_past = self.cfg.get('scene_orig_all_past', False)
         if scene_orig_all_past:
             self.data['scene_orig'] = self.data['pre_motion'].view(-1, 2).mean(dim=0)
-            if np.any(['joints' in key for key in self.input_type]):
-                self.data['scene_orig_3D'] = self.data['pre_joints'].view(-1, 3).mean(dim=0)
         else:
             self.data['scene_orig'] = self.data['pre_motion'][-1].mean(dim=0)  # mean over agents
-            if np.any(['joints' in key for key in self.input_type]):
-                self.data['scene_orig_3D'] = self.data['pre_joints'][-1].mean(dim=0)
         if in_data['heading'] is not None:
             self.data['heading'] = torch.tensor(in_data['heading']).float().to(device)
 
@@ -679,7 +675,9 @@ class AgentFormer(nn.Module):
                 self.data[key], self.data[f'{key}_scene_norm'] = rotation_2d_torch(self.data[key], theta, self.data['scene_orig'])
             if np.any(['joints' in key for key in self.input_type]):
                 for key in ['pre_joints', 'fut_joints']:
-                    self.data[key], self.data[f'{key}_scene_norm'] = rotation_2d_torch(self.data[key], theta, self.data['scene_orig_3D'])
+                    print("shouldn't be here")
+                    import ipdb; ipdb.set_trace()
+                    self.data[key], self.data[f'{key}_norm'] = rotation_2d_torch(self.data[key], theta)
             if in_data['heading'] is not None:
                 self.data['heading'] += theta
         else:
@@ -688,7 +686,8 @@ class AgentFormer(nn.Module):
                 self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   #  subtract last obs, meaned over agents
             if np.any(['joints' in key for key in self.input_type]):
                 for key in ['pre_joints', 'fut_joints']:
-                    self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig_3D']
+                    # 0 = hip joint is subtracted from each ped's joints to normalize
+                    self.data[f'{key}_norm'] = self.data[key] - self.data[key][:,:,:1]
 
         self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
         self.data['fut_vel'] = self.data['fut_motion'] - torch.cat([self.data['pre_motion'][[-1]], self.data['fut_motion'][:-1, :]])

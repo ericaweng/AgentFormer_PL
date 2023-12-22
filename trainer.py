@@ -262,7 +262,7 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
             plot_args_list = [anim_save_fn, title, (4, 2)]
@@ -319,7 +319,7 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
             plot_args_list = [anim_save_fn, title, (4, 2)]
@@ -374,7 +374,7 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
             plot_args_list = [anim_save_fn, title, (5, 4)]
@@ -410,6 +410,7 @@ class AgentFormerTrainer(pl.LightningModule):
                              'collision_mats': collision_mats[frame_i][sample_i]}
                 list_of_arg_dicts.append(args_dict)
                 plot_args_list.append(list_of_arg_dicts)
+            print(len(plot_args_list))
             seq_to_plot_args.append(plot_args_list)
 
         if self.args.mp:
@@ -443,7 +444,7 @@ class AgentFormerTrainer(pl.LightningModule):
             import ipdb; ipdb.set_trace()
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
             plot_args_list = [anim_save_fn, title, (3, 2)]
