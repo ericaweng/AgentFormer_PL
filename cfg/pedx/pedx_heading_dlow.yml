@@ -22,7 +22,7 @@ forecast_dim                 : 2
 # ------------------- Model -------------------------
 
 model_id: dlow
-pred_cfg: pedx_heading_add_joints
+pred_cfg: pedx_heading
 pred_epoch: 30
 qnet_mlp: [512, 256]
 share_eps: true

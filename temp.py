@@ -14,9 +14,8 @@ scene = nusc.scene[0]  # Replace with the desired scene index
 # Extracting the map location from the scene
 log = nusc.get('log', scene['log_token'])
 map_location = log['location']
-
-# Plotting the map
 fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+
 nusc_map.render_map_patch(ax, nusc_map.extract_map_patch([-500, 1500, -1000, 1000], map_location),
                           layers=['drivable_area', 'lane', 'ped_crossing', 'walkway'])
 

@@ -597,7 +597,6 @@ class AgentFormer(nn.Module):
         self.discrete_rot = cfg.get('discrete_rot', False)
         self.map_global_rot = cfg.get('map_global_rot', False)
         self.ar_train = cfg.get('ar_train', True)
-        self.optimize_trajectory = cfg.get('optimize_trajectory', False)
         self.approx_grad = cfg.get('approx_grad', False)
         self.max_train_agent = cfg.get('max_train_agent', 100)
         self.loss_cfg = self.cfg.loss_cfg

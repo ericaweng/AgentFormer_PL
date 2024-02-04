@@ -163,7 +163,7 @@ class AgentFormerTrainer(pl.LightningModule):
         return return_dict
 
 
-    def _epoch_end(self, outputs, mode='test'):
+    def _compute_and_log_metrics(self, outputs, mode='test'):
         args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]
 
         # calculate metrics for each sequence
@@ -229,24 +229,28 @@ class AgentFormerTrainer(pl.LightningModule):
             self.log(f'{mode}/{key}', value, sync_dist=True, on_epoch=True, prog_bar=True, logger=True)
         self.log(f'{mode}/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
 
-        # plot visualizations
-        if self.args.save_viz:# and (not mode == 'train' or mode == 'train' and self.current_epoch % 10 == 0):
-            num_test_samples = len(outputs)
-            skip = max(1, int(num_test_samples / self.args.save_num))
-            if 'nuscenes' in self.cfg.id:
-                all_figs = self._save_viz_nuscenes(outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-            elif np.any(['joint' in key for key in self.model.input_type]):
-                all_figs = self._save_viz_w_pose(outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-            elif 'heading' in self.model.input_type:
-                all_figs = self._save_viz_w_heading(outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-            else:
-                all_figs = self._save_viz(outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip], collision_mats[::skip], mode)
+        # save outputs
+        self.outputs = outputs, all_sample_vals, all_metrics, argmins, collision_mats
 
-            # plot videos to tensorboard
-            instance_is = np.arange(0, num_test_samples, skip)
-            for idx, (instance_i, figs) in enumerate(zip(instance_is, all_figs)):
-                video_tensor = np.stack(all_figs).transpose(0, 1, 4, 2, 3)
-                self.logger.experiment.add_video(f'{mode}/traj_{instance_i}', video_tensor[idx:idx+1], self.global_step, fps=6)
+    def log_viz(self, args, mode):
+        outputs, all_sample_vals, all_metrics, argmins, collision_mats = args
+
+        num_test_samples = len(outputs)
+        skip = max(1, int(num_test_samples / self.args.save_num))
+        if 'nuscenes' in self.cfg.id:
+            all_figs = self._save_viz_nuscenes(outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
+        elif np.any(['joint' in key for key in self.model.input_type]):
+            all_figs = self._save_viz_w_pose(outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
+        elif 'heading' in self.model.input_type:
+            all_figs = self._save_viz_w_heading(outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
+        else:
+            all_figs = self._save_viz(outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip], collision_mats[::skip], mode)
+
+        # plot videos to tensorboard
+        instance_is = np.arange(0, num_test_samples, skip)
+        for idx, (instance_i, figs) in enumerate(zip(instance_is, all_figs)):
+            video_tensor = np.stack(all_figs).transpose(0, 1, 4, 2, 3)
+            self.logger.experiment.add_video(f'{mode}/traj_{instance_i}', video_tensor[idx:idx+1], self.global_step, fps=6)
 
     def _save_viz_w_heading(self, outputs, all_sample_vals, collision_mats, tag=''):
         seq_to_plot_args = []
@@ -265,7 +269,7 @@ class AgentFormerTrainer(pl.LightningModule):
             anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
-            plot_args_list = [anim_save_fn, title, (4, 2)]
+            plot_args_list = [anim_save_fn, title, (3, 2)]
             list_of_arg_dicts = []
 
             SADE_min_i = np.argmin(seq_to_sample_metrics['ADE'])
@@ -322,7 +326,7 @@ class AgentFormerTrainer(pl.LightningModule):
             anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
-            plot_args_list = [anim_save_fn, title, (4, 2)]
+            plot_args_list = [anim_save_fn, title, (3, 2)]
             list_of_arg_dicts = []
 
             args_dict = {'gt_history': joints_history,
@@ -377,7 +381,7 @@ class AgentFormerTrainer(pl.LightningModule):
             anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
             title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
-            plot_args_list = [anim_save_fn, title, (5, 4)]
+            plot_args_list = [anim_save_fn, title, (3, 2)]
             list_of_arg_dicts = []
 
             # pred_fake_traj_min = pred_fake_traj[argmins[frame_i],:,np.arange(n_ped)].swapaxes(0, 1)  # (n_ped, )
@@ -409,8 +413,7 @@ class AgentFormerTrainer(pl.LightningModule):
                              # 'highlight_peds': argmins[frame_i],
                              'collision_mats': collision_mats[frame_i][sample_i]}
                 list_of_arg_dicts.append(args_dict)
-                plot_args_list.append(list_of_arg_dicts)
-            print(len(plot_args_list))
+            plot_args_list.append(list_of_arg_dicts)
             seq_to_plot_args.append(plot_args_list)
 
         if self.args.mp:
@@ -488,14 +491,15 @@ class AgentFormerTrainer(pl.LightningModule):
 
 
     def training_epoch_end(self, outputs):
-        self._epoch_end(outputs, 'train')
+        self._compute_and_log_metrics(outputs, 'train')
         self.model.step_annealer()
 
     def validation_epoch_end(self, outputs):
-        self._epoch_end(outputs, 'val')
+        self.val_outputs = outputs
+        self._compute_and_log_metrics(outputs, 'val')
 
     def test_epoch_end(self, outputs):
-        self._epoch_end(outputs)
+        self._compute_and_log_metrics(outputs)
 
     def on_load_checkpoint(self, checkpoint):
         if 'model_dict' in checkpoint and 'epoch' in checkpoint:

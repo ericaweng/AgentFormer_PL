@@ -19,7 +19,7 @@ min_future_frames            : 12  # for fps=6, 12 frames = 2 sec
 
 traj_scale                   : 1
 motion_dim                   : 2
-forecast_dim                 : 2
+forecast_dim                 : 74  # 2 pos + 24 * 3 joints
 
 # ------------------- Model -------------------------
 
@@ -30,7 +30,8 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel', 'heading', 'joints_norm', 'joints_vel']
+input_type: ['scene_norm', 'vel', 'joints_norm', 'joints_vel']
+#addl_input_type: ['joints', 'joints_vel']
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 19
@@ -57,7 +58,7 @@ learn_prior                  : true
 
 # ------------------- Training Parameters -------------------------
 
-lr                           : 1.e-5
+lr                           : 1.e-4
 loss_cfg:
   mse:
     weight: 1.0
@@ -69,7 +70,7 @@ loss_cfg:
     k: 5
 
 batch_size                   : 1
-num_epochs                   : 30
+num_epochs                   : 100
 lr_fix_epochs                : 10
 lr_scheduler: 'step'
 decay_step: 10

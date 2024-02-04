@@ -15,6 +15,7 @@ from data.datamodule import AgentFormerDataModule
 from utils.config import Config
 from utils.utils import get_timestring
 from trainer import AgentFormerTrainer
+from callbacks import ModelCheckpointCustom
 
 
 def main(args):
@@ -105,13 +106,8 @@ def main(args):
     # initialize logging and checkpointing and other training utils
     # if args.mode == 'train' and (not args.trial or args.log_on_trial):
     logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
-    if args.wandb_sweep:
-        wandb_logger = WandbLogger(save_dir=args.logs_root, log_model=True, name=run.name)
-        logger = [logger, wandb_logger]
-    # else:
-    #     logger = None
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_joint')
-    checkpoint_callback = ModelCheckpoint(monitor='val/ADE_joint', mode='min', save_last=True,
+    checkpoint_callback = ModelCheckpointCustom(monitor='val/ADE_joint', mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
 
@@ -156,8 +152,8 @@ if __name__ == '__main__':
     parser.add_argument('--trial', '-t', action='store_true', default=False, help='if true, then does a trial run (without save checkpoints or logs, and allows user to specify smaller dataset size for sanity checking)')
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
-    parser.add_argument('--save_num', '-vn', type=int, default=20, help='number of visualizations to save per eval')
-    parser.add_argument('--logs_root', '-lr', default='results2', help='where to save checkpoints and tb logs')
+    parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
+    parser.add_argument('--logs_root', '-lr', default='results3', help='where to save checkpoints and tb logs')
     parser.add_argument('--log_on_trial', '-l', action='store_true', default=False, help='if true, then also writes logs when --trial is also specified (o/w does not)')
     parser.add_argument('--ckpt_on_trial', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)

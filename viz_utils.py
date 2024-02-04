@@ -159,8 +159,8 @@ def plot_traj_img(obs_traj, save_fn=None, attn_ped_i=None, pred_traj=None, ped_r
                 # color = cmap(cross_attn_normed[t, ped_i])
                 color = obs_sm.to_rgba(cross_attn[t, ped_i])
                 ax.add_artist(plt.Circle(obs_traj[t, ped_i], ped_radius, fill=True, facecolor=color, linewidth=0))
-                ax.add_artist(ax.text(obs_traj[t, ped_i][0] + text_offset_x, obs_traj[t, ped_i][1] - text_offset_y,
-                                      f"{cross_attn[t, ped_i]:0.2f}", fontsize=8))
+                ax.text(obs_traj[t, ped_i][0] + text_offset_x, obs_traj[t, ped_i][1] - text_offset_y,
+                                      f"{cross_attn[t, ped_i]:0.2f}", fontsize=8)
 
         # obs colorbar
         cbaxes_obs = fig.add_axes([0.1, 0.1, 0.3, 0.03])

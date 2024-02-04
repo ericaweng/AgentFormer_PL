@@ -58,7 +58,7 @@ learn_prior                  : true
 
 # ------------------- Training Parameters -------------------------
 
-lr                           : 1.e-4
+lr                           : 1.e-5
 loss_cfg:
   mse:
     weight: 1.0
@@ -70,7 +70,7 @@ loss_cfg:
     k: 5
 
 batch_size                   : 1
-num_epochs                   : 100
+num_epochs                   : 30
 lr_fix_epochs                : 10
 lr_scheduler: 'step'
 decay_step: 10
