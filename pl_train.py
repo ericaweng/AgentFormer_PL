@@ -4,6 +4,7 @@ import glob
 import argparse
 from functools import partial
 import torch
+torch.set_float32_matmul_precision('medium')
 torch.set_default_dtype(torch.float32)
 # torch.set_float32_matmul_precision('medium')
 import pytorch_lightning as pl
@@ -152,8 +153,9 @@ if __name__ == '__main__':
     parser.add_argument('--trial', '-t', action='store_true', default=False, help='if true, then does a trial run (without save checkpoints or logs, and allows user to specify smaller dataset size for sanity checking)')
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
+    parser.add_argument('--save_viz_every_time', '-vv', action='store_true', default=False)
     parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
-    parser.add_argument('--logs_root', '-lr', default='results3', help='where to save checkpoints and tb logs')
+    parser.add_argument('--logs_root', '-lr', default='results-jrdb', help='where to save checkpoints and tb logs')
     parser.add_argument('--log_on_trial', '-l', action='store_true', default=False, help='if true, then also writes logs when --trial is also specified (o/w does not)')
     parser.add_argument('--ckpt_on_trial', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
@@ -161,7 +163,7 @@ if __name__ == '__main__':
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
     parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
     parser.add_argument('--val_every', '-ve', type=int, default=5)
-    parser.add_argument('--trial_ds_size', '-dz', default=10, type=int, help='max number of scenesj to load when using the --trial flag')
+    parser.add_argument('--trial_ds_size', '-dz', default=10, type=int, help='max number of scenes to load when using the --trial flag')
     parser.add_argument('--randomize_trial_data', '-rtd', action='store_true', default=False)
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')

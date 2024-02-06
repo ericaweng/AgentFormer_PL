@@ -95,7 +95,7 @@ class AnimObj:
 
     def plot_traj_anim(self, obs_traj=None, save_fn=None, ped_radius=0.2, ped_discomfort_dist=0.2, gt_traj=None,
                        pred_traj=None, ped_num_label_on='gt', show_ped_pos=False, bkg_img_path=None,
-                       bounds=None, int_cat_abbv=None, scene_stats=None, cfg_names=None, last_heading=None,
+                       bounds=None, int_cat_abbv=None, scene_stats=None, cfg_names=None, avg_heading=None, last_heading=None,
                        collision_mats=None, cmap_name='tab10', extend_last_frame=3, show_ped_stats=False,
                        text_time=None, text_fixed=None, grid_values=None, plot_collisions_all=False, plot_title=None,
                        ax=None, update=None, pred_alpha=None):
@@ -211,8 +211,9 @@ class AnimObj:
         cmap_real = plt.get_cmap(cmap_name, max(10, num_peds))
         cmap_fake = plt.get_cmap(cmap_name, max(10, num_peds))
 
-        cmap_fake = lambda i:  ['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3'][i]
-        cmap_real = lambda i:  ['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3'][i]
+        colors = ['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3']
+        cmap_fake = lambda i:  colors[i%len(colors)]
+        cmap_real = lambda i:  colors[i%len(colors)]
         # color_fake = [['#0D47A1', '#2196F3'],  # blue
         #               ['#E65100', '#FF9800'],  # orange
         #               ['#194D33', '#4CAF50'],  # green
@@ -262,6 +263,7 @@ class AnimObj:
         legend_lines = []
         legend_labels = []
         last_heading_arrows = []
+        avg_heading_arrows = []
 
         for ped_i in range(num_peds):
             color_real = cmap_real(ped_i % num_peds)
@@ -281,6 +283,9 @@ class AnimObj:
                                                                      visible=False)))
                     last_heading_arrows.append(ax.arrow(*obs_traj[-1, ped_i], *last_heading[ped_i], head_width=0.05,
                                                         head_length=0.1, fc='r', ec='r', visible=False, zorder=15))
+                if avg_heading is not None:
+                    avg_heading_arrows.append(ax.arrow(*obs_traj[-1, ped_i], *avg_heading[ped_i], head_width=0.05,
+                                                        head_length=0.1, fc='b', ec='b', visible=False, zorder=15))
 
                 # # Plot head heading direction (different color)
                 # # Replace head_heading with your actual head heading data
@@ -428,6 +433,9 @@ class AnimObj:
                     if last_heading is not None:
                         for last_heading_arrow in last_heading_arrows:
                             last_heading_arrow.set_visible(True)
+                        if avg_heading is not None:
+                            for avg_heading_arrow in avg_heading_arrows:
+                                avg_heading_arrow.set_visible(True)
                     for last_obs_circ in last_obs_circles:
                         last_obs_circ.set_visible(True)
 

@@ -10,8 +10,10 @@ import numpy as np
 
 from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
+from .jrdb import jrdb_preprocess
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
+from .jrdb_split import get_jackrabbot_split
 from .ethucy_split import get_ethucy_split
 
 
@@ -52,6 +54,10 @@ class AgentFormerDataset(Dataset):
         elif parser.dataset == 'trajnet_sdd':
             data_root = parser.data_root_trajnet_sdd
             seq_train, seq_val, seq_test = get_stanford_drone_split()
+        elif parser.dataset == 'jrdb':
+            data_root = parser.data_root_jrdb
+            seq_train, seq_val, seq_test = get_jackrabbot_split()
+            self.init_frame = 0
         elif parser.dataset == 'pedx':
             data_root = parser.data_root_pedx
             # use capture date as sequences
@@ -72,6 +78,8 @@ class AgentFormerDataset(Dataset):
             process_func = preprocess
         elif parser.dataset == 'nuscenes_pred':
             process_func = preprocess
+        elif parser.dataset == 'jrdb':
+            process_func = jrdb_preprocess
         else:
             assert parser.dataset == 'pedx'
             process_func = PedXPreprocess
@@ -176,23 +184,7 @@ class AgentFormerDataset(Dataset):
 
     @staticmethod
     def collate(batch):
-        """batch: list of data objects
-        data = {
-            'pre_motion': pre_motion,
-            'fut_motion': fut_motion,
-            'fut_motion_mask': fut_motion_mask,
-            'pre_motion_mask': pre_motion_mask,
-            'pre_data': pre_data,
-            'fut_data': fut_data,
-            'heading': heading,
-            'valid_id': valid_id,
-            'traj_scale': self.traj_scale,
-            'pred_mask': pred_mask,
-            'scene_map': self.geom_scene_map,
-            'seq': self.seq_name,
-            'frame': frame
-        }
-        """
+        """batch: list of data objects """
         return batch[0]
         def pad_and_stack(batch):
             import ipdb; ipdb.set_trace()

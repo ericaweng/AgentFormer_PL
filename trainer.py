@@ -258,7 +258,8 @@ class AgentFormerTrainer(pl.LightningModule):
             frame = output['frame']
             seq = output['seq']
             obs_traj = output['obs_motion'].numpy()
-            heading = output['data']['heading'].detach().cpu().numpy()  # (1,2)
+            heading = output['data']['heading_vec'].detach().cpu().numpy()  # (1,2)
+            heading_avg = output['data']['heading_avg'].detach().cpu().numpy()  # (1,2)
             # swap (num_peds, ts, 2) --> (ts, num_peds, 2) for visualization
             pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
             # (samples, ts, n_peds, 2) --> (samples, ts, n_peds, 2)
@@ -266,9 +267,9 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
-            mkdir_if_missing(anim_save_fn)
-            title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
+            anim_save_fn = None#f'../viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            # mkdir_if_missing(anim_save_fn)
+            title = f"Model: {self.cfg.id} Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
             plot_args_list = [anim_save_fn, title, (3, 2)]
             list_of_arg_dicts = []
 
@@ -279,6 +280,7 @@ class AgentFormerTrainer(pl.LightningModule):
                          'obs_traj': obs_traj,
                          'gt_traj': pred_gt_traj,
                          'last_heading': heading,
+                         'avg_heading': heading_avg,
                          'pred_traj': pred_fake_traj_min,
                          'collision_mats': collision_mats[frame_i][-1],
                          'text_fixed': min_SADE_stats}
@@ -290,6 +292,7 @@ class AgentFormerTrainer(pl.LightningModule):
                              'obs_traj': obs_traj,
                              'gt_traj': pred_gt_traj,
                              'last_heading': heading,
+                             'avg_heading': heading_avg,
                              'pred_traj': pred_fake_traj[sample_i],
                              'text_fixed': stats,
                              # 'highlight_peds': argmins[frame_i],
@@ -323,9 +326,9 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            anim_save_fn = f'../viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
-            title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
+            title = f"Model: {self.cfg.id} Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
             plot_args_list = [anim_save_fn, title, (3, 2)]
             list_of_arg_dicts = []
 
@@ -378,9 +381,9 @@ class AgentFormerTrainer(pl.LightningModule):
 
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
-            mkdir_if_missing(anim_save_fn)
-            title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
+            anim_save_fn = None#f'../viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            # mkdir_if_missing(anim_save_fn)
+            title = f"Model: {self.cfg.id} Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
             plot_args_list = [anim_save_fn, title, (3, 2)]
             list_of_arg_dicts = []
 
@@ -443,13 +446,11 @@ class AgentFormerTrainer(pl.LightningModule):
 
             heading = output['data']['heading'].detach().cpu().numpy()  # (1,2)
             map = output['data']['scene_vis_map']
-            print(f"map: {map.shape}")
-            import ipdb; ipdb.set_trace()
             num_samples, _, n_ped, _ = pred_fake_traj.shape
 
-            anim_save_fn = f'../pose_forecasting/viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
+            anim_save_fn = f'../viz/{seq}/frame_{frame:06d}/{self.model_name}_epoch-{self.current_epoch}_{tag}.mp4'
             mkdir_if_missing(anim_save_fn)
-            title = f"Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
+            title = f"Model: {self.cfg.id} Seq: {seq} frame: {frame} Epoch: {self.current_epoch}"
             plot_args_list = [anim_save_fn, title, (3, 2)]
             list_of_arg_dicts = []
 

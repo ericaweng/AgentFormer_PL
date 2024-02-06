@@ -13,7 +13,7 @@ class ModelCheckpointCustom(ModelCheckpoint):
             self.log_train_this_time = False
 
 
-    def on_validation_end(self, trainer, pl_module):
+    def on_validation_epoch_end(self, trainer, pl_module):
         super().on_validation_end(trainer, pl_module)
         if self.best_model_score:
             current_score = trainer.callback_metrics.get("val/ADE_joint")
@@ -21,3 +21,6 @@ class ModelCheckpointCustom(ModelCheckpoint):
                 print("This is a new best model!")
                 pl_module.log_viz(pl_module.outputs, 'val')
                 self.log_train_this_time = True
+        elif pl_module.args.save_viz_every_time:
+            pl_module.log_viz(pl_module.outputs, 'val')
+            self.log_train_this_time = True
