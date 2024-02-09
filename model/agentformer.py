@@ -575,7 +575,7 @@ class AgentFormer(nn.Module):
         self.ctx = {
             'tf_cfg': cfg.get('tf_cfg', {}),
             'nz': cfg.nz,
-                'add_joints': cfg.get('add_joints', True),  # if not add, then concat
+            'add_joints': cfg.get('add_joints', True),  # if not add, then concat
             'z_type': cfg.get('z_type', 'gaussian'),
             'future_frames': cfg.future_frames,
             'past_frames': cfg.past_frames,

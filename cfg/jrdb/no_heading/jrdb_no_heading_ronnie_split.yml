@@ -2,7 +2,7 @@
 
 description                  : AgentFormer (Before DLow)
 results_root_dir             : results-jrdb
-seed                         : 2
+seed                         : 1
 dataset                      : jrdb
 frame_skip                   : 3
 data_root_jrdb               : datasets/jrdb_adjusted
@@ -19,7 +19,7 @@ traj_scale                   : 1
 motion_dim                   : 2
 forecast_dim                 : 2
 
-# ------------------- model -------------------------
+# ------------------- Model -------------------------
 
 #joints_mask:
 model_id: agentformer
@@ -28,7 +28,7 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel', 'heading']#, 'joints_norm', 'joints_vel']
+input_type: ['scene_norm', 'vel']#, 'joints_norm', 'joints_vel']
 #addl_input_type: ['joints', 'joints_vel']
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
@@ -48,15 +48,15 @@ future_encoder:
   nlayer: 2
   out_mlp_dim: [512, 256]
 
-# ------------------- vae-------------------------
+# ------------------- VAE-------------------------
 
 nz                           : 32
 sample_k                     : 5
 learn_prior                  : true
 
-# ------------------- training parameters -------------------------
+# ------------------- Training Parameters -------------------------
 
-lr                           : 1.e-4
+lr                           : 5.e-5
 loss_cfg:
   mse:
     weight: 1.0
@@ -75,3 +75,4 @@ decay_step: 10
 decay_gamma: 0.5
 print_freq                   : 20
 model_save_freq              : 10
+

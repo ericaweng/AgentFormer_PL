@@ -26,7 +26,8 @@ class jrdb_preprocess(object):
         label_path = f'{data_root}/{seq_name}.txt'
         self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=str)
 
-        # self.all_joints_data = self.all_data['joints'][capture_date]
+        path = f'{data_root}/poses_stitched_2d.npy'
+        self.all_joints_data = np.load(path)[seq_name]  # self.all_data['joints'][seq_name]
         # self.all_trajs_data = self.all_data['pos'][capture_date]
         # self.all_head_heading_data = self.all_data['head_heading'][capture_date]
         # self.all_body_heading_data = self.all_data['body_heading'][capture_date]
@@ -46,10 +47,10 @@ class jrdb_preprocess(object):
         self.init_frame = fr_start
 
         self.geom_scene_map = None
-        self.class_names = class_names = {'Pedestrian': 1, 'Car': 2, 'Cyclist': 3, 'Truck': 4, 'Van': 5, 'Tram': 6,
-                                          'Person': 7, 'Misc': 8, 'DontCare': 9, 'Traffic_cone': 10,
-                                          'Construction_vehicle': 11, 'Barrier': 12, 'Motorcycle': 13,
-                                          'Bicycle': 14, 'Bus': 15, 'Trailer': 16, 'Emergency': 17, 'Construction': 18}
+        self.class_names = {'Pedestrian': 1, 'Car': 2, 'Cyclist': 3, 'Truck': 4, 'Van': 5, 'Tram': 6,
+                            'Person': 7, 'Misc': 8, 'DontCare': 9, 'Traffic_cone': 10,
+                            'Construction_vehicle': 11, 'Barrier': 12, 'Motorcycle': 13,
+                            'Bicycle': 14, 'Bus': 15, 'Trailer': 16, 'Emergency': 17, 'Construction': 18}
         # for row_index in range(len(self.gt)):
         #     self.gt[row_index][2] = class_names[self.gt[row_index][2]]
         self.gt = self.gt.astype('float32')
@@ -92,13 +93,6 @@ class jrdb_preprocess(object):
             if np.all(exist_pre) and np.all(exist_fut):
                 valid_id.append(idx)
         return valid_id
-
-    def get_pred_mask(self, cur_data, valid_id):
-        import ipdb; ipdb.set_trace()
-        pred_mask = np.zeros(len(valid_id), dtype=np.int)
-        for i, idx in enumerate(valid_id):  # for each valid ped, get the data of the last frame
-            pred_mask[i] = cur_data[cur_data[:, 1] == idx].squeeze()[-1]
-        return pred_mask
 
     def get_heading(self, cur_data, valid_id):
         heading = np.zeros(len(valid_id))
