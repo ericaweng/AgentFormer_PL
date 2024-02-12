@@ -25,7 +25,7 @@ class PedXPreprocess(object):
         self.data_file = os.path.join(data_root, 'pedx_joint_pos2.npz')
         self.all_data = np.load(self.data_file, allow_pickle=True)[split].item()
         self.all_joints_data = self.all_data['joints'][capture_date]
-        self.all_trajs_data = self.all_data['pos'][capture_date]
+        self.all_trajs_data = self.all_data['pos'][capture_date]  # [frame_id][ped_id] = [x, y, z]
         self.all_head_heading_data = self.all_data['head_heading'][capture_date]
         self.all_body_heading_data = self.all_data['body_heading'][capture_date]
 

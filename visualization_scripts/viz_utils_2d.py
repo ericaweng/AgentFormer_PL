@@ -6,27 +6,8 @@ import matplotlib.animation as animation
 from visualization_scripts.viz_utils2 import AnimObj
 
 
-CONNECTIVITY_DICT = [(0, 1), (0, 2), (0, 3), (1, 4), (2, 5), (3, 6), (4, 7), (5, 8), (6, 9), (7, 10), (8, 11), (9, 12),
-                     (9, 13), (9, 14), (12, 15), (13, 16), (14, 17), (16, 18), (17, 19), (18, 20), (19, 21), (20, 22),
-                     (21, 23)]
-CONNECTIVITY_DICT_H36M = [
-    (0, 1),
-    (1, 2),
-    (2, 3),
-    (0, 6),
-    (6, 7),
-    (7, 8),
-    (0, 9),
-    (9, 10),
-    (10, 11),
-    (11, 12),
-    (10, 13),
-    (13, 14),
-    (14, 15),
-    (10, 16),
-    (16, 17),
-    (17, 18),
-]
+COCO_CONNECTIVITIES_LIST = [[1, 2], [0, 4], [3, 4], [8, 10], [5, 7], [10, 13], [14, 16], [4, 5], [7, 12],
+                                         [4, 8], [3, 6], [13, 15], [11, 14], [6, 9], [8, 11]]
 
 
 def fig_to_array(fig):
@@ -35,19 +16,7 @@ def fig_to_array(fig):
 
     return fig_image
 
-def draw_pose_3d_single_frame(pose, ax, color, frame_idx):
-    """
-    Draw a single pose for a given frame index.
-    """
-    for i in range(pose.shape[0]):  # for each ped
-        vals = pose[i, :, frame_idx]
-        for j1, j2 in CONNECTIVITY_DICT:
-            x = np.array([vals[j1, 0], vals[j2, 0]])
-            y = np.array([vals[j1, 1], vals[j2, 1]])
-            z = np.array([vals[j1, 2], vals[j2, 2]])
-            ax.plot(x, y, z, lw=2, color=color)
-
-def ax_set_up_3d(ax, stuff):
+def ax_set_up_2d(ax, stuff):
     if stuff is not None:
         center = (stuff.min(axis=(0, 1, 2)) + stuff.max(axis=(0, 1, 2))) / 2
         width_xyz = (stuff.max(axis=(0, 1, 2)) - stuff.min(axis=(0, 1, 2)))
@@ -57,21 +26,16 @@ def ax_set_up_3d(ax, stuff):
         dim_max_x = center[0] + width / 2
         dim_min_y = center[1] - width / 2
         dim_max_y = center[1] + width / 2
-        dim_min_z = center[2] - width / 2
-        dim_max_z = center[2] + width / 2
         ax.set_xlim(dim_min_x, dim_max_x)
         ax.set_ylim(dim_min_y, dim_max_y)
-        ax.set_zlim(dim_min_z, dim_max_z)
-        # ax.view_init(azim=0, elev=45)
     else:
         ax.set_xlim(-1.5, 1.5)
         ax.set_ylim(-1.5, 1.5)
-        ax.set_zlim(0, 2.0)
         ax.set_xlabel("x")
         ax.set_ylabel("y")
-        ax.set_zlabel("z")
 
-def plot_anim_grid_3d(save_fn=None, title=None, plot_size=None, list_of_arg_dicts=None):
+
+def plot_anim_grid_2d(save_fn=None, title=None, plot_size=None, list_of_arg_dicts=None):
     """
     AO: the animation object to use. different AOs plot different things, and take different arguments.
         also, AO can be a list of different Animatin objects to use.
@@ -94,7 +58,7 @@ def plot_anim_grid_3d(save_fn=None, title=None, plot_size=None, list_of_arg_dict
         f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
 
     fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
-    ax3d = fig.add_subplot(num_plots_height, num_plots_width, 1, projection='3d')
+    ax2d = fig.add_subplot(num_plots_height, num_plots_width, 1)
     axes = []
     for i in range(2, num_plots_width * num_plots_height + 1):
         axes.append(fig.add_subplot(num_plots_height, num_plots_width, i))
@@ -107,22 +71,22 @@ def plot_anim_grid_3d(save_fn=None, title=None, plot_size=None, list_of_arg_dict
     obs_len = 8
     pred_len = 12
 
-    # 3d bounds for first plot
-    bounds_3d = []
+    # 3d bounds for first pt
+    bounds_2d = []
     for graph in list_of_arg_dicts:
         for key, val in graph.items():
             if "history" in key or 'future' in key:
-                if len(bounds_3d) > 0:
-                    assert val.shape[-1] == bounds_3d[-1].shape[-1], \
-                        f"all trajectories must have same number of dimensions ({val.shape[-1]} != {bounds_3d[-1].shape[-1]})"
-                bounds_3d.append(np.array(val).reshape(-1, val.shape[-1]))
-    bounds_3d = np.concatenate(bounds_3d)
-    bounds_3d = [*(np.min(bounds_3d, axis=0) - 0.2), *(np.max(bounds_3d, axis=0) + 0.2)]
+                if len(bounds_2d) > 0:
+                    assert val.shape[-1] == bounds_2d[-1].shape[-1], \
+                        f"all trajectories must have same number of dimensions ({val.shape[-1]} != {bounds_2d[-1].shape[-1]})"
+                bounds_2d.append(np.array(val).reshape(-1, val.shape[-1]))
+    bounds_2d = np.concatenate(bounds_2d)
+    bounds_2d = [*(np.min(bounds_2d, axis=0) - 0.2), *(np.max(bounds_2d, axis=0) + 0.2)]
 
     anim_graphs = []
-    ao = AnimObjPose3d()
+    ao = AnimObjPose2d()
     anim_graphs.append(ao)
-    ao.plot_traj_anim(**list_of_arg_dicts[0], ax=ax3d, bounds=bounds_3d)
+    ao.plot_traj_anim(**list_of_arg_dicts[0], ax=ax2d, bounds=bounds_2d)
 
     # set global plotting bounds (same for each sample)
     bounds = []
@@ -161,22 +125,29 @@ def plot_anim_grid_3d(save_fn=None, title=None, plot_size=None, list_of_arg_dict
     return figs
 
 
-class AnimObjPose3d:
+class AnimObjPose2d:
     def __init__(self):
         self.update = None
-    def plot_traj_anim(self, gt_history, gt_future, ax=None, bounds=None):
+    def plot_traj_anim(self, gt_history, gt_future, positions=None,ax=None, bounds=None):
         """
-        Create a 3D video of the pose.
+        Create a 2D video of the pose.
         """
         obs_len = gt_history.shape[2]
+
+        if positions is not None:
+            gt_history[...,1] = - gt_history[...,1]
+            gt_history = gt_history * 1 + positions[:obs_len, :, :].transpose(1, 0, 2)[:,None]
+            gt_future[...,1] = - gt_future[...,1]
+            gt_future = gt_future * 1 + positions[obs_len:, :, :].transpose(1, 0, 2)[:,None]
+
         stuff = np.concatenate([gt_history, gt_future], axis=2)
+
         if bounds is None:
-            ax_set_up_3d(ax, stuff)
+            ax_set_up_2d(ax, stuff)
         else:
-            dim_min_x, dim_min_y, dim_min_z, dim_max_x, dim_max_y, dim_max_z = bounds
+            dim_min_x, dim_min_y, dim_max_x, dim_max_y = bounds
             ax.set_xlim(dim_min_x, dim_max_x)
             ax.set_ylim(dim_min_y, dim_max_y)
-            ax.set_zlim(dim_min_z, dim_max_z)
 
         def update(frame_idx):
             """
@@ -184,10 +155,23 @@ class AnimObjPose3d:
             """
             nonlocal obs_len
             ax.cla()  # Clear the axis to draw a new pose
-            ax_set_up_3d(ax, stuff)
+            ax_set_up_2d(ax, stuff)
             if frame_idx < obs_len:
-                draw_pose_3d_single_frame(gt_history, ax, color='g', frame_idx=frame_idx)
+                draw_pose_2d_single_frame(gt_history, ax, thin=True, frame_idx=frame_idx)
             else:
-                draw_pose_3d_single_frame(gt_future, ax, color='b', frame_idx=frame_idx-obs_len)
+                draw_pose_2d_single_frame(gt_future, ax, thin=False, frame_idx=frame_idx - obs_len)
 
         self.update = update
+
+
+COLORS = ['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3']
+def draw_pose_2d_single_frame(pose, ax, thin, frame_idx):
+    """
+    Draw a single pose for a given frame index.
+    """
+    for i in range(pose.shape[0]):  # for each ped
+        vals = pose[i, :, frame_idx]
+        for j1, j2 in COCO_CONNECTIVITIES_LIST:
+            x = np.array([vals[j1, 0], vals[j2, 0]])
+            y = np.array([vals[j1, 1], vals[j2, 1]])
+            ax.plot(x, y, lw=2 if thin else 4, color=COLORS[i % len(COLORS)])

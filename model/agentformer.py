@@ -125,11 +125,11 @@ class ContextEncoder(nn.Module):
             in_dim += ctx['map_enc_dim'] - self.motion_dim
         # stuff for accomodating joints into the embedding
         if 'joints_norm' in self.input_type:
-            num_joints = 24
-            in_dim_joints = num_joints * 3
+            self.joints_dim = cfg.get('joints_dim', 3)
+            self.num_joints = cfg.get('num_joints', 24)
+            in_dim_joints = self.num_joints * self.joints_dim
             if 'joints_vel' in self.input_type:
-                num_joints = 24
-                in_dim_joints += num_joints * 3
+                in_dim_joints += self.num_joints * self.joints_dim
             if ctx['add_joints']:
                 self.input_fc_joints = nn.Linear(in_dim_joints, self.model_dim)
                 self.input_fc = nn.Linear(in_dim, self.model_dim)
@@ -153,7 +153,7 @@ class ContextEncoder(nn.Module):
 
     def forward(self, data):
         traj_in = []
-        other = []
+        joints_input = []
         for key in self.input_type:
             if key == 'pos':
                 traj_in.append(data['pre_motion'])
@@ -169,12 +169,12 @@ class ContextEncoder(nn.Module):
             elif key == 'scene_norm':
                 traj_in.append(data['pre_motion_scene_norm'])
             elif key == 'joints_norm':
-                other.append(data['pre_joints_norm'].reshape(data['pre_joints_norm'].shape[0], data['pre_joints_norm'].shape[1], -1))
+                joints_input.append(data['pre_joints_norm'].reshape(data['pre_joints_norm'].shape[0], data['pre_joints_norm'].shape[1], -1))
             elif key == 'joints_vel':
                 vel = data['pre_joints_vel']
                 if len(self.input_type) > 1:
                     vel = torch.cat([vel[[0]], vel], dim=0)
-                other.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
+                joints_input.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
             elif key == 'heading':
                 hv = data['heading_vec'].unsqueeze(0).repeat((data['pre_motion'].shape[0], 1, 1))
                 traj_in.append(hv)
@@ -195,10 +195,10 @@ class ContextEncoder(nn.Module):
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         else:
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim - self.joints_embedding_dim)
-        if len(other)> 0:
-            other = torch.cat(other, dim=-1) if len(other) > 0 else None
-            other = other.view(-1, 1, other.shape[-1])
-            joints_embedding = self.input_fc_joints(other)
+        if len(joints_input) > 0:
+            joints_input = torch.cat(joints_input, dim=-1) if len(joints_input) > 0 else None
+            joints_input = joints_input.view(-1, 1, joints_input.shape[-1])
+            joints_embedding = self.input_fc_joints(joints_input)
             if self.ctx['add_joints']:
                 tf_in += joints_embedding
             else:
@@ -246,11 +246,11 @@ class FutureEncoder(nn.Module):
         if 'map' in self.input_type:
             in_dim += ctx['map_enc_dim'] - forecast_dim
         if 'joints_norm' in self.input_type:
-            num_joints = 24
-            in_dim_joints = num_joints * 3
+            self.joints_dim = cfg.get('joints_dim', 3)
+            self.num_joints = cfg.get('num_joints', 24)
+            in_dim_joints = self.num_joints * self.joints_dim
             if 'joints_vel' in self.input_type:
-                num_joints = 24
-                in_dim_joints += num_joints * 3
+                in_dim_joints += self.num_joints * self.joints_dim
             if ctx['add_joints']:
                 self.input_fc_joints = nn.Linear(in_dim_joints, self.model_dim)
                 self.input_fc = nn.Linear(in_dim, self.model_dim)
@@ -283,7 +283,7 @@ class FutureEncoder(nn.Module):
 
     def forward(self, data, reparam=True):
         traj_in = []
-        other=[]
+        joints_input_list=[]
         for key in self.input_type:
             if key == 'pos':
                 traj_in.append(data['fut_motion'])
@@ -297,12 +297,12 @@ class FutureEncoder(nn.Module):
             elif key == 'scene_norm':
                 traj_in.append(data['fut_motion_scene_norm'])
             elif key == 'joints_norm':
-                other.append(data['fut_joints_norm'].reshape(data['fut_joints_norm'].shape[0],
+                joints_input_list.append(data['fut_joints_norm'].reshape(data['fut_joints_norm'].shape[0],
                                                                    data['fut_joints_norm'].shape[1], -1))
             elif key == 'joints_vel':
                 vel = data['fut_joints_vel']
                 # vel = torch.cat([vel[[0]], vel], dim=0)  # unsure what this is for
-                other.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
+                joints_input_list.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
             elif key == 'heading':
                 hv = data['heading_vec'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
                 traj_in.append(hv)
@@ -326,10 +326,10 @@ class FutureEncoder(nn.Module):
         else:
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim - self.joints_embedding_dim)
         # tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
-        if len(other)> 0:
-            other = torch.cat(other, dim=-1) if len(other) > 0 else None
-            other = other.view(-1, 1, other.shape[-1])
-            joints_embedding = self.input_fc_joints(other)
+        if len(joints_input_list)> 0:
+            joints_input_list = torch.cat(joints_input_list, dim=-1) if len(joints_input_list) > 0 else None
+            joints_input_list = joints_input_list.view(-1, 1, joints_input_list.shape[-1])
+            joints_embedding = self.input_fc_joints(joints_input_list)
             if self.ctx['add_joints']:
                 tf_in += joints_embedding
             else:
@@ -430,6 +430,7 @@ class FutureDecoder(nn.Module):
         dec_in = dec_in.view(-1, sample_num, dec_in.shape[-1])
         z_in = z.view(-1, sample_num, z.shape[-1])
         in_arr = [dec_in, z_in]
+        joints_input = []
         for key in self.input_type:
             if key == 'heading':
                 heading = data['heading_vec'].unsqueeze(1).repeat((1, sample_num, 1))
@@ -442,7 +443,7 @@ class FutureDecoder(nn.Module):
                 in_arr.append(map_enc)
             elif key == 'joints_norm':
                 joints_norm = data['pre_joints_norm'].unsqueeze(1).repeat((1, sample_num, 1))
-                in_arr.append(joints_norm)
+                joints_input.append(joints_norm)
             else:
                 raise ValueError('wrong decode input type!')
         dec_in_z = torch.cat(in_arr, dim=-1)
@@ -495,9 +496,6 @@ class FutureDecoder(nn.Module):
                     raise ValueError('wrong decoder input type!')
             out_in_z = torch.cat(in_arr, dim=-1)
             dec_in_z = torch.cat([dec_in_z, out_in_z], dim=0)
-            if approx_grad:
-                pass
-                dec_in_z = dec_in_z.detach()#.requires_grad_()
 
         seq_out = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
         data[f'{mode}_seq_out'] = seq_out
@@ -685,11 +683,6 @@ class AgentFormer(nn.Module):
                 theta = torch.rand(1).to(device) * np.pi * 2
             for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
                 self.data[key], self.data[f'{key}_scene_norm'] = rotation_2d_torch(self.data[key], theta, self.data['scene_orig'])
-            if np.any(['joints' in key for key in self.input_type]):
-                for key in ['pre_joints', 'fut_joints']:
-                    print("shouldn't be here")
-                    import ipdb; ipdb.set_trace()
-                    self.data[key], self.data[f'{key}_norm'] = rotation_2d_torch(self.data[key], theta)
             if in_data['heading'] is not None:
                 self.data['heading'] += theta
         else:
@@ -699,11 +692,11 @@ class AgentFormer(nn.Module):
             if np.any(['joints' in key for key in self.input_type]):
                 for key in ['pre_joints', 'fut_joints']:
                     # 0 = hip joint is subtracted from each ped's joints to normalize
-                    self.data[f'{key}_norm'] = self.data[key] - self.data[key][:,:,:1]
+                    self.data[f'{key}_norm'] = self.data[key]# - self.data[key][:,:,:1]
 
         self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
         self.data['fut_vel'] = self.data['fut_motion'] - torch.cat([self.data['pre_motion'][[-1]], self.data['fut_motion'][:-1, :]])
-        if np.any(['joints' in key for key in self.input_type]):
+        if np.any(['joints_vel' in key for key in self.input_type]):
             self.data['pre_joints_vel'] = self.data['pre_joints'][1:] - self.data['pre_joints'][:-1]
             self.data['fut_joints_vel'] = self.data['fut_joints'] - torch.cat([self.data['pre_joints'][[-1]], self.data['fut_joints'][:-1, :]])
         self.data['cur_motion'] = self.data['pre_motion'][[-1]]

@@ -10,7 +10,7 @@ import numpy as np
 
 from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
-from .jrdb import jrdb_preprocess
+from .jrdb_joints import jrdb_preprocess
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
 from .jrdb_split import get_jackrabbot_split
