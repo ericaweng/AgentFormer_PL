@@ -4,7 +4,8 @@ description                  : AgentFormer (Before DLow)
 results_root_dir             : results-jrdb
 seed                         : 1
 dataset                      : jrdb
-frame_skip                   : 3
+frame_skip                   : 6
+data_skip                    : 3
 data_root_jrdb               : datasets/jrdb_adjusted
 vis_freq                     : 1
 
@@ -56,7 +57,7 @@ learn_prior                  : true
 
 # ------------------- training parameters -------------------------
 
-lr                           : 1.e-4
+lr                           : 1.e-5
 loss_cfg:
   mse:
     weight: 1.0

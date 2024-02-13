@@ -1,3 +1,5 @@
+"""for when joints embedding is optional, with score and padding of zeros"""
+
 import torch, os, numpy as np, copy
 import cv2
 from .map import GeometricMap
@@ -74,11 +76,6 @@ class jrdb_preprocess(object):
         self.xind, self.zind = 2,3
         self.heading_ind = 4
 
-    # def GetID(self, data):
-    #     id = []
-    #     for ped_id in data:
-    #         id.append(ped_id)
-    #     return id
     def GetID(self, data):
         id = []
         for i in range(data.shape[0]):
@@ -87,21 +84,6 @@ class jrdb_preprocess(object):
 
     def TotalFrame(self):
         return self.num_fr
-
-    def PreData(self, frame):
-        """history is backwards"""
-        position_data = []
-        for i in range(self.past_frames):
-            data = self.gt[self.gt[:, 0] == (frame - i * self.frame_skip)]
-            position_data.append(data)
-        return position_data
-
-    def FutureData(self, frame):
-        position_data = []
-        for i in range(1, self.future_frames + 1):
-            data = self.gt[self.gt[:, 0] == (frame + i * self.frame_skip)]
-            position_data.append(data)
-        return position_data
 
     def PreData_pos_and_joints(self, frame):
         DataList = []
@@ -141,36 +123,14 @@ class jrdb_preprocess(object):
         for idx in cur_ped_id:
             is_invalid = False
             for frame in pre_data[:self.min_past_frames]:
-                if isinstance(frame, list):
-                    import ipdb; ipdb.set_trace()
-                elif idx not in frame['joints']:
-                    is_invalid = True
-                    break
-                elif idx not in frame['pos']:
+                if idx not in frame['pos']:
                     is_invalid = True
                     break
             for frame in fut_data[:self.min_future_frames]:
-                if isinstance(frame, list):
-                    import ipdb; ipdb.set_trace()
-                elif idx not in frame['joints']:
-                    is_invalid = True
-                    break
-                elif idx not in frame['pos']:
+                if idx not in frame['pos']:
                     is_invalid = True
                     break
             if not is_invalid:
-                valid_id.append(idx)
-        return valid_id
-
-    def get_valid_id(self, pre_data, fut_data):
-        cur_ped_id = self.GetID(pre_data[0]['pos'])  # ped_ids this frame
-        valid_id = []
-        for idx in cur_ped_id:
-            exist_pre = [(False if isinstance(frame, list) else (idx in frame[:, 1])) for frame in
-                         pre_data[:self.min_past_frames]]
-            exist_fut = [(False if isinstance(frame, list) else (idx in frame[:, 1])) for frame in
-                         fut_data[:self.min_future_frames]]
-            if np.all(exist_pre) and np.all(exist_fut):
                 valid_id.append(idx)
         return valid_id
 
@@ -180,19 +140,6 @@ class jrdb_preprocess(object):
             heading[i] = cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()[self.heading_ind]
         return heading
 
-    # def get_heading(self, cur_data, valid_id):
-    #     heading = np.zeros(len(valid_id))
-    #     for i, idx in enumerate(valid_id):
-    #         heading[i] = cur_data[cur_data[:, 1] == idx].squeeze()[self.heading_ind]
-    #     return heading
-    # def get_heading_avg(self, all_data, valid_id):
-    #     heading = np.zeros((len(all_data), len(valid_id), 2))
-    #     for ts in range(len(all_data)):
-    #         for i, idx in enumerate(valid_id):
-    #             h = all_data[ts][all_data[ts][:, 1] == idx].squeeze()[self.heading_ind]
-    #             heading[ts, i] = np.cos(h), np.sin(h)
-    #     return heading.mean(0)
-
     def get_heading_avg(self, all_data, valid_id):
         heading = np.zeros((len(all_data), len(valid_id), 2))
         for ts in range(len(all_data)):
@@ -200,97 +147,6 @@ class jrdb_preprocess(object):
                 h = all_data[ts]['pos'][all_data[ts]['pos'][:, 1] == idx].squeeze()[self.heading_ind]
                 heading[ts,i] = np.cos(h), np.sin(h)
         return heading.mean(0)
-
-    def PreJoints(self, history, valid_id):
-        joints = []
-        scores = []
-        for ped_id in valid_id:
-            joints_3d = torch.zeros([self.past_frames, len(self.joints_mask), 2])
-            score = torch.zeros([self.past_frames, len(self.joints_mask)])
-            for frame_i in range(self.past_frames):
-                single_frame = history[frame_i]
-                if len(single_frame['pos'][ped_id]) > 0 and ped_id in single_frame['pos']:
-                    if ped_id in single_frame['joints']:
-                        joints_3d[self.past_frames-1 - frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
-                        score[self.past_frames - 1 - frame_i, :] = torch.from_numpy(
-                                single_frame['score'][ped_id]).float()
-                    else:
-                        joints_3d[self.past_frames-1 - frame_i, :, :] = joints_3d[self.past_frames - frame_i, :, :]
-                        score[self.past_frames - 1 - frame_i, :] = 0.0
-                elif frame_i > 0:
-                    joints_3d[self.past_frames-1 - frame_i, :, :] = joints_3d[self.past_frames - frame_i, :, :]
-                else:
-                    raise ValueError('current id missing in the first frame!')
-            joints.append(joints_3d)
-            scores.append(score)
-
-        return joints, scores
-
-    def FutureJoints(self, history, valid_id):
-        joints = []
-        scores = []
-        for ped_id in valid_id:
-            score = torch.zeros([self.past_frames, 1])
-            joints_3d = torch.zeros([self.future_frames, len(self.joints_mask), 2])
-            for frame_i in range(self.future_frames):
-                single_frame = history[frame_i]
-                if len(single_frame['pos'][ped_id]) > 0 and ped_id in single_frame['pos']:
-                    joints_3d[frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
-                    if ped_id in single_frame['joints']:
-                        joints_3d[frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
-                        score[frame_i, :] = torch.from_numpy(
-                                single_frame['score'][ped_id]).float()
-                    else:
-                        joints_3d[frame_i, :, :] = joints_3d[self.past_frames - frame_i, :, :]
-                        score[frame_i, :] = 0.0
-                elif frame_i > 0:  # if the ped doesn't exist, then just copy previous frame? will it be masked out?
-                    joints_3d[frame_i, :, :] = joints_3d[frame_i - 1, :, :]
-                else:
-                    raise ValueError('current id missing in the first frame!')
-            joints.append(joints_3d)
-        return joints, scores
-
-    def PreMotion(self, DataTuple, valid_id):
-        motion = []
-        mask = []
-        for identity in valid_id:
-            mask_i = torch.zeros(self.past_frames)
-            box_3d = torch.zeros([self.past_frames, 2])
-            for j in range(self.past_frames):
-                past_data = DataTuple[j]  # past_data
-                if len(past_data) > 0 and identity in past_data[:, 1]:
-                    found_data = past_data[past_data[:, 1] == identity].squeeze()[
-                                     [self.xind, self.zind]] / self.past_traj_scale
-                    box_3d[self.past_frames - 1 - j, :] = torch.from_numpy(found_data).float()
-                    mask_i[self.past_frames - 1 - j] = 1.0
-                elif j > 0:
-                    box_3d[self.past_frames - 1 - j, :] = box_3d[self.past_frames - j, :]  # if none, copy from previous
-                else:
-                    raise ValueError('current id missing in the first frame!')
-            motion.append(box_3d)
-            mask.append(mask_i)
-        return motion, mask
-
-    def FutureMotion(self, DataTuple, valid_id):
-        motion = []
-        mask = []
-        for identity in valid_id:
-            mask_i = torch.zeros(self.future_frames)
-            pos_3d = torch.zeros([self.future_frames, 2])
-            for j in range(self.future_frames):
-                fut_data = DataTuple[j]  # cur_data
-                if len(fut_data) > 0 and identity in fut_data[:, 1]:
-                    found_data = fut_data[fut_data[:, 1] == identity].squeeze()[
-                                     [self.xind, self.zind]] / self.traj_scale
-                    pos_3d[j, :] = torch.from_numpy(found_data).float()
-                    mask_i[j] = 1.0
-                elif j > 0:
-                    pos_3d[j, :] = pos_3d[j - 1, :]  # if none, copy from previous
-                else:
-                    raise ValueError('current id missing in the first frame!')
-            motion.append(pos_3d)
-            mask.append(mask_i)
-        return motion, mask
 
     def PreMotionJoints(self, history, valid_id):
         motion = []
@@ -305,16 +161,20 @@ class jrdb_preprocess(object):
             for frame_i in range(self.past_frames):
                 single_frame = history[frame_i]
                 assert len(single_frame['pos']) > 0 and ped_id in single_frame['pos'][:, 1], 'ped_id %d not found in frame %d' % (ped_id, frame_i)
-                assert len(single_frame['joints'][ped_id]) > 0, 'ped_id %d not found in frame %d' % (ped_id, frame_i)
                 pos_history = single_frame['pos']
                 found_data = pos_history[pos_history[:, 1] == ped_id].squeeze()[
                                  [self.xind, self.zind]] / self.past_traj_scale
                 box_3d[self.past_frames - 1 - frame_i, :] = torch.from_numpy(found_data).float()
                 mask_i[self.past_frames - 1 - frame_i] = 1.0
-                joints_3d[self.past_frames - 1 - frame_i, :, :] = torch.from_numpy(
-                        single_frame['joints'][ped_id]).float()
-                score[self.past_frames - 1 - frame_i, :] = torch.from_numpy(
-                        single_frame['score'][ped_id]).float()
+                if len(single_frame['joints'][ped_id]) > 0:  # this ped-frame has kp info
+                    joints_3d[self.past_frames - 1 - frame_i, :, :] = torch.from_numpy(
+                            single_frame['joints'][ped_id]).float()
+                    score[self.past_frames - 1 - frame_i, :] = torch.from_numpy(
+                            single_frame['score'][ped_id]).float()
+                else:
+                    joints_3d[self.past_frames - 1 - frame_i, :, :] = torch.zeros([len(self.joints_mask), 2])
+                    score[self.past_frames - 1 - frame_i, :] = torch.zeros([len(self.joints_mask)])
+
             motion.append(box_3d)
             mask.append(mask_i)
             joints_motion.append(joints_3d)
@@ -356,8 +216,6 @@ class jrdb_preprocess(object):
         assert frame - self.init_frame >= 0 and frame - self.init_frame <= self.TotalFrame() - 1, 'frame is %d, total is %d' % (
         frame, self.TotalFrame())
 
-        # pre_data = self.PreData(frame)
-        # fut_data = self.FutureData(frame)
         pre_data = self.PreData_pos_and_joints(frame)
         fut_data = self.FutureData_pos_and_joints(frame)
 
@@ -365,16 +223,9 @@ class jrdb_preprocess(object):
         if len(pre_data[0]) == 0 or len(fut_data[0]) == 0 or len(valid_id) == 0:
             return None
 
-        # pred_mask = self.get_pred_mask(pre_data[0], valid_id)
         heading = self.get_heading(pre_data[0], valid_id)
         heading_avg = self.get_heading_avg(pre_data, valid_id)
         pred_mask = None
-
-        # pre_motion, pre_motion_mask = self.PreMotion(pre_data, valid_id)  # reverses history
-        # fut_motion, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
-
-        # pre_motion_joints, pre_joints_mask = self.PreJoints(pre_data, valid_id)  # reverses history
-        # fut_motion_joints, fut_joints_mask = self.FutureJoints(fut_data, valid_id)
 
         pre_motion, pre_motion_joints, pre_motion_mask, scores = self.PreMotionJoints(pre_data, valid_id)
         fut_motion, fut_motion_joints, fut_motion_mask, scores = self.FutureMotionJoints(fut_data, valid_id)

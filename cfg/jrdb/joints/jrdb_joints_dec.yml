@@ -4,7 +4,7 @@ description                  : AgentFormer (Before DLow)
 results_root_dir             : results-jrdb
 seed                         : 1
 dataset                      : jrdb
-frame_skip                   : 3
+frame_skip                   : 6
 data_root_jrdb               : datasets/jrdb_adjusted
 vis_freq                     : 1
 
