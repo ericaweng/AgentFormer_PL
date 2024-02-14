@@ -318,7 +318,7 @@ class AnimObj:
                                                        marker=marker,
                                                        linestyle='--',
                                                        # linestyle=linestyles[model_i],
-                                                       alpha=obs_alpha, zorder=2,linewidth=10,
+                                                       alpha=obs_alpha, zorder=2,linewidth=5,#10,
                                                        visible=False)
                         if cfg_names is not None and label is not None:
                             legend_labels.append(label)

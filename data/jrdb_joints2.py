@@ -85,7 +85,7 @@ class jrdb_preprocess(object):
         heading = np.zeros(len(valid_id))
         for i, idx in enumerate(valid_id):
             heading[i] = cur_data[cur_data[:, 1] == idx].squeeze()[-1]
-        heading = np.stack([-np.cos(heading), np.sin(heading)], -1)
+        heading = np.dstack([-np.cos(heading), np.sin(heading)])
         return heading
 
     def get_heading_avg(self, all_data, valid_id):

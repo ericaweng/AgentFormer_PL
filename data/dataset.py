@@ -1,8 +1,5 @@
 import os
-import torch
 
-from itertools import zip_longest
-from torch._six import string_classes
 from torch.utils.data import Dataset
 
 from data.nuscenes_pred_split import get_nuscenes_pred_split
@@ -11,6 +8,7 @@ import numpy as np
 from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
 from .jrdb_joints import jrdb_preprocess
+from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
 from .jrdb_split import get_jackrabbot_split
@@ -79,8 +77,10 @@ class AgentFormerDataset(Dataset):
             process_func = preprocess
         elif parser.dataset == 'nuscenes_pred':
             process_func = preprocess
-        elif parser.dataset == 'jrdb':
+        elif parser.dataset == 'jrdb' and np.any(['joints' in it for it in parser.input_type]):
             process_func = jrdb_preprocess
+        elif parser.dataset == 'jrdb':
+            process_func = jrdb_vanilla
         else:
             assert parser.dataset == 'pedx'
             process_func = PedXPreprocess

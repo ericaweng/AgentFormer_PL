@@ -11,7 +11,7 @@ from metrics import stats_func
 from utils.utils import mkdir_if_missing
 from utils.torch import get_scheduler
 
-from viz_utils_plot import _save_viz_w_pose_3d, _save_viz_w_pose_2d, _save_viz_w_heading, _save_viz_nuscenes
+from viz_utils_plot import _save_viz_w_pose_3d, _save_viz_w_pose_2d, _save_viz_w_heading, _save_viz_nuscenes, _save_viz
 from collision_rejection import run_model_w_col_rej
 
 
@@ -245,7 +245,7 @@ class AgentFormerTrainer(pl.LightningModule):
         elif 'heading' in self.model.input_type:
             all_figs = _save_viz_w_heading(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
         else:
-            all_figs = self._save_viz(outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip], collision_mats[::skip], mode)
+            all_figs = _save_viz(self, outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip], collision_mats[::skip], mode)
 
         # plot videos to tensorboard
         instance_is = np.arange(0, num_test_samples, skip)

@@ -645,7 +645,7 @@ class AgentFormer(nn.Module):
         if self.training and len(data['pre_motion']) > self.max_train_agent:
             in_data = {}
             ind = np.random.choice(len(data['pre_motion']), self.max_train_agent).tolist()
-            for key in ['pre_motion', 'fut_motion', 'fut_motion_mask', 'pre_motion_mask', 'heading', 'heading_avg']:
+            for key in ['pre_motion', 'fut_motion', 'fut_motion_mask', 'pre_motion_mask', 'heading']:
                 in_data[key] = [data[key][i] for i in ind if data[key] is not None]
         else:
             in_data = data
@@ -671,8 +671,8 @@ class AgentFormer(nn.Module):
         else:
             self.data['scene_orig'] = self.data['pre_motion'][-1].mean(dim=0)  # mean over agents
         if in_data['heading'] is not None:
-            self.data['heading'] = torch.tensor(in_data['heading']).float().to(device)
-        if in_data['heading_avg'] is not None:
+            self.data['heading'] = torch.tensor(np.array(in_data['heading'])).float().to(device)
+        if 'heading_avg' in in_data and in_data['heading_avg'] is not None:
             self.data['heading_avg'] = torch.tensor(np.array(in_data['heading_avg'])).float().to(device)
 
         # rotate the scene
@@ -707,7 +707,8 @@ class AgentFormer(nn.Module):
                 self.data['heading_vec'] = torch.stack([torch.cos(self.data['heading']), torch.sin(self.data['heading'])], dim=-1)
             else:
                 self.data['heading_vec'] = self.data['heading']
-            self.data['heading_avg'] = torch.tensor(np.array(in_data['heading_avg'])).float().to(device)
+            if 'heading_avg' in self.data:
+                self.data['heading_avg'] = torch.tensor(np.array(in_data['heading_avg'])).float().to(device)
 
         # agent maps
         if self.use_map:

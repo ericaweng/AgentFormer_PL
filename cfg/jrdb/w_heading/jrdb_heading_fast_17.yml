@@ -5,7 +5,7 @@ results_root_dir             : results-jrdb
 seed                         : 1
 dataset                      : jrdb
 frame_skip                   : 6
-data_skip                    : 6
+data_skip                    : 17
 data_root_jrdb               : datasets/jrdb_adjusted
 vis_freq                     : 1
 
@@ -29,8 +29,7 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel', 'heading']#, 'joints_norm', 'joints_vel']
-#addl_input_type: ['joints', 'joints_vel']
+input_type: ['scene_norm', 'vel', 'heading']
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 19
@@ -57,7 +56,7 @@ learn_prior                  : true
 
 # ------------------- training parameters -------------------------
 
-lr                           : 1.e-4
+lr                           : 3.e-4
 loss_cfg:
   mse:
     weight: 1.0

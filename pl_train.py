@@ -4,6 +4,7 @@ import glob
 import argparse
 from functools import partial
 import torch
+import wandb
 torch.set_float32_matmul_precision('medium')
 torch.set_default_dtype(torch.float32)
 # torch.set_float32_matmul_precision('medium')
@@ -20,8 +21,10 @@ from callbacks import ModelCheckpointCustom
 
 
 def main(args):
-    # initialize AgentFormer config from wandb sweep config or from full config filename
+    # initialize AgentFormer config from full config filename
     cfg = Config(args.cfg)
+    if args.wandb is not None:
+        wandb.init(project=args.project_name, config=cfg, reinit=True)
 
     # Set global random seed
     pl.seed_everything(cfg.seed)
@@ -53,6 +56,13 @@ def main(args):
         sanity_val_steps = 0
         lim_train_batch = int(args.trial_ds_size / args.batch_size)
         lim_val_batch = int(args.trial_ds_size / args.batch_size)
+
+        # stuff
+        args.ckpt_on_trial = True
+        args.val_every = 1
+        args.mp = False
+        args.save_viz_every_time = True
+        args.save_viz = True
     else:
         sanity_val_steps = 1
         lim_train_batch = None
@@ -106,7 +116,10 @@ def main(args):
 
     # initialize logging and checkpointing and other training utils
     # if args.mode == 'train' and (not args.trial or args.log_on_trial):
-    logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
+    if args.wandb is not None:
+        logger = WandbLogger(args.logs_root, name=cfg.id)
+    else:
+        logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_joint')
     checkpoint_callback = ModelCheckpointCustom(monitor='val/ADE_joint', mode='min', save_last=True,
                                           every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
@@ -156,7 +169,6 @@ if __name__ == '__main__':
     parser.add_argument('--save_viz_every_time', '-vv', action='store_true', default=False)
     parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
     parser.add_argument('--logs_root', '-lr', default='results_jrdb', help='where to save checkpoints and tb logs')
-    # parser.add_argument('--log_on_trial', '-l', action='store_true', default=False, help='if true, then also writes logs when --trial is also specified (o/w does not)')
     parser.add_argument('--ckpt_on_trial', '-l', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)
@@ -169,10 +181,7 @@ if __name__ == '__main__':
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')
     parser.add_argument('--start_frame', '-sf', default=None, type=int, help="frame to start loading data from, if you don't want to load entire dataset")
     parser.add_argument('--dont_save_test_results', '-dstr', dest='save_test_results', action='store_false', default=True, help='whether or not to save test results stats to tsv file (on test mode)')
-    parser.add_argument('--wandb_sweep', '-ws', action='store_true', default=False, help='runs wandb sweep with id given by args.sweep_id')
-    parser.add_argument('--sweep_id', '-sid', default=None, help='if given, continues wandb sweep with id given by args.sweep_id')
-    parser.add_argument('--new_sweep', '-ns', action='store_true', default=False, help='if true, then starts new wandb sweep')
-    parser.add_argument('--project_name', '-p', default='af_dlow_sfm', help='wandb project name')
+    parser.add_argument('--wandb', '-wb', default=None, help='wandb project name')
     args = parser.parse_args()
 
     main(args)

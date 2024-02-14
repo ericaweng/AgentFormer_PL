@@ -20,14 +20,15 @@ def get_jackrabbot_split():
            'svl-meeting-gates-2-2019-04-08_1',  # impercitible slight rotation
            'tressider-2019-03-16_0',
            'tressider-2019-03-16_1']
+
     test = ['stlc-111-2019-04-19_0',
             'svl-meeting-gates-2-2019-04-08_0',
             'svl-meeting-gates-2-2019-04-08_1',  # impercitible slight rotation
             'tressider-2019-03-16_0',
             'tressider-2019-03-16_1']
 
-    #### Ronnie's split #####
 
+    #### Ronnie's split #####
     # train = [
     #          'gates-ai-lab-2019-02-08_0',
     #          'hewlett-packard-intersection-2019-01-24_0',
