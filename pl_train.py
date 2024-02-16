@@ -168,7 +168,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_viz', '-v', action='store_true', default=False)
     parser.add_argument('--save_viz_every_time', '-vv', action='store_true', default=False)
     parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
-    parser.add_argument('--logs_root', '-lr', default='results_jrdb', help='where to save checkpoints and tb logs')
+    parser.add_argument('--logs_root', '-lr', default='results_jrdb_debug', help='where to save checkpoints and tb logs')
     parser.add_argument('--ckpt_on_trial', '-l', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
     parser.add_argument('--log_graph', '-g', action='store_true', default=False)

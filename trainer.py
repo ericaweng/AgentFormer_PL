@@ -238,9 +238,9 @@ class AgentFormerTrainer(pl.LightningModule):
         skip = max(1, int(num_test_samples / self.args.save_num))
         if 'nuscenes' in self.cfg.id:
             all_figs = _save_viz_nuscenes(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-        elif np.any(['joint' in key for key in self.model.input_type]) and self.model.context_encoder.joints_dim == 3:
+        elif 'joints' in self.cfg.id or 'kp' in self.cfg.id and self.model.context_encoder.kp_dim == 3:
             all_figs = _save_viz_w_pose_3d(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-        elif np.any(['joint' in key for key in self.model.input_type]) and self.model.context_encoder.joints_dim == 2:
+        elif 'joints' in self.cfg.id or 'kp' in self.cfg.id and self.model.context_encoder.kp_dim == 2:
             all_figs = _save_viz_w_pose_2d(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
         elif 'heading' in self.model.input_type:
             all_figs = _save_viz_w_heading(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)

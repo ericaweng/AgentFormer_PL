@@ -1,6 +1,7 @@
-import torch, os, numpy as np, copy
-import cv2
-from .map import GeometricMap
+""" dataloader for jrdb for positions + heading only"""
+
+import torch
+import numpy as np
 
 
 class jrdb_preprocess(object):
@@ -93,7 +94,7 @@ class jrdb_preprocess(object):
         for ts in range(len(all_data)):
             for i, idx in enumerate(valid_id):
                 h = all_data[ts][all_data[ts][:, 1] == idx].squeeze()[-1]
-                heading[ts,i] = np.cos(h), np.sin(h)
+                heading[ts,i] = np.stack([-np.cos(h), np.sin(h)])
         return heading.mean(0)
 
     def PreMotion(self, DataTuple, valid_id):

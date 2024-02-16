@@ -1,13 +1,12 @@
 # ------------------- General Options -------------------------
 
 description                  : AgentFormer (Before DLow)
-results_root_dir             : results
+results_root_dir             : results-jrdb
 seed                         : 1
-dataset                      : pedx
-data_root_h36m               : datasets/h36m
-data_root_pedx               : datasets/pedx
-data_root_ethucy             : datasets/eth_ucy
-data_root_nuscenes_pred      : datasets/nuscenes_pred
+dataset                      : jrdb
+frame_skip                   : 6
+data_skip                    : 1
+data_root_jrdb               : datasets/jrdb_adjusted
 vis_freq                     : 1
 
 # ------------------- Feature Extractor -------------------------
@@ -21,7 +20,7 @@ traj_scale                   : 1
 motion_dim                   : 2
 forecast_dim                 : 2
 
-# ------------------- Model -------------------------
+# ------------------- model -------------------------
 
 #kp_mask:
 model_id: agentformer
@@ -30,35 +29,44 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel', 'kp_norm', 'kp_vel']
-#addl_input_type: ['joints', 'kp_vel']
+input_type: ['scene_norm', 'vel', 'heading', 'kp_norm', 'kp_vel', 'kp_scores', 'cam_intrinsics', 'cam_extrinsics']
 pred_type: 'scene_norm'
+dataloader_version: 2  # if we require that all trajectory data must have joints, and thus use new joints dataloader, rather than old only-heading dataloader
 sn_out_type: 'norm'
 max_train_agent: 19
 pos_concat: true
 rand_rot_scene: false
 scene_orig_all_past: true
 
+# dimensions of things
+input_type_to_dims: {'scene_norm': 2, 'vel': 2, 'heading': 2, 'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 34, 'cam_intrinsics': 9, 'cam_extrinsics': 7}
+
 context_encoder:
   nlayer: 2
+  kp_dim: 2
+  num_joints: 17
 
 future_decoder:
   nlayer: 2
   out_mlp_dim: [512, 256]
+  kp_dim: 2
+  num_joints: 17
 
 future_encoder:
   nlayer: 2
   out_mlp_dim: [512, 256]
+  kp_dim: 2
+  num_joints: 17
 
-# ------------------- VAE-------------------------
+# ------------------- vae-------------------------
 
 nz                           : 32
 sample_k                     : 5
 learn_prior                  : true
 
-# ------------------- Training Parameters -------------------------
+# ------------------- training parameters -------------------------
 
-lr                           : 1.e-5
+lr                           : 5.e-5
 loss_cfg:
   mse:
     weight: 1.0
@@ -70,11 +78,10 @@ loss_cfg:
     k: 5
 
 batch_size                   : 1
-num_epochs                   : 30
+num_epochs                   : 100
 lr_fix_epochs                : 10
 lr_scheduler: 'step'
 decay_step: 10
 decay_gamma: 0.5
 print_freq                   : 20
 model_save_freq              : 10
-

@@ -5,7 +5,7 @@ results_root_dir             : results-jrdb
 seed                         : 1
 dataset                      : jrdb
 frame_skip                   : 6
-data_skip                    : 5
+data_skip                    : 3
 data_root_jrdb               : datasets/jrdb_adjusted
 vis_freq                     : 1
 
@@ -22,14 +22,14 @@ forecast_dim                 : 2
 
 # ------------------- model -------------------------
 
-#joints_mask:
+#kp_mask:
 model_id: agentformer
 tf_version: v2
 tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel']
+input_type: ['scene_norm', 'vel', 'heading']
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 19

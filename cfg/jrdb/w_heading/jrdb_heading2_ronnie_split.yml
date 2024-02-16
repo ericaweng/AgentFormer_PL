@@ -21,15 +21,15 @@ forecast_dim                 : 2
 
 # ------------------- model -------------------------
 
-#joints_mask:
+#kp_mask:
 model_id: agentformer
 tf_version: v2
 tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel', 'heading']#, 'joints_norm', 'joints_vel']
-#addl_input_type: ['joints', 'joints_vel']
+input_type: ['scene_norm', 'vel', 'heading']#, 'kp_norm', 'kp_vel']
+#addl_input_type: ['joints', 'kp_vel']
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 19

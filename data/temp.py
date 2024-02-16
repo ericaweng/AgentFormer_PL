@@ -51,10 +51,10 @@ class PedXDataset(Dataset):
         self.traj_scale = cfg.traj_scale
         self.past_traj_scale = cfg.traj_scale
         # h36m joints mask
-        # self.joints_mask = np.array([1,2,3,4,5,6,7,8,9,13,14,15,16,18,19,20,26,27,28])-1  # 19 joints
+        # self.kp_mask = np.array([1,2,3,4,5,6,7,8,9,13,14,15,16,18,19,20,26,27,28])-1  # 19 joints
         # pedx joints mask
-        self.joints_mask = np.arange(24)  # ([0,1,2,3,4,5,6,7,8,9,10,11,12,16,18,19,20,26,27,28])-1  # 19 joints
-        self.num_joints = len(self.joints_mask)
+        self.kp_mask = np.arange(24)  # ([0,1,2,3,4,5,6,7,8,9,10,11,12,16,18,19,20,26,27,28])-1  # 19 joints
+        self.num_joints = len(self.kp_mask)
         self.split = split
         self.phase = phase
         self.log = log
@@ -62,7 +62,7 @@ class PedXDataset(Dataset):
         print_log("\n-------------------------- loading %s data --------------------------" % split, log=log)
         self.num_total_samples = 0
         self.num_sample_list = []
-        self.all_joints_data = np.load(self.data_file, allow_pickle=True)['joints'].item()
+        self.all_kp_data = np.load(self.data_file, allow_pickle=True)['joints'].item()
         self.all_trajs_data = np.load(self.data_file, allow_pickle=True)['pos'].item()
         self.subjects_split = np.load(self.splits_file, allow_pickle=True)['data'].item()
         # for each capture date, change all_data to only contain the frames in each split
@@ -71,9 +71,9 @@ class PedXDataset(Dataset):
             print(f"split: {split}")
             min_frame_id = min(self.subjects_split[split][capture_date])
             max_frame_id = max(self.subjects_split[split][capture_date])
-            min_frame_idx = list(self.all_joints_data[capture_date].keys()).index(min_frame_id)
+            min_frame_idx = list(self.all_kp_data[capture_date].keys()).index(min_frame_id)
             print(f"min_frame_idx: {min_frame_idx}")
-            max_frame_idx = list(self.all_joints_data[capture_date].keys()).index(max_frame_id)
+            max_frame_idx = list(self.all_kp_data[capture_date].keys()).index(max_frame_id)
             print(f"max_frame_idx: {max_frame_idx}")
             # verify
             min_frame_idx_pos = list(self.all_trajs_data[capture_date].keys()).index(min_frame_id)
@@ -83,21 +83,21 @@ class PedXDataset(Dataset):
 
             # other verify
             assert min_frame_idx < max_frame_idx, f"min_frame_idx ({min_frame_idx}) must be less than max_frame_idx ({max_frame_idx})"
-            assert max_frame_idx < len(self.all_joints_data[
-                                           capture_date].keys()), f"max_frame_idx ({max_frame_idx}) must be less than len(self.all_data[capture_date].keys()) ({len(self.all_joints_data[capture_date].keys())})"
+            assert max_frame_idx < len(self.all_kp_data[
+                                           capture_date].keys()), f"max_frame_idx ({max_frame_idx}) must be less than len(self.all_data[capture_date].keys()) ({len(self.all_kp_data[capture_date].keys())})"
 
-            print("self.all_data[capture_date].shape:", list(self.all_joints_data[capture_date].values())[0]
-            # self.all_joints_data[capture_date] = np.array(sorted(self.all_joints_data[capture_date].items(), key=lambda x: x[0]))[
+            print("self.all_data[capture_date].shape:", list(self.all_kp_data[capture_date].values())[0]
+            # self.all_kp_data[capture_date] = np.array(sorted(self.all_kp_data[capture_date].items(), key=lambda x: x[0]))[
             #                     min_frame_idx:max_frame_idx + 1]
-            self.all_joints_data[capture_date] = {k:v for k,v in self.all_joints_data[capture_date].items() if k >= min_frame_id and k <= max_frame_id}
+            self.all_kp_data[capture_date] = {k:v for k,v in self.all_kp_data[capture_date].items() if k >= min_frame_id and k <= max_frame_id}
 
             # check that frame_ids are equally-spaced
-            frame_ids = sorted(map(int, self.all_joints_data[capture_date].keys()))
+            frame_ids = sorted(map(int, self.all_kp_data[capture_date].keys()))
             frame_ids_diff = np.diff(frame_ids)
             assert np.all(frame_ids_diff == frame_ids_diff[0]), f"frame_ids_diff ({frame_ids_diff}) must be equal to frame_ids_diff[0] ({frame_ids_diff[0]})"
 
-            print("self.all_data[capture_date].shape:", np.array(self.all_joints_data[capture_date].values()).shape)
-            self.num_frames_total += len(self.all_joints_data[capture_date])
+            print("self.all_data[capture_date].shape:", np.array(self.all_kp_data[capture_date].values()).shape)
+            self.num_frames_total += len(self.all_kp_data[capture_date])
         print(f"num_frames_total: {self.num_frames_total}")
         import ipdb; ipdb.set_trace()
 
@@ -117,7 +117,7 @@ class PedXDataset(Dataset):
     def load_sequence(self, capture_date):
         # make the input data dictionary into a numpy array
         start_frame = 0
-        num_seq_samples = self.all_joints_data.shape[0] - (self.min_past_frames + self.min_future_frames - 1) * self.frame_skip
+        num_seq_samples = self.all_kp_data.shape[0] - (self.min_past_frames + self.min_future_frames - 1) * self.frame_skip
         end_frame = start_frame + num_seq_samples
         num_valid_samples = 0
         for frame_idx in range(start_frame, end_frame):
@@ -132,19 +132,19 @@ class PedXDataset(Dataset):
         return num_valid_samples > 0
 
     def get_pre_data(self, frame_idx, capture_date):
-        joint_data = self.all_joints_data[capture_date]
+        joint_data = self.all_kp_data[capture_date]
         traj_data = self.all_pos_data[capture_date]
         history_joints = np.zeros((self.past_frames, self.num_joints, 3))
         for i in range(self.past_frames):
-            data = joint_data[frame_idx - i * self.frame_skip][self.joints_mask]
+            data = joint_data[frame_idx - i * self.frame_skip][self.kp_mask]
             history_joints[i] = data
         return torch.tensor(history_joints)
 
     def get_future_data(self, frame_idx, subject_idx, action):
-        subject_data = self.all_joints_data[subject_idx][action]
+        subject_data = self.all_kp_data[subject_idx][action]
         future = np.zeros((self.future_frames, self.num_joints, 3))
         for i in range(1, self.future_frames + 1):
-            data = subject_data[frame_idx + i * self.frame_skip][self.joints_mask]
+            data = subject_data[frame_idx + i * self.frame_skip][self.kp_mask]
             future[i - 1] = data
         return torch.tensor(future)
 

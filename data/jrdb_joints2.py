@@ -1,6 +1,7 @@
-import torch, os, numpy as np, copy
-import cv2
-from .map import GeometricMap
+""" dataloader for jrdb for positions + heading, 2d_kp, kp score, cam_extrinsics, cam_intrinsics """
+
+import torch
+import numpy as np
 
 
 class jrdb_preprocess(object):
@@ -22,8 +23,26 @@ class jrdb_preprocess(object):
         self.split = split
         self.phase = phase
 
+        # self.data_file = os.path.join(data_root, 'pedx_joint_pos2.npz')
         label_path = f'{data_root}/{seq_name}.txt'
-        self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=str)
+        self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=float)
+
+        path = f'{data_root}/poses_2d.npz'
+        self.data = np.load(path, allow_pickle=True)['arr_0'].item()
+
+        self.all_kp_data = self.data['poses'][seq_name]
+        self.all_score_data = self.data['scores'][seq_name]
+        self.cam_ids = self.data['cam_ids'][seq_name]
+        self.cam_extrinsics = self.data['extrinsics'][seq_name]
+        self.cam_intrinsics = self.data['intrinsics'][seq_name]
+        self.num_intrinsic_dims = 9
+        self.num_extrinsic_dims = 7
+        # self.all_head_heading_data = self.all_data['head_heading'][capture_date]
+        # self.all_body_heading_data = self.all_data['body_heading'][capture_date]
+
+        self.kp_mask = np.arange(17)
+
+        # self.kp_mask = np.array(list(map(int, parser.kp_mask)))  # todo
 
         # check that frame_ids are equally-spaced
         frames = np.unique(self.gt[:, 0].astype(int))
@@ -44,6 +63,7 @@ class jrdb_preprocess(object):
         #     self.gt[row_index][2] = class_names[self.gt[row_index][2]]
         self.gt = self.gt.astype('float32')
         self.xind, self.zind = 2,3
+        self.heading_ind = 4
 
     def GetID(self, data):
         id = []
@@ -54,23 +74,68 @@ class jrdb_preprocess(object):
     def TotalFrame(self):
         return self.num_fr
 
-    def PreData(self, frame):
-        """history is backwards"""
+    def get_data(self, frame_id):
+        if frame_id in self.all_kp_data:
+            assert frame_id in self.all_score_data
+            assert frame_id in self.cam_extrinsics
+            assert frame_id in self.cam_intrinsics
+            data_joints = self.all_kp_data[frame_id]
+            data_score = self.all_score_data[frame_id]
+            cam_ids = self.cam_ids[frame_id]
+            cam_intrinsics = self.cam_intrinsics[frame_id]
+            cam_extrinsics = self.cam_extrinsics[frame_id]
+        else:
+            data_joints = None
+            data_score = None
+            cam_ids = None
+            cam_intrinsics = None
+            cam_extrinsics = None
+
+        data_pos = self.gt[self.gt[:, 0] == frame_id]
+        return {'joints': data_joints, 'pos': data_pos, 'score': data_score, 'cam_ids': cam_ids,
+                         'cam_intrinsics': cam_intrinsics, 'cam_extrinsics': cam_extrinsics}
+
+    def get_pre_data(self, frame):
         DataList = []
         for i in range(self.past_frames):
-            data = self.gt[self.gt[:, 0] == (frame - i * self.frame_skip)]
-            DataList.append(data)
+            frame_id = frame - i * self.frame_skip
+            DataList.append(self.get_data(frame_id))
         return DataList
 
-    def FutureData(self, frame):
+    def get_fut_data(self, frame):
         DataList = []
-        for i in range(1, self.future_frames + 1):
-            data = self.gt[self.gt[:, 0] == (frame + i * self.frame_skip)]
-            DataList.append(data)
+        for i in range(self.future_frames):
+            frame_id = frame + i * self.frame_skip
+            DataList.append(self.get_data(frame_id))
+
         return DataList
+
+    def get_valid_id_pos_and_joints(self, pre_data, fut_data):
+        ''' only return is_valid=True if a ped has pos + 2d joints information '''
+        cur_ped_id = self.GetID(pre_data[0]['pos'])  # ped_ids this frame
+        valid_id = []
+        for idx in cur_ped_id:
+            is_invalid = False
+            for frame in pre_data[:self.min_past_frames]:
+                if idx not in frame['joints']:
+                    is_invalid = True
+                    break
+                elif idx not in frame['pos']:
+                    is_invalid = True
+                    break
+            for frame in fut_data[:self.min_future_frames]:
+                if idx not in frame['joints']:
+                    is_invalid = True
+                    break
+                elif idx not in frame['pos']:
+                    is_invalid = True
+                    break
+            if not is_invalid:
+                valid_id.append(idx)
+        return valid_id
 
     def get_valid_id(self, pre_data, fut_data):
-        cur_ped_id = self.GetID(pre_data[0])  # ped_ids this frame
+        cur_ped_id = self.GetID(pre_data[0]['pos'])  # ped_ids this frame
         valid_id = []
         for idx in cur_ped_id:
             exist_pre = [(False if isinstance(frame, list) else (idx in frame[:, 1])) for frame in
@@ -84,93 +149,108 @@ class jrdb_preprocess(object):
     def get_heading(self, cur_data, valid_id):
         heading = np.zeros(len(valid_id))
         for i, idx in enumerate(valid_id):
-            heading[i] = cur_data[cur_data[:, 1] == idx].squeeze()[-1]
-        heading = np.dstack([-np.cos(heading), np.sin(heading)])
+            heading[i] = cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()[self.heading_ind]
         return heading
 
     def get_heading_avg(self, all_data, valid_id):
         heading = np.zeros((len(all_data), len(valid_id), 2))
         for ts in range(len(all_data)):
             for i, idx in enumerate(valid_id):
-                h = all_data[ts][all_data[ts][:, 1] == idx].squeeze()[-1]
+                h = all_data[ts]['pos'][all_data[ts]['pos'][:, 1] == idx].squeeze()[self.heading_ind]
                 heading[ts,i] = np.cos(h), np.sin(h)
         return heading.mean(0)
 
-    def PreMotion(self, DataTuple, valid_id):
+    def format_data(self, data, num_frames, valid_id, is_pre=False):
         motion = []
         mask = []
-        for identity in valid_id:
-            mask_i = torch.zeros(self.past_frames)
-            box_3d = torch.zeros([self.past_frames, 2])
-            for j in range(self.past_frames):
-                past_data = DataTuple[j]  # past_data
-                if len(past_data) > 0 and identity in past_data[:, 1]:
-                    found_data = past_data[past_data[:, 1] == identity].squeeze()[
-                                     [self.xind, self.zind]] / self.past_traj_scale
-                    box_3d[self.past_frames - 1 - j, :] = torch.from_numpy(found_data).float()
-                    mask_i[self.past_frames - 1 - j] = 1.0
-                elif j > 0:
-                    box_3d[self.past_frames - 1 - j, :] = box_3d[self.past_frames - j, :]  # if none, copy from previous
-                else:
-                    raise ValueError('current id missing in the first frame!')
+        kp_motion = []
+        scores = []
+        cam_ids = []
+        cam_intrinsics = []
+        cam_extrinsics = []
+        for ped_id in valid_id:
+            mask_i = torch.zeros(num_frames)
+            box_3d = torch.zeros([num_frames, 2])
+            kp_3d = torch.zeros([num_frames, len(self.kp_mask), 2])
+            score = torch.zeros([num_frames, len(self.kp_mask)])
+            cam_id = torch.zeros([num_frames])
+            cam_intrinsic = torch.zeros([num_frames, self.num_intrinsic_dims])
+            cam_extrinsic = torch.zeros([num_frames, self.num_extrinsic_dims])
+            for frame_i in range(num_frames):
+                single_frame = data[frame_i]
+
+                if is_pre:
+                    frame_i = num_frames - 1 - frame_i
+
+                assert len(single_frame['pos']) > 0 and ped_id in single_frame['pos'][:, 1], 'ped_id %d not found in frame %d' % (ped_id, frame_i)
+                assert len(single_frame['joints'][ped_id]) > 0, 'ped_id %d not found in frame %d' % (ped_id, frame_i)
+                pos_history = single_frame['pos']
+                found_data = pos_history[pos_history[:, 1] == ped_id].squeeze()[
+                                 [self.xind, self.zind]] / self.past_traj_scale
+                box_3d[frame_i] = torch.from_numpy(found_data).float()
+                mask_i[frame_i] = 1.0
+                kp_3d[frame_i] = torch.from_numpy(single_frame['joints'][ped_id]).float()
+                score[frame_i] = torch.from_numpy(single_frame['score'][ped_id]).float()
+                cam_id[frame_i] = single_frame['cam_ids'][ped_id]
+                cam_intrinsic[frame_i] = torch.from_numpy(single_frame['cam_intrinsics'][ped_id])
+                cam_extrinsic[frame_i] = torch.from_numpy(single_frame['cam_extrinsics'][ped_id])
             motion.append(box_3d)
             mask.append(mask_i)
-        return motion, mask
+            kp_motion.append(kp_3d)
+            scores.append(score)
+            cam_ids.append(cam_id)
+            cam_intrinsics.append(cam_intrinsic)
+            cam_extrinsics.append(cam_extrinsic)
 
-    def FutureMotion(self, DataTuple, valid_id):
-        motion = []
-        mask = []
-        for identity in valid_id:
-            mask_i = torch.zeros(self.future_frames)
-            pos_3d = torch.zeros([self.future_frames, 2])
-            for j in range(self.future_frames):
-                fut_data = DataTuple[j]  # cur_data
-                if len(fut_data) > 0 and identity in fut_data[:, 1]:
-                    found_data = fut_data[fut_data[:, 1] == identity].squeeze()[
-                                     [self.xind, self.zind]] / self.traj_scale
-                    pos_3d[j, :] = torch.from_numpy(found_data).float()
-                    mask_i[j] = 1.0
-                elif j > 0:
-                    pos_3d[j, :] = pos_3d[j - 1, :]  # if none, copy from previous
-                else:
-                    raise ValueError('current id missing in the first frame!')
-            motion.append(pos_3d)
-            mask.append(mask_i)
-        return motion, mask
+        return motion, kp_motion, mask, scores, cam_ids, cam_intrinsics, cam_extrinsics
+
+    def get_formatted_pre_data(self, data, valid_id):
+        return self.format_data(data, self.past_frames, valid_id, is_pre=True)
+
+    def get_formatted_fut_data(self, data_future, valid_id):
+        return self.format_data(data_future, self.future_frames, valid_id)
 
     def __call__(self, frame):
 
         assert frame - self.init_frame >= 0 and frame - self.init_frame <= self.TotalFrame() - 1, 'frame is %d, total is %d' % (
         frame, self.TotalFrame())
 
-        pre_data = self.PreData(frame)
-        fut_data = self.FutureData(frame)
-        valid_id = self.get_valid_id(pre_data, fut_data)
+        pre_data = self.get_pre_data(frame)
+        fut_data = self.get_fut_data(frame)
+
+        valid_id = self.get_valid_id_pos_and_joints(pre_data, fut_data)
         if len(pre_data[0]) == 0 or len(fut_data[0]) == 0 or len(valid_id) == 0:
             return None
 
-        # pred_mask = self.get_pred_mask(pre_data[0], valid_id)
         heading = self.get_heading(pre_data[0], valid_id)
         heading_avg = self.get_heading_avg(pre_data, valid_id)
         pred_mask = None
 
-        pre_motion, pre_motion_mask = self.PreMotion(pre_data, valid_id)  # reverses history
-        fut_motion, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
+        (pre_motion, pre_motion_joints, pre_motion_mask, pre_scores, pre_cam_ids,
+         pre_cam_intrinsics, pre_cam_extrinsics) = self.get_formatted_pre_data(pre_data, valid_id)
+        (fut_motion, fut_motion_joints, fut_motion_mask, fut_scores, fut_cam_ids,
+         fut_cam_intrinsics, fut_cam_extrinsics) = self.get_formatted_fut_data(fut_data, valid_id)
 
         data = {
                 'pre_motion': pre_motion,
+                'pre_motion_mask': pre_motion_mask,
+                'pre_joints': pre_motion_joints,
+                'pre_kp_scores': pre_scores,
+                'pre_cam_id': pre_cam_ids,
+                'pre_cam_intrinsics': pre_cam_intrinsics,
+                'pre_cam_extrinsics': pre_cam_extrinsics,
                 'fut_motion': fut_motion,
                 'fut_motion_mask': fut_motion_mask,
-                'pre_motion_mask': pre_motion_mask,
-                'pre_data': pre_data,
-                'fut_data': fut_data,
+                'fut_joints': fut_motion_joints,
+                'fut_kp_scores': fut_scores,
+                'fut_cam_id': fut_cam_ids,
+                'fut_cam_intrinsics': fut_cam_intrinsics,
+                'fut_cam_extrinsics': fut_cam_extrinsics,
                 'heading': heading,  # only the heading for the last obs timestep
                 'heading_avg': heading_avg,  # the avg heading for all timesteps
-                'valid_id': valid_id,
                 'traj_scale': self.traj_scale,
                 'pred_mask': pred_mask,
                 'scene_map': self.geom_scene_map,
-                # 'scene_vis_map': self.scene_vis_map,
                 'seq': self.seq_name,
                 'frame_scale': 1,
                 'frame': frame,

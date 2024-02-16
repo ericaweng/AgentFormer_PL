@@ -24,16 +24,16 @@ class PedXPreprocess(object):
 
         self.data_file = os.path.join(data_root, 'pedx_joint_pos2.npz')
         self.all_data = np.load(self.data_file, allow_pickle=True)[split].item()
-        self.all_joints_data = self.all_data['joints'][capture_date]
+        self.all_kp_data = self.all_data['joints'][capture_date]
         self.all_trajs_data = self.all_data['pos'][capture_date]  # [frame_id][ped_id] = [x, y, z]
         self.all_head_heading_data = self.all_data['head_heading'][capture_date]
         self.all_body_heading_data = self.all_data['body_heading'][capture_date]
 
-        self.joints_mask = np.arange(24)#([0,1,2,3,4,5,6,7,8,9,10,11,12,16,18,19,20,26,27,28])-1  # 19 joints
-        # self.joints_mask = np.array(list(map(int, parser.joints_mask)))  # todo
-        self.num_joints = len(self.joints_mask)
+        self.kp_mask = np.arange(24)#([0,1,2,3,4,5,6,7,8,9,10,11,12,16,18,19,20,26,27,28])-1  # 19 joints
+        # self.kp_mask = np.array(list(map(int, parser.kp_mask)))  # todo
+        self.num_joints = len(self.kp_mask)
         # check that frame_ids are equally-spaced
-        frames = sorted(map(int, self.all_joints_data.keys()))
+        frames = sorted(map(int, self.all_kp_data.keys()))
         frame_ids_diff = np.diff(frames)
         assert np.all(frame_ids_diff == frame_ids_diff[
             0]), f"frame_ids_diff ({frame_ids_diff}) must be equal to frame_ids_diff[0] ({frame_ids_diff[0]})"
@@ -60,7 +60,7 @@ class PedXPreprocess(object):
     def PreData(self, frame):
         DataList = []
         for i in range(self.past_frames):
-            data_joints = self.all_joints_data[str(frame - i * self.frame_skip).zfill(7)]
+            data_joints = self.all_kp_data[str(frame - i * self.frame_skip).zfill(7)]
             data_pos = self.all_trajs_data[str(frame - i * self.frame_skip).zfill(7)]
             data_body_heading = self.all_body_heading_data[str(frame - i * self.frame_skip).zfill(7)]
             data_head_heading = self.all_head_heading_data[str(frame - i * self.frame_skip).zfill(7)]
@@ -71,7 +71,7 @@ class PedXPreprocess(object):
     def FutureData(self, frame):
         DataList = []
         for i in range(1, self.future_frames + 1):
-            data_joints = self.all_joints_data[str(frame + i * self.frame_skip).zfill(7)]
+            data_joints = self.all_kp_data[str(frame + i * self.frame_skip).zfill(7)]
             data_pos = self.all_trajs_data[str(frame + i * self.frame_skip).zfill(7)]
             DataList.append({'joints': data_joints, 'pos': data_pos})
         return DataList
@@ -102,27 +102,27 @@ class PedXPreprocess(object):
     def PreMotion(self, history, valid_id):
         motion = []
         mask = []
-        joints_motion = []
+        kp_motion = []
         for ped_id in valid_id:
             mask_i = torch.zeros(self.past_frames)
             box_3d = torch.zeros([self.past_frames, 2])
-            joints_3d = torch.zeros([self.past_frames, len(self.joints_mask), 3])
+            kp_3d = torch.zeros([self.past_frames, len(self.kp_mask), 3])
             for frame_i in range(self.past_frames):
                 single_frame = history[frame_i]
                 if len(single_frame['pos'][ped_id]) > 0 and ped_id in single_frame['pos']:
                     found_data = single_frame['pos'][ped_id] / self.past_traj_scale
                     box_3d[self.past_frames-1 - frame_i, :] = torch.from_numpy(found_data).float()
                     mask_i[self.past_frames-1 - frame_i] = 1.0
-                    joints_3d[self.past_frames-1 - frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
+                    kp_3d[self.past_frames-1 - frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
                 elif frame_i > 0:
                     box_3d[self.past_frames-1 - frame_i, :] = box_3d[self.past_frames - frame_i, :]    # if none, copy from previous
-                    joints_3d[self.past_frames-1 - frame_i, :, :] = joints_3d[self.past_frames - frame_i, :, :]
+                    kp_3d[self.past_frames-1 - frame_i, :, :] = kp_3d[self.past_frames - frame_i, :, :]
                 else:
                     raise ValueError('current id missing in the first frame!')
             motion.append(box_3d)
             mask.append(mask_i)
-            joints_motion.append(joints_3d)
-        return motion, joints_motion, mask
+            kp_motion.append(kp_3d)
+        return motion, kp_motion, mask
 
     def FutureMotion(self, history, valid_id):
         motion = []
@@ -131,22 +131,22 @@ class PedXPreprocess(object):
         for ped_id in valid_id:
             mask_i = torch.zeros(self.future_frames)
             box_3d = torch.zeros([self.future_frames, 2])
-            joints_3d = torch.zeros([self.future_frames, len(self.joints_mask), 3])
+            kp_3d = torch.zeros([self.future_frames, len(self.kp_mask), 3])
             for frame_i in range(self.future_frames):
                 single_frame = history[frame_i]
                 if len(single_frame['pos'][ped_id]) > 0 and ped_id in single_frame['pos']:
                     found_data = single_frame['pos'][ped_id] / self.traj_scale
                     box_3d[frame_i, :] = torch.from_numpy(found_data).float()
                     mask_i[frame_i] = 1.0
-                    joints_3d[frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
+                    kp_3d[frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
                 elif frame_i > 0:  # if the ped doesn't exist, then just copy previous frame? will it be masked out?
                     box_3d[frame_i, :] = box_3d[frame_i - 1, :]
-                    joints_3d[frame_i, :, :] = joints_3d[frame_i - 1, :, :]
+                    kp_3d[frame_i, :, :] = kp_3d[frame_i - 1, :, :]
                 else:
                     raise ValueError('current id missing in the first frame!')
             motion.append(box_3d)
             mask.append(mask_i)
-            joints.append(joints_3d)
+            joints.append(kp_3d)
         return motion, joints, mask
 
     def __call__(self, frame):

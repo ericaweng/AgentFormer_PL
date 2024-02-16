@@ -23,7 +23,7 @@ forecast_dim                 : 2
 
 # ------------------- Model -------------------------
 
-#joints_mask:
+#kp_mask:
 model_id: agentformer
 tf_version: v2
 tf_model_dim: 256

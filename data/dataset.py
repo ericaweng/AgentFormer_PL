@@ -8,6 +8,7 @@ import numpy as np
 from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
 from .jrdb_joints import jrdb_preprocess
+from .jrdb_joints2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
@@ -77,10 +78,16 @@ class AgentFormerDataset(Dataset):
             process_func = preprocess
         elif parser.dataset == 'nuscenes_pred':
             process_func = preprocess
-        elif parser.dataset == 'jrdb' and np.any(['joints' in it for it in parser.input_type]):
-            process_func = jrdb_preprocess
-        elif parser.dataset == 'jrdb':
-            process_func = jrdb_vanilla
+        elif parser.dataset == 'jrdb':# and np.any(['joints' in it for it in parser.input_type]):
+            dl_v = parser.get('dataloader_version', 1)
+            if dl_v == 2:
+                process_func = jrdb_preprocess_new
+            elif dl_v == 1:
+                process_func = jrdb_preprocess
+            else:
+                assert dl_v == 0
+                import ipdb; ipdb.set_trace()
+                process_func = jrdb_vanilla
         else:
             assert parser.dataset == 'pedx'
             process_func = PedXPreprocess
@@ -113,7 +120,7 @@ class AgentFormerDataset(Dataset):
         print(f'total num samples: {num_total_samples}')
 
         datas = []
-        for idx in list(range(0,num_total_samples,self.data_skip)):
+        for idx in list(range(num_total_samples)):
             seq_index, frame = self.get_seq_and_frame(idx)
             seq = self.sequence[seq_index]
             data = seq(frame)
@@ -151,7 +158,9 @@ class AgentFormerDataset(Dataset):
             # datas = datas[:self.trial_ds_size]
             skip = len(datas) // self.trial_ds_size
             datas = datas[::skip]
-        self.sample_list = datas
+        print(f"len(datas): {len(datas)}")
+        self.sample_list = datas[::self.data_skip]
+        print(f"len(sample_list): {len(self.sample_list)}")
 
         print(f'using {len(self.sample_list)} num samples')
         print("------------------------------ done --------------------------------\n")

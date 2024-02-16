@@ -75,8 +75,8 @@ def _save_viz_w_pose_3d(self, outputs, all_sample_vals, collision_mats, tag=''):
         frame = output['frame']
         seq = output['seq']
         obs_traj = output['obs_motion'].numpy()
-        joints_history = output['data']['pre_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
-        joints_future = output['data']['fut_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
+        kp_history = output['data']['pre_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
+        kp_future = output['data']['fut_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
         # swap (num_peds, ts, 2) --> (ts, num_peds, 2) for visualization
         pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
         # (samples, ts, n_peds, 2) --> (samples, ts, n_peds, 2)
@@ -90,8 +90,8 @@ def _save_viz_w_pose_3d(self, outputs, all_sample_vals, collision_mats, tag=''):
         plot_args_list = [anim_save_fn, title, (3, 2)]
         list_of_arg_dicts = []
 
-        args_dict = {'gt_history': joints_history,
-                     'gt_future': joints_future}
+        args_dict = {'gt_history': kp_history,
+                     'gt_future': kp_future}
         list_of_arg_dicts.append(args_dict)
 
         SADE_min_i = np.argmin(seq_to_sample_metrics['ADE'])
@@ -135,8 +135,8 @@ def _save_viz_w_pose_2d(self, outputs, all_sample_vals, collision_mats, tag=''):
         frame = output['frame']
         seq = output['seq']
         obs_traj = output['obs_motion'].numpy()
-        joints_history = output['data']['pre_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
-        joints_future = output['data']['fut_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
+        kp_history = output['data']['pre_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
+        kp_future = output['data']['fut_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
         # swap (num_peds, ts, 2) --> (ts, num_peds, 2) for visualization
         pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
         # (samples, ts, n_peds, 2) --> (samples, ts, n_peds, 2)
@@ -150,8 +150,8 @@ def _save_viz_w_pose_2d(self, outputs, all_sample_vals, collision_mats, tag=''):
         plot_args_list = [anim_save_fn, title, (3, 2)]
         list_of_arg_dicts = []
 
-        args_dict = {'gt_history': joints_history,
-                     'gt_future': joints_future,
+        args_dict = {'gt_history': kp_history,
+                     'gt_future': kp_future,
                      'positions': np.concatenate([obs_traj, pred_gt_traj])}
         list_of_arg_dicts.append(args_dict)
 

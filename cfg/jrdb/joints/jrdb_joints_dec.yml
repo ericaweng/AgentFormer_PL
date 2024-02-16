@@ -21,15 +21,15 @@ forecast_dim                 : 2
 
 # ------------------- model -------------------------
 
-#joints_mask:
+#kp_mask:
 model_id: agentformer
 tf_version: v2
 tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel', 'heading', 'joints_norm', 'joints_vel']
-dec_input_type: ['heading', 'joints_norm', 'joints_vel']
+input_type: ['scene_norm', 'vel', 'heading', 'kp_norm', 'kp_vel']
+dec_input_type: ['heading', 'kp_norm', 'kp_vel']
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 19
@@ -39,19 +39,19 @@ scene_orig_all_past: true
 
 context_encoder:
   nlayer: 2
-  joints_dim: 2
+  kp_dim: 2
   num_joints: 17
 
 future_decoder:
   nlayer: 2
   out_mlp_dim: [512, 256]
-  joints_dim: 2
+  kp_dim: 2
   num_joints: 17
 
 future_encoder:
   nlayer: 2
   out_mlp_dim: [512, 256]
-  joints_dim: 2
+  kp_dim: 2
   num_joints: 17
 
 # ------------------- vae-------------------------
