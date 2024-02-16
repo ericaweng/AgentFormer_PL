@@ -121,47 +121,50 @@ class ContextEncoder(nn.Module):
         self.input_norm_type = cfg.get('input_norm_type', None)
         ctx['context_dim'] = self.model_dim
         self.input_type_to_dims = ctx['input_type_to_dims']
+
         if self.input_type_to_dims is None:
-            raise ValueError('input_type_to_dims is required for ContextEncoder')
-            # self.in_dim = in_dim = self.motion_dim * len([t for t in self.input_type if 'joints' not in t])
+            print('input_type_to_dims is required for ContextEncoder')
+            import ipdb; ipdb.set_trace()
+            self.in_dim = in_dim = self.motion_dim * len([t for t in self.input_type if 'kp' not in t])
+            if 'kp_norm' in self.input_type:
+                self.kp_dim = cfg.get('kp_dim', 3)
+                self.num_kp = cfg.get('num_kp', 24)
+                in_dim_kp = self.num_kp * self.kp_dim
+                if 'kp_vel' in self.input_type:
+                    in_dim_kp += self.num_kp * self.kp_dim
+                if ctx['add_kp']:
+                    self.input_fc_kp = nn.Linear(in_dim_kp, self.model_dim)
+                    self.input_fc = nn.Linear(in_dim, self.model_dim)
+                else:
+                    self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
+                    self.input_fc_kp = nn.Linear(in_dim_kp, self.kp_embedding_dim)
+                    self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
+            else:
+                self.kp_embedding_dim = 0
+                self.input_fc_kp = None
+                self.input_fc = nn.Linear(in_dim, self.model_dim)
+            if 'map' in self.input_type:
+                in_dim += ctx['map_enc_dim'] - self.motion_dim
         else:
             in_dim = 0
-            in_dim_joints = 0
+            in_dim_kp = 0
             for key in self.input_type:
-                if 'joint' in key:
-                    in_dim_joints += self.input_type_to_dims[key]
-                else:
+                if key in ['scene_norm', 'vel', 'heading']:
                     in_dim += self.input_type_to_dims[key]
-            print(f"in_dim_joints: {in_dim_joints}")
-            print(f"in_dim: {in_dim}")
-
-            if ctx['add_joints']:
-                self.input_fc_joints = nn.Linear(in_dim_joints, self.model_dim)
-                self.input_fc = nn.Linear(in_dim, self.model_dim)
+                else:
+                    in_dim_kp += self.input_type_to_dims[key]
+            if in_dim_kp > 0:
+                if ctx['add_kp']:
+                    self.input_fc_kp = nn.Linear(in_dim_kp, self.model_dim)
+                    self.input_fc = nn.Linear(in_dim, self.model_dim)
+                else:
+                    self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
+                    self.input_fc_kp = nn.Linear(in_dim_kp, self.kp_embedding_dim)
+                    self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
             else:
-                self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
-                self.input_fc_joints = nn.Linear(in_dim_joints, self.kp_embedding_dim)
-                self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
-        # if 'map' in self.input_type:
-        #     in_dim += ctx['map_enc_dim'] - self.motion_dim
-        # stuff for accomodating joints into the embedding
-        if False and 'kp_norm' in self.input_type:
-            self.kp_dim = cfg.get('kp_dim', 3)
-            self.num_joints = cfg.get('num_joints', 24)
-            in_dim_joints = self.num_joints * self.kp_dim
-            if 'kp_vel' in self.input_type:
-                in_dim_joints += self.num_joints * self.kp_dim
-            if ctx['add_joints']:
-                self.input_fc_joints = nn.Linear(in_dim_joints, self.model_dim)
+                self.kp_embedding_dim = 0
+                self.input_fc_kp = None
                 self.input_fc = nn.Linear(in_dim, self.model_dim)
-            else:
-                self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
-                self.input_fc_joints = nn.Linear(in_dim_joints, self.kp_embedding_dim)
-                self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
-        else:
-            self.kp_embedding_dim = 0
-            self.input_fc_joints = None
-            self.input_fc = nn.Linear(in_dim, self.model_dim)
 
         if self.input_norm_type == 'running_norm':
             self.input_norm = RunningNorm(in_dim)
@@ -173,65 +176,61 @@ class ContextEncoder(nn.Module):
         self.pos_encoder = PositionalAgentEncoding(self.model_dim, self.dropout, concat=ctx['pos_concat'], max_a_len=ctx['max_agent_len'], use_agent_enc=ctx['use_agent_enc'], agent_enc_learn=ctx['agent_enc_learn'])
 
     def forward(self, data):
-        traj_in = []
+        traj_in_list = []
         kp_input_list = []
         for key in self.input_type:
             if key == 'pos':
-                traj_in.append(data['pre_motion'])
+                traj_in_list.append(data['fut_motion'])
             elif key == 'vel':
-                vel = data['pre_vel']
-                if len(self.input_type) > 1:
-                    vel = torch.cat([vel[[0]], vel], dim=0)
+                vel = data['fut_vel']
                 if self.vel_heading:
                     vel = rotation_2d_torch(vel, -data['heading'])[0]
-                traj_in.append(vel)
+                traj_in_list.append(vel)
             elif key == 'norm':
-                traj_in.append(data['pre_motion_norm'])
+                traj_in_list.append(data['fut_motion_norm'])
             elif key == 'scene_norm':
-                traj_in.append(data['pre_motion_scene_norm'])
+                traj_in_list.append(data['fut_motion_scene_norm'])
             elif key == 'kp_norm':
-                kp_input_list.append(data['pre_kp_norm'].reshape(data['pre_kp_norm'].shape[0], data['pre_kp_norm'].shape[1], -1))
+                kp_input_list.append(data['fut_kp_norm'].reshape(data['fut_kp_norm'].shape[0],
+                                                                   data['fut_kp_norm'].shape[1], -1))
             elif key == 'kp_vel':
-                vel = data['pre_kp_vel']
-                if len(self.input_type) > 1:
-                    vel = torch.cat([vel[[0]], vel], dim=0)
+                vel = data['fut_kp_vel']
+                # vel = torch.cat([vel[[0]], vel], dim=0)  # unsure what this is for
                 kp_input_list.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
             elif key == 'kp_scores':
-                kp_input_list.append(data['pre_kp_scores'].reshape(data['pre_kp_scores'].shape[0], data['pre_kp_scores'].shape[1], -1))
+                kp_input_list.append(data['fut_kp_scores'].reshape(data['fut_kp_scores'].shape[0], data['fut_kp_scores'].shape[1], -1))
             elif key == 'cam_id':
-                kp_input_list.append(data['pre_cam_id'].reshape(data['pre_cam_id'].shape[0], data['pre_cam_id'].shape[1], -1))
+                kp_input_list.append(data['fut_cam_id'].reshape(data['fut_cam_id'].shape[0], data['fut_cam_id'].shape[1], -1))
             elif key == 'cam_intrinsics':
-                kp_input_list.append(data['pre_cam_intrinsics'].reshape(data['pre_cam_intrinsics'].shape[0], data['pre_cam_intrinsics'].shape[1], -1))
+                kp_input_list.append(data['fut_cam_intrinsics'].reshape(data['fut_cam_intrinsics'].shape[0], data['fut_cam_intrinsics'].shape[1], -1))
             elif key == 'cam_extrinsics':
-                kp_input_list.append(data['pre_cam_extrinsics'].reshape(data['pre_cam_extrinsics'].shape[0], data['pre_cam_extrinsics'].shape[1], -1))
+                kp_input_list.append(data['fut_cam_extrinsics'].reshape(data['fut_cam_extrinsics'].shape[0], data['fut_cam_extrinsics'].shape[1], -1))
             elif key == 'heading':
-                hv = data['heading_vec'].unsqueeze(0).repeat((data['pre_motion'].shape[0], 1, 1))
-                traj_in.append(hv)
+                hv = data['heading_vec'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
+                traj_in_list.append(hv)
             elif key == 'heading_avg':
-                hv = data['heading_avg'].unsqueeze(0).repeat((data['pre_motion'].shape[0], 1, 1))
-                traj_in.append(hv)
+                hv = data['heading_avg'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
+                traj_in_list.append(hv)
             elif key == 'map':
-                map_enc = data['map_enc'].unsqueeze(0).repeat((data['pre_motion'].shape[0], 1, 1))
-                traj_in.append(map_enc)
+                map_enc = data['map_enc'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
+                traj_in_list.append(map_enc)
+            elif key == 'sf_feat':
+                traj_in_list.append(data['fut_sf_feat'])
             else:
                 raise ValueError('unknown input_type!')
-
-        print(len(traj_in))
-        import ipdb; ipdb.set_trace()
-        traj_in = torch.cat(traj_in, dim=-1)
+        traj_in = torch.cat(traj_in_list, dim=-1)
         traj_in = traj_in.view(-1, traj_in.shape[-1])
         if self.input_norm is not None:
             traj_in = self.input_norm(traj_in)
-        if self.ctx['add_joints']:
+        if self.ctx['add_kp']:
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         else:
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim - self.kp_embedding_dim)
         if len(kp_input_list) > 0:
-            import ipdb; ipdb.set_trace()
-            kp_input_list = torch.cat(kp_input_list, dim=-1) if len(kp_input_list) > 0 else None
-            kp_input_list = kp_input_list.view(-1, 1, kp_input_list.shape[-1])
-            kp_embedding = self.input_fc_joints(kp_input_list)
-            if self.ctx['add_joints']:
+            kp_input_tensor = torch.cat(kp_input_list, dim=-1)
+            kp_input_tensor = kp_input_tensor.view(-1, 1, kp_input_tensor.shape[-1])
+            kp_embedding = self.input_fc_kp(kp_input_tensor)
+            if self.ctx['add_kp']:
                 tf_in += kp_embedding
             else:
                 tf_in = torch.cat([tf_in, kp_embedding], dim=-1)
@@ -273,28 +272,51 @@ class FutureEncoder(nn.Module):
         self.agent_enc_shuffle = ctx['agent_enc_shuffle']
         self.vel_heading = ctx['vel_heading']
         self.input_norm_type = cfg.get('input_norm_type', None)
-        # networks
-        in_dim = forecast_dim * len([t for t in self.input_type if 'joints' not in t])
-        if 'map' in self.input_type:
-            in_dim += ctx['map_enc_dim'] - forecast_dim
-        if 'kp_norm' in self.input_type:
-            self.kp_dim = cfg.get('kp_dim', 3)
-            self.num_joints = cfg.get('num_joints', 24)
-            in_dim_joints = self.num_joints * self.kp_dim
-            if 'kp_vel' in self.input_type:
-                in_dim_joints += self.num_joints * self.kp_dim
-            if ctx['add_joints']:
-                self.input_fc_joints = nn.Linear(in_dim_joints, self.model_dim)
-                self.input_fc = nn.Linear(in_dim, self.model_dim)
-            else:
-                self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
-                self.input_fc_joints = nn.Linear(in_dim_joints, self.kp_embedding_dim)
-                self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
-        else:
-            self.kp_embedding_dim = 0
-            self.input_fc_joints = None
-            self.input_fc = nn.Linear(in_dim, self.model_dim)
+        self.input_type_to_dims = ctx['input_type_to_dims']
 
+        if self.input_type_to_dims is None:
+            self.in_dim = in_dim = self.motion_dim * len([t for t in self.input_type if 'kp' not in t])
+            import ipdb; ipdb.set_trace()
+            if 'kp_norm' in self.input_type:
+                self.kp_dim = cfg.get('kp_dim', 3)
+                self.num_kp = cfg.get('num_kp', 24)
+                in_dim_kp = self.num_kp * self.kp_dim
+                if 'kp_vel' in self.input_type:
+                    in_dim_kp += self.num_kp * self.kp_dim
+                if ctx['add_kp']:
+                    self.input_fc_kp = nn.Linear(in_dim_kp, self.model_dim)
+                    self.input_fc = nn.Linear(in_dim, self.model_dim)
+                else:
+                    self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
+                    self.input_fc_kp = nn.Linear(in_dim_kp, self.kp_embedding_dim)
+                    self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
+            else:
+                self.kp_embedding_dim = 0
+                self.input_fc_kp = None
+                self.input_fc = nn.Linear(in_dim, self.model_dim)
+        else:
+            in_dim = 0
+            in_dim_kp = 0
+            for key in self.input_type:
+                if key in ['scene_norm', 'vel', 'heading']:
+                    in_dim += self.input_type_to_dims[key]
+                else:
+                    in_dim_kp += self.input_type_to_dims[key]
+            if in_dim_kp > 0:
+                if ctx['add_kp']:
+                    self.input_fc_kp = nn.Linear(in_dim_kp, self.model_dim)
+                    self.input_fc = nn.Linear(in_dim, self.model_dim)
+                else:
+                    self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
+                    self.input_fc_kp = nn.Linear(in_dim_kp, self.kp_embedding_dim)
+                    self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
+            else:
+                self.kp_embedding_dim = 0
+                self.input_fc_kp = None
+                self.input_fc = nn.Linear(in_dim, self.model_dim)
+
+        if 'map' in self.input_type:
+            in_dim += ctx['map_enc_dim'] - self.motion_dim
         if self.input_norm_type == 'running_norm':
             self.input_norm = RunningNorm(in_dim)
         else:
@@ -314,20 +336,20 @@ class FutureEncoder(nn.Module):
         initialize_weights(self.q_z_net.modules())
 
     def forward(self, data, reparam=True):
-        traj_in = []
-        kp_input_list=[]
+        traj_in_list = []
+        kp_input_list = []
         for key in self.input_type:
             if key == 'pos':
-                traj_in.append(data['fut_motion'])
+                traj_in_list.append(data['fut_motion'])
             elif key == 'vel':
                 vel = data['fut_vel']
                 if self.vel_heading:
                     vel = rotation_2d_torch(vel, -data['heading'])[0]
-                traj_in.append(vel)
+                traj_in_list.append(vel)
             elif key == 'norm':
-                traj_in.append(data['fut_motion_norm'])
+                traj_in_list.append(data['fut_motion_norm'])
             elif key == 'scene_norm':
-                traj_in.append(data['fut_motion_scene_norm'])
+                traj_in_list.append(data['fut_motion_scene_norm'])
             elif key == 'kp_norm':
                 kp_input_list.append(data['fut_kp_norm'].reshape(data['fut_kp_norm'].shape[0],
                                                                    data['fut_kp_norm'].shape[1], -1))
@@ -345,33 +367,32 @@ class FutureEncoder(nn.Module):
                 kp_input_list.append(data['fut_cam_extrinsics'].reshape(data['fut_cam_extrinsics'].shape[0], data['fut_cam_extrinsics'].shape[1], -1))
             elif key == 'heading':
                 hv = data['heading_vec'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
-                traj_in.append(hv)
+                traj_in_list.append(hv)
             elif key == 'heading_avg':
                 hv = data['heading_avg'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
-                traj_in.append(hv)
+                traj_in_list.append(hv)
             elif key == 'map':
                 map_enc = data['map_enc'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
-                traj_in.append(map_enc)
+                traj_in_list.append(map_enc)
             elif key == 'sf_feat':
-                traj_in.append(data['fut_sf_feat'])
+                traj_in_list.append(data['fut_sf_feat'])
             else:
                 raise ValueError('unknown input_type!')
-        traj_in = torch.cat(traj_in, dim=-1)
+        traj_in = torch.cat(traj_in_list, dim=-1)
         batch_size = traj_in.shape[0]
         traj_in = traj_in.view(-1, traj_in.shape[-1])
         if self.input_norm is not None:
             traj_in = self.input_norm(traj_in)
-        if self.ctx['add_joints']:
+        if self.ctx['add_kp']:
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         else:
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim - self.kp_embedding_dim)
         # tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         if len(kp_input_list)> 0:
-            import ipdb; ipdb.set_trace()
-            kp_input_list = torch.cat(kp_input_list, dim=-1) if len(kp_input_list) > 0 else None
-            kp_input_list = kp_input_list.view(-1, 1, kp_input_list.shape[-1])
-            kp_embedding = self.input_fc_joints(kp_input_list)
-            if self.ctx['add_joints']:
+            kp_input_tensor = torch.cat(kp_input_list, dim=-1)
+            kp_input_tensor = kp_input_tensor.view(-1, 1, kp_input_tensor.shape[-1])
+            kp_embedding = self.input_fc_kp(kp_input_tensor)
+            if self.ctx['add_kp']:
                 tf_in += kp_embedding
             else:
                 tf_in = torch.cat([tf_in, kp_embedding], dim=-1)
@@ -614,7 +635,7 @@ class AgentFormer(nn.Module):
         self.ctx = {
             'tf_cfg': cfg.get('tf_cfg', {}),
             'nz': cfg.nz,
-            'add_joints': cfg.get('add_joints', True),  # if not add, then concat
+            'add_kp': cfg.get('add_kp', True),  # if not add, then concat
             'z_type': cfg.get('z_type', 'gaussian'),
             'future_frames': cfg.future_frames,
             'past_frames': cfg.past_frames,
@@ -684,7 +705,6 @@ class AgentFormer(nn.Module):
 
     def set_data(self, data):
         device = self.device
-        print(f"data: {data.keys()}")
         if self.training and len(data['pre_motion']) > self.max_train_agent:
             in_data = {}
             ind = np.random.choice(len(data['pre_motion']), self.max_train_agent).tolist()
@@ -704,13 +724,13 @@ class AgentFormer(nn.Module):
         self.data['pre_motion'] = torch.stack(in_data['pre_motion'], dim=0).to(device).transpose(0, 1).contiguous()  # swap batch and time dim
         self.data['fut_motion'] = torch.stack(in_data['fut_motion'], dim=0).to(device).transpose(0, 1).contiguous()
         # if np.any(['joints' in key for key in self.input_type]):
-        #     self.data['pre_joints'] = torch.stack(in_data['pre_joints'], dim=0).to(device).transpose(0, 1).contiguous()
-        #     self.data['fut_joints'] = torch.stack(in_data['fut_joints'], dim=0).to(device).transpose(0, 1).contiguous()
+        #     self.data['pre_kp'] = torch.stack(in_data['pre_kp'], dim=0).to(device).transpose(0, 1).contiguous()
+        #     self.data['fut_kp'] = torch.stack(in_data['fut_kp'], dim=0).to(device).transpose(0, 1).contiguous()
         # flip the z, bc the people are upside-down
-        # self.data['pre_joints'] *= -1
-        # self.data['fut_joints'] *= -1
-        self.data['pre_joints'][...,1] *= -1
-        self.data['fut_joints'][...,1] *= -1
+        # self.data['pre_kp'] *= -1
+        # self.data['fut_kp'] *= -1
+        self.data['pre_kp'][...,1] *= -1
+        self.data['fut_kp'][...,1] *= -1
         self.data['fut_motion_orig'] = torch.stack(in_data['fut_motion'], dim=0).to(device)   # future motion without transpose
         self.data['fut_mask'] = torch.stack(in_data['fut_motion_mask'], dim=0).to(device)
         self.data['pre_mask'] = torch.stack(in_data['pre_motion_mask'], dim=0).to(device)
@@ -738,16 +758,16 @@ class AgentFormer(nn.Module):
             theta = torch.zeros(1).to(device)
             for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
                 self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   #  subtract last obs, meaned over agents
-            if np.any(['joints' in key for key in self.input_type]):
-                for key in ['pre_joints', 'fut_joints']:
+            if 'kp_norm' in self.input_type and 'kp_norm' in self.input_type:
+                for key in ['pre_kp', 'fut_kp']:
                     # 0 = hip joint is subtracted from each ped's joints to normalize
-                    self.data[f'{key}_norm'] = self.data[key]# - self.data[key][:,:,:1]
+                    self.data[f'{key}_norm'] = self.data[key]# - self.data[key][:,:,:1]  # already normalized in data processing tho
 
         self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
         self.data['fut_vel'] = self.data['fut_motion'] - torch.cat([self.data['pre_motion'][[-1]], self.data['fut_motion'][:-1, :]])
         if np.any(['kp_vel' in key for key in self.input_type]):
-            self.data['pre_kp_vel'] = self.data['pre_joints'][1:] - self.data['pre_joints'][:-1]
-            self.data['fut_kp_vel'] = self.data['fut_joints'] - torch.cat([self.data['pre_joints'][[-1]], self.data['fut_joints'][:-1, :]])
+            self.data['pre_kp_vel'] = self.data['pre_kp'][1:] - self.data['pre_kp'][:-1]
+            self.data['fut_kp_vel'] = self.data['fut_kp'] - torch.cat([self.data['pre_kp'][[-1]], self.data['fut_kp'][:-1, :]])
         self.data['cur_motion'] = self.data['pre_motion'][[-1]]
         self.data['pre_motion_norm'] = self.data['pre_motion'][:-1] - self.data['cur_motion']   # subtract last obs pos
         self.data['fut_motion_norm'] = self.data['fut_motion'] - self.data['cur_motion']

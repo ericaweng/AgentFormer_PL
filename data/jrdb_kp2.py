@@ -79,20 +79,20 @@ class jrdb_preprocess(object):
             assert frame_id in self.all_score_data
             assert frame_id in self.cam_extrinsics
             assert frame_id in self.cam_intrinsics
-            data_joints = self.all_kp_data[frame_id]
+            data_kp = self.all_kp_data[frame_id]
             data_score = self.all_score_data[frame_id]
             cam_ids = self.cam_ids[frame_id]
             cam_intrinsics = self.cam_intrinsics[frame_id]
             cam_extrinsics = self.cam_extrinsics[frame_id]
         else:
-            data_joints = None
+            data_kp = None
             data_score = None
             cam_ids = None
             cam_intrinsics = None
             cam_extrinsics = None
 
         data_pos = self.gt[self.gt[:, 0] == frame_id]
-        return {'joints': data_joints, 'pos': data_pos, 'score': data_score, 'cam_ids': cam_ids,
+        return {'kp': data_kp, 'pos': data_pos, 'score': data_score, 'cam_ids': cam_ids,
                          'cam_intrinsics': cam_intrinsics, 'cam_extrinsics': cam_extrinsics}
 
     def get_pre_data(self, frame):
@@ -110,21 +110,21 @@ class jrdb_preprocess(object):
 
         return DataList
 
-    def get_valid_id_pos_and_joints(self, pre_data, fut_data):
-        ''' only return is_valid=True if a ped has pos + 2d joints information '''
+    def get_valid_id_pos_and_kp(self, pre_data, fut_data):
+        ''' only return is_valid=True if a ped has pos + 2d kp information '''
         cur_ped_id = self.GetID(pre_data[0]['pos'])  # ped_ids this frame
         valid_id = []
         for idx in cur_ped_id:
             is_invalid = False
             for frame in pre_data[:self.min_past_frames]:
-                if idx not in frame['joints']:
+                if idx not in frame['kp']:
                     is_invalid = True
                     break
                 elif idx not in frame['pos']:
                     is_invalid = True
                     break
             for frame in fut_data[:self.min_future_frames]:
-                if idx not in frame['joints']:
+                if idx not in frame['kp']:
                     is_invalid = True
                     break
                 elif idx not in frame['pos']:
@@ -183,13 +183,13 @@ class jrdb_preprocess(object):
                     frame_i = num_frames - 1 - frame_i
 
                 assert len(single_frame['pos']) > 0 and ped_id in single_frame['pos'][:, 1], 'ped_id %d not found in frame %d' % (ped_id, frame_i)
-                assert len(single_frame['joints'][ped_id]) > 0, 'ped_id %d not found in frame %d' % (ped_id, frame_i)
+                assert len(single_frame['kp'][ped_id]) > 0, 'ped_id %d not found in frame %d' % (ped_id, frame_i)
                 pos_history = single_frame['pos']
                 found_data = pos_history[pos_history[:, 1] == ped_id].squeeze()[
                                  [self.xind, self.zind]] / self.past_traj_scale
                 box_3d[frame_i] = torch.from_numpy(found_data).float()
                 mask_i[frame_i] = 1.0
-                kp_3d[frame_i] = torch.from_numpy(single_frame['joints'][ped_id]).float()
+                kp_3d[frame_i] = torch.from_numpy(single_frame['kp'][ped_id]).float()
                 score[frame_i] = torch.from_numpy(single_frame['score'][ped_id]).float()
                 cam_id[frame_i] = single_frame['cam_ids'][ped_id]
                 cam_intrinsic[frame_i] = torch.from_numpy(single_frame['cam_intrinsics'][ped_id])
@@ -218,7 +218,7 @@ class jrdb_preprocess(object):
         pre_data = self.get_pre_data(frame)
         fut_data = self.get_fut_data(frame)
 
-        valid_id = self.get_valid_id_pos_and_joints(pre_data, fut_data)
+        valid_id = self.get_valid_id_pos_and_kp(pre_data, fut_data)
         if len(pre_data[0]) == 0 or len(fut_data[0]) == 0 or len(valid_id) == 0:
             return None
 
@@ -226,22 +226,22 @@ class jrdb_preprocess(object):
         heading_avg = self.get_heading_avg(pre_data, valid_id)
         pred_mask = None
 
-        (pre_motion, pre_motion_joints, pre_motion_mask, pre_scores, pre_cam_ids,
+        (pre_motion, pre_motion_kp, pre_motion_mask, pre_scores, pre_cam_ids,
          pre_cam_intrinsics, pre_cam_extrinsics) = self.get_formatted_pre_data(pre_data, valid_id)
-        (fut_motion, fut_motion_joints, fut_motion_mask, fut_scores, fut_cam_ids,
+        (fut_motion, fut_motion_kp, fut_motion_mask, fut_scores, fut_cam_ids,
          fut_cam_intrinsics, fut_cam_extrinsics) = self.get_formatted_fut_data(fut_data, valid_id)
 
         data = {
                 'pre_motion': pre_motion,
                 'pre_motion_mask': pre_motion_mask,
-                'pre_joints': pre_motion_joints,
+                'pre_kp': pre_motion_kp,
                 'pre_kp_scores': pre_scores,
                 'pre_cam_id': pre_cam_ids,
                 'pre_cam_intrinsics': pre_cam_intrinsics,
                 'pre_cam_extrinsics': pre_cam_extrinsics,
                 'fut_motion': fut_motion,
                 'fut_motion_mask': fut_motion_mask,
-                'fut_joints': fut_motion_joints,
+                'fut_kp': fut_motion_kp,
                 'fut_kp_scores': fut_scores,
                 'fut_cam_id': fut_cam_ids,
                 'fut_cam_intrinsics': fut_cam_intrinsics,

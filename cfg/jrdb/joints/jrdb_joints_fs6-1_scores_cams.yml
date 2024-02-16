@@ -39,7 +39,7 @@ rand_rot_scene: false
 scene_orig_all_past: true
 
 # dimensions of things
-input_type_to_dims: {'scene_norm': 2, 'vel': 2, 'heading': 2, 'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 34, 'cam_intrinsics': 9, 'cam_extrinsics': 7}
+input_type_to_dims: {'scene_norm': 2, 'vel': 2, 'heading': 2, 'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 17, 'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1}
 
 context_encoder:
   nlayer: 2

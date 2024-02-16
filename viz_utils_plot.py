@@ -75,8 +75,8 @@ def _save_viz_w_pose_3d(self, outputs, all_sample_vals, collision_mats, tag=''):
         frame = output['frame']
         seq = output['seq']
         obs_traj = output['obs_motion'].numpy()
-        kp_history = output['data']['pre_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
-        kp_future = output['data']['fut_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
+        kp_history = output['data']['pre_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
+        kp_future = output['data']['fut_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
         # swap (num_peds, ts, 2) --> (ts, num_peds, 2) for visualization
         pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
         # (samples, ts, n_peds, 2) --> (samples, ts, n_peds, 2)
@@ -135,8 +135,8 @@ def _save_viz_w_pose_2d(self, outputs, all_sample_vals, collision_mats, tag=''):
         frame = output['frame']
         seq = output['seq']
         obs_traj = output['obs_motion'].numpy()
-        kp_history = output['data']['pre_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
-        kp_future = output['data']['fut_joints'].detach().cpu().numpy().transpose(1, 2, 0, 3)
+        kp_history = output['data']['pre_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
+        kp_future = output['data']['fut_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
         # swap (num_peds, ts, 2) --> (ts, num_peds, 2) for visualization
         pred_gt_traj = output['gt_motion'].numpy().swapaxes(0, 1)
         # (samples, ts, n_peds, 2) --> (samples, ts, n_peds, 2)

@@ -31,7 +31,7 @@ tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
 input_type: ['scene_norm', 'vel', 'kp_norm', 'kp_vel']
-#addl_input_type: ['joints', 'kp_vel']
+#addl_input_type: ['kp', 'kp_vel']
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 19

@@ -40,19 +40,19 @@ scene_orig_all_past: true
 context_encoder:
   nlayer: 2
   kp_dim: 2
-  num_joints: 17
+  num_kp: 17
 
 future_decoder:
   nlayer: 2
   out_mlp_dim: [512, 256]
   kp_dim: 2
-  num_joints: 17
+  num_kp: 17
 
 future_encoder:
   nlayer: 2
   out_mlp_dim: [512, 256]
   kp_dim: 2
-  num_joints: 17
+  num_kp: 17
 
 # ------------------- vae-------------------------
 

@@ -24,14 +24,14 @@ class PedXPreprocess(object):
 
         self.data_file = os.path.join(data_root, 'pedx_joint_pos2.npz')
         self.all_data = np.load(self.data_file, allow_pickle=True)[split].item()
-        self.all_kp_data = self.all_data['joints'][capture_date]
+        self.all_kp_data = self.all_data['kp'][capture_date]
         self.all_trajs_data = self.all_data['pos'][capture_date]  # [frame_id][ped_id] = [x, y, z]
         self.all_head_heading_data = self.all_data['head_heading'][capture_date]
         self.all_body_heading_data = self.all_data['body_heading'][capture_date]
 
-        self.kp_mask = np.arange(24)#([0,1,2,3,4,5,6,7,8,9,10,11,12,16,18,19,20,26,27,28])-1  # 19 joints
+        self.kp_mask = np.arange(24)#([0,1,2,3,4,5,6,7,8,9,10,11,12,16,18,19,20,26,27,28])-1  # 19 kp
         # self.kp_mask = np.array(list(map(int, parser.kp_mask)))  # todo
-        self.num_joints = len(self.kp_mask)
+        self.num_kp = len(self.kp_mask)
         # check that frame_ids are equally-spaced
         frames = sorted(map(int, self.all_kp_data.keys()))
         frame_ids_diff = np.diff(frames)
@@ -60,29 +60,29 @@ class PedXPreprocess(object):
     def PreData(self, frame):
         DataList = []
         for i in range(self.past_frames):
-            data_joints = self.all_kp_data[str(frame - i * self.frame_skip).zfill(7)]
+            data_kp = self.all_kp_data[str(frame - i * self.frame_skip).zfill(7)]
             data_pos = self.all_trajs_data[str(frame - i * self.frame_skip).zfill(7)]
             data_body_heading = self.all_body_heading_data[str(frame - i * self.frame_skip).zfill(7)]
             data_head_heading = self.all_head_heading_data[str(frame - i * self.frame_skip).zfill(7)]
-            DataList.append({'joints': data_joints, 'pos': data_pos,
+            DataList.append({'kp': data_kp, 'pos': data_pos,
                              'head_heading': data_head_heading, 'body_heading': data_body_heading})
         return DataList
 
     def FutureData(self, frame):
         DataList = []
         for i in range(1, self.future_frames + 1):
-            data_joints = self.all_kp_data[str(frame + i * self.frame_skip).zfill(7)]
+            data_kp = self.all_kp_data[str(frame + i * self.frame_skip).zfill(7)]
             data_pos = self.all_trajs_data[str(frame + i * self.frame_skip).zfill(7)]
-            DataList.append({'joints': data_joints, 'pos': data_pos})
+            DataList.append({'kp': data_kp, 'pos': data_pos})
         return DataList
 
     def get_valid_id(self, pre_data, fut_data):
         """ only add peds who exist in all frames in min_past_frames"""
-        peds_this_frame = self.GetID(pre_data[0]['joints'])
+        peds_this_frame = self.GetID(pre_data[0]['kp'])
         valid_ped_ids = []
         for ped_id in peds_this_frame:
-            exist_pre = [(False if isinstance(frame, list) else (ped_id in frame['joints'])) for frame in pre_data[:self.min_past_frames]]
-            exist_fut = [(False if isinstance(frame, list) else (ped_id in frame['joints'])) for frame in fut_data[:self.min_future_frames]]
+            exist_pre = [(False if isinstance(frame, list) else (ped_id in frame['kp'])) for frame in pre_data[:self.min_past_frames]]
+            exist_fut = [(False if isinstance(frame, list) else (ped_id in frame['kp'])) for frame in fut_data[:self.min_future_frames]]
             if np.all(exist_pre) and np.all(exist_fut):
                 valid_ped_ids.append(ped_id)
         return valid_ped_ids
@@ -90,7 +90,7 @@ class PedXPreprocess(object):
     def get_pred_mask(self, cur_data, valid_id):
         pred_mask = np.zeros(len(valid_id), dtype=np.int)
         for i, ped_id in enumerate(valid_id):  # for each ped, get all the
-            pred_mask[i] = np.array([joints for ped_id, joints in sorted(cur_data.items())])[cur_data.keys() == ped_id].squeeze()[-1]
+            pred_mask[i] = np.array([kp for ped_id, kp in sorted(cur_data.items())])[cur_data.keys() == ped_id].squeeze()[-1]
         return pred_mask
 
     def get_heading(self, cur_data, valid_id):
@@ -113,7 +113,7 @@ class PedXPreprocess(object):
                     found_data = single_frame['pos'][ped_id] / self.past_traj_scale
                     box_3d[self.past_frames-1 - frame_i, :] = torch.from_numpy(found_data).float()
                     mask_i[self.past_frames-1 - frame_i] = 1.0
-                    kp_3d[self.past_frames-1 - frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
+                    kp_3d[self.past_frames-1 - frame_i, :, :] = torch.from_numpy(single_frame['kp'][ped_id]).float()
                 elif frame_i > 0:
                     box_3d[self.past_frames-1 - frame_i, :] = box_3d[self.past_frames - frame_i, :]    # if none, copy from previous
                     kp_3d[self.past_frames-1 - frame_i, :, :] = kp_3d[self.past_frames - frame_i, :, :]
@@ -127,7 +127,7 @@ class PedXPreprocess(object):
     def FutureMotion(self, history, valid_id):
         motion = []
         mask = []
-        joints = []
+        kp = []
         for ped_id in valid_id:
             mask_i = torch.zeros(self.future_frames)
             box_3d = torch.zeros([self.future_frames, 2])
@@ -138,7 +138,7 @@ class PedXPreprocess(object):
                     found_data = single_frame['pos'][ped_id] / self.traj_scale
                     box_3d[frame_i, :] = torch.from_numpy(found_data).float()
                     mask_i[frame_i] = 1.0
-                    kp_3d[frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
+                    kp_3d[frame_i, :, :] = torch.from_numpy(single_frame['kp'][ped_id]).float()
                 elif frame_i > 0:  # if the ped doesn't exist, then just copy previous frame? will it be masked out?
                     box_3d[frame_i, :] = box_3d[frame_i - 1, :]
                     kp_3d[frame_i, :, :] = kp_3d[frame_i - 1, :, :]
@@ -146,8 +146,8 @@ class PedXPreprocess(object):
                     raise ValueError('current id missing in the first frame!')
             motion.append(box_3d)
             mask.append(mask_i)
-            joints.append(kp_3d)
-        return motion, joints, mask
+            kp.append(kp_3d)
+        return motion, kp, mask
 
     def __call__(self, frame):
 
@@ -164,12 +164,12 @@ class PedXPreprocess(object):
         # pred_mask = self.get_pred_mask(pre_data[0], valid_id)
         heading = self.get_heading(pre_data[0], valid_id)
 
-        pre_motion, pre_motion_joints, pre_motion_mask = self.PreMotion(pre_data, valid_id)
-        fut_motion, fut_motion_joints, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
+        pre_motion, pre_motion_kp, pre_motion_mask = self.PreMotion(pre_data, valid_id)
+        fut_motion, fut_motion_kp, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
 
         data = {
             'pre_motion': pre_motion,
-            'pre_joints': pre_motion_joints,
+            'pre_kp': pre_motion_joints,
             'fut_motion': fut_motion,
             'fut_joints': fut_motion_joints,
             'fut_motion_mask': fut_motion_mask,

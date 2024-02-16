@@ -50,11 +50,11 @@ class PedXDataset(Dataset):
         self.min_future_frames = cfg.get('min_future_frames', self.future_frames)
         self.traj_scale = cfg.traj_scale
         self.past_traj_scale = cfg.traj_scale
-        # h36m joints mask
-        # self.kp_mask = np.array([1,2,3,4,5,6,7,8,9,13,14,15,16,18,19,20,26,27,28])-1  # 19 joints
-        # pedx joints mask
-        self.kp_mask = np.arange(24)  # ([0,1,2,3,4,5,6,7,8,9,10,11,12,16,18,19,20,26,27,28])-1  # 19 joints
-        self.num_joints = len(self.kp_mask)
+        # h36m kp mask
+        # self.kp_mask = np.array([1,2,3,4,5,6,7,8,9,13,14,15,16,18,19,20,26,27,28])-1  # 19 kp
+        # pedx kp mask
+        self.kp_mask = np.arange(24)  # ([0,1,2,3,4,5,6,7,8,9,10,11,12,16,18,19,20,26,27,28])-1  # 19 kp
+        self.num_kp = len(self.kp_mask)
         self.split = split
         self.phase = phase
         self.log = log
@@ -62,7 +62,7 @@ class PedXDataset(Dataset):
         print_log("\n-------------------------- loading %s data --------------------------" % split, log=log)
         self.num_total_samples = 0
         self.num_sample_list = []
-        self.all_kp_data = np.load(self.data_file, allow_pickle=True)['joints'].item()
+        self.all_kp_data = np.load(self.data_file, allow_pickle=True)['kp'].item()
         self.all_trajs_data = np.load(self.data_file, allow_pickle=True)['pos'].item()
         self.subjects_split = np.load(self.splits_file, allow_pickle=True)['data'].item()
         # for each capture date, change all_data to only contain the frames in each split
@@ -134,15 +134,15 @@ class PedXDataset(Dataset):
     def get_pre_data(self, frame_idx, capture_date):
         joint_data = self.all_kp_data[capture_date]
         traj_data = self.all_pos_data[capture_date]
-        history_joints = np.zeros((self.past_frames, self.num_joints, 3))
+        history_kp = np.zeros((self.past_frames, self.num_kp, 3))
         for i in range(self.past_frames):
             data = joint_data[frame_idx - i * self.frame_skip][self.kp_mask]
-            history_joints[i] = data
-        return torch.tensor(history_joints)
+            history_kp[i] = data
+        return torch.tensor(history_kp)
 
     def get_future_data(self, frame_idx, subject_idx, action):
         subject_data = self.all_kp_data[subject_idx][action]
-        future = np.zeros((self.future_frames, self.num_joints, 3))
+        future = np.zeros((self.future_frames, self.num_kp, 3))
         for i in range(1, self.future_frames + 1):
             data = subject_data[frame_idx + i * self.frame_skip][self.kp_mask]
             future[i - 1] = data

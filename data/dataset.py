@@ -7,8 +7,8 @@ import numpy as np
 
 from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
-from .jrdb_joints import jrdb_preprocess
-from .jrdb_joints2 import jrdb_preprocess as jrdb_preprocess_new
+from .jrdb_kp import jrdb_preprocess
+from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
@@ -78,7 +78,7 @@ class AgentFormerDataset(Dataset):
             process_func = preprocess
         elif parser.dataset == 'nuscenes_pred':
             process_func = preprocess
-        elif parser.dataset == 'jrdb':# and np.any(['joints' in it for it in parser.input_type]):
+        elif parser.dataset == 'jrdb':# and np.any(['kp' in it for it in parser.input_type]):
             dl_v = parser.get('dataloader_version', 1)
             if dl_v == 2:
                 process_func = jrdb_preprocess_new
