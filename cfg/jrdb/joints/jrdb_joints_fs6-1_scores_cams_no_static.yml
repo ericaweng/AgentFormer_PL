@@ -40,7 +40,7 @@ scene_orig_all_past: true
 
 # dimensions of things
 input_type_to_dims: {'scene_norm': 2, 'vel': 2, 'heading': 2, 'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 17, 'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1}
-interaction_cats_exclude: ['static']
+exclude_cats: ['static']  # exclude static interaction category from training
 
 context_encoder:
   nlayer: 2

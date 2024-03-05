@@ -12,7 +12,7 @@ from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
-from .jrdb_split import get_jackrabbot_split
+from .jrdb_split import get_jackrabbot_split, get_jackrabbot_split_easy
 from .ethucy_split import get_ethucy_split
 
 
@@ -27,6 +27,7 @@ class AgentFormerDataset(Dataset):
         self.data_skip = parser.get('data_skip', 1)
         self.phase = phase
         self.split = split
+        self.dataset = parser.dataset
         self.trial_ds_size = trial_ds_size
         self.data_max_agents = parser.get('data_max_agents', np.inf)
         self.data_min_agents = parser.get('data_min_agents', 0)
@@ -56,7 +57,10 @@ class AgentFormerDataset(Dataset):
             seq_train, seq_val, seq_test = get_stanford_drone_split()
         elif parser.dataset == 'jrdb':
             data_root = parser.data_root_jrdb
-            seq_train, seq_val, seq_test = get_jackrabbot_split()
+            if parser.get('easy_split', False):
+                seq_train, seq_val, seq_test = get_jackrabbot_split_easy()
+            else:
+                seq_train, seq_val, seq_test = get_jackrabbot_split()
             self.init_frame = 0
         elif parser.dataset == 'pedx':
             data_root = parser.data_root_pedx
@@ -86,7 +90,6 @@ class AgentFormerDataset(Dataset):
                 process_func = jrdb_preprocess
             else:
                 assert dl_v == 0
-                import ipdb; ipdb.set_trace()
                 process_func = jrdb_vanilla
         else:
             assert parser.dataset == 'pedx'
@@ -118,14 +121,42 @@ class AgentFormerDataset(Dataset):
             self.sequence.append(preprocessor)
 
         print(f'total num samples: {num_total_samples}')
+        self.num_total_samples = num_total_samples
 
+        self.preprocess_data = True if trial_ds_size is not None else parser.get('preprocess_data', True)
+        if self.preprocess_data:
+            self.get_preprocessed_data(parser.get('dataloader_version', 0), split, num_total_samples, frames_list, start_frame)
+        else:
+            self.sample_list = [None for _ in range(num_total_samples)]
+
+    def get_preprocessed_data(self, dl_v, split, num_total_samples, frames_list, start_frame):
+        """ get data sequence windows from raw data blocks txt files"""
         datas = []
+
+        total_invalid_peds = 0
+        total_valid_peds = 0
+        invalid_peds_this_environment = 0
+        valid_peds_this_environment = 0
+        last_seq = None
         for idx in list(range(num_total_samples)):
             seq_index, frame = self.get_seq_and_frame(idx)
             seq = self.sequence[seq_index]
             data = seq(frame)
             if data is None:
                 continue
+
+            if last_seq is not None and data['seq'] != last_seq:
+                # print(f'invalid_peds in {last_seq}: {invalid_peds_this_environment}, '
+                #       f'valid_peds in {last_seq}: {valid_peds_this_environment}')
+                # print(f'ratio of invalid_peds in {last_seq}: {round(invalid_peds_this_environment / (invalid_peds_this_environment + valid_peds_this_environment), 2)}')
+                invalid_peds_this_environment = 0
+                valid_peds_this_environment = 0
+            last_seq = data['seq']
+            # total_invalid_peds += seq.total_invalid_peds
+            # total_valid_peds += seq.total_valid_peds
+            # invalid_peds_this_environment += seq.total_invalid_peds
+            # valid_peds_this_environment += seq.total_valid_peds
+
             if frames_list is not None and isinstance(frames_list, list) and len(frames_list) > 0 \
                     and frame not in frames_list:
                 continue
@@ -158,17 +189,27 @@ class AgentFormerDataset(Dataset):
             # datas = datas[:self.trial_ds_size]
             skip = len(datas) // self.trial_ds_size
             datas = datas[::skip]
-        print(f"len(datas): {len(datas)}")
+        print(f"len(data) before frame_skip downsample: {len(datas)}")
         self.sample_list = datas[::self.data_skip]
-        print(f"len(sample_list): {len(self.sample_list)}")
+        print(f"len(data) after frame_skip downsample: {len(self.sample_list)}")
+        # print(f'total_invalid_peds: {total_invalid_peds}, total_valid_peds: {total_valid_peds}')
+        # print(f'ratio of invalid_peds: {round(total_invalid_peds / (total_invalid_peds + total_valid_peds), 2)}')
+
 
         print(f'using {len(self.sample_list)} num samples')
+        if dl_v == 0 and split == 'train' and self.dataset == 'jrdb':
+            assert len(self.sample_list) == 8483
+        if dl_v == 0 and split == 'val' and self.dataset == 'jrdb':
+            assert len(self.sample_list) == 3835
+
         print("------------------------------ done --------------------------------\n")
         if len(self.sample_list) < 10:
             print("frames_list:", [data['frame'] for data in self.sample_list])
 
     def __len__(self):
-        return len(self.sample_list)#self.num_total_samples
+        if self.preprocess_data:
+            return len(self.sample_list)
+        return self.num_total_samples
 
     def get_seq_and_frame(self, index):
         index_tmp = index
@@ -183,6 +224,15 @@ class AgentFormerDataset(Dataset):
 
         assert False, 'index is %d, out of range' % (index)
 
+    def get_item_preprocessed(self, idx):
+        return self.sample_list[idx]
+
+    def get_item_online(self, idx):
+        seq_index, frame = self.get_seq_and_frame(idx)
+        seq = self.sequence[seq_index]
+        data = seq(frame)
+        return data
+
     def __getitem__(self, idx):
         """Returns a single example from dataset
             Args:
@@ -190,6 +240,11 @@ class AgentFormerDataset(Dataset):
             Returns:
                 output: Necessary values for scenario
         """
+        if self.preprocess_data:
+            return self.get_item_preprocessed(idx)
+        if self.sample_list[idx] is not None:
+            return self.sample_list[idx]
+        self.sample_list[idx] = self.get_item_online(idx)
         return self.sample_list[idx]
 
     @staticmethod

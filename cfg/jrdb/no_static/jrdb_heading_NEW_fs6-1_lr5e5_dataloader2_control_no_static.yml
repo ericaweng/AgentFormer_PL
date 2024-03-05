@@ -29,35 +29,28 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel', 'heading', 'kp_norm', 'kp_vel', 'kp_scores', 'cam_intrinsics', 'cam_extrinsics']
-pred_type: 'scene_norm'
+input_type: ['scene_norm', 'vel', 'heading']
 dataloader_version: 2  # if we require that all trajectory data must have joints, and thus use new joints dataloader, rather than old only-heading dataloader
+pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 19
 pos_concat: true
 rand_rot_scene: false
 scene_orig_all_past: true
 
-# dimensions of things
 input_type_to_dims: {'scene_norm': 2, 'vel': 2, 'heading': 2, 'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 17, 'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1}
 exclude_cats: ['static']  # exclude static interaction category from training
 
 context_encoder:
   nlayer: 2
-  kp_dim: 2
-  num_joints: 17
 
 future_decoder:
   nlayer: 2
   out_mlp_dim: [512, 256]
-  kp_dim: 2
-  num_joints: 17
 
 future_encoder:
   nlayer: 2
   out_mlp_dim: [512, 256]
-  kp_dim: 2
-  num_joints: 17
 
 # ------------------- vae-------------------------
 

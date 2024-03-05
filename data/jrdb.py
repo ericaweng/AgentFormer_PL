@@ -23,6 +23,10 @@ class jrdb_preprocess(object):
         self.split = split
         self.phase = phase
 
+        # total invalid peds... just see how many there are total
+        self.total_invalid_peds = 0
+        self.total_valid_peds = 0
+
         label_path = f'{data_root}/{seq_name}.txt'
         self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=str)
 
@@ -80,6 +84,9 @@ class jrdb_preprocess(object):
                          fut_data[:self.min_future_frames]]
             if np.all(exist_pre) and np.all(exist_fut):
                 valid_id.append(idx)
+                self.total_valid_peds += 1
+            else:
+                self.total_invalid_peds += 1
         return valid_id
 
     def get_heading(self, cur_data, valid_id):
@@ -161,10 +168,10 @@ class jrdb_preprocess(object):
         data = {
                 'pre_motion': pre_motion,
                 'fut_motion': fut_motion,
-                'fut_motion_mask': fut_motion_mask,
                 'pre_motion_mask': pre_motion_mask,
-                'pre_data': pre_data,
-                'fut_data': fut_data,
+                'fut_motion_mask': fut_motion_mask,
+                # 'pre_data': pre_data,
+                # 'fut_data': fut_data,
                 'heading': heading,  # only the heading for the last obs timestep
                 'heading_avg': heading_avg,  # the avg heading for all timesteps
                 'valid_id': valid_id,

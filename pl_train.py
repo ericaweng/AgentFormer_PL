@@ -1,13 +1,13 @@
 import os
-import sys
 import glob
 import argparse
-from functools import partial
+
+import numpy as np
 import torch
-import wandb
+# import wandb
 torch.set_float32_matmul_precision('medium')
 torch.set_default_dtype(torch.float32)
-# torch.set_float32_matmul_precision('medium')
+
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
@@ -15,7 +15,6 @@ from pytorch_lightning.strategies import DDPStrategy
 
 from data.datamodule import AgentFormerDataModule
 from utils.config import Config
-from utils.utils import get_timestring
 from trainer import AgentFormerTrainer
 from callbacks import ModelCheckpointCustom
 
@@ -23,6 +22,7 @@ from callbacks import ModelCheckpointCustom
 def main(args):
     # initialize AgentFormer config from full config filename
     cfg = Config(args.cfg)
+
     if args.wandb is not None:
         wandb.init(project=args.project_name, config=cfg, reinit=True)
 
@@ -89,6 +89,8 @@ def main(args):
             models = sorted(glob.glob(os.path.join(default_root_dir, f'*epoch=*.ckpt')))
         if len(models) == 0:
             raise FileNotFoundError(f'If testing, must exist model in {default_root_dir}')
+    elif args.mode == 'viz':
+        models = []
     else:
         raise NotImplementedError
     print("models:", models)
@@ -110,8 +112,6 @@ def main(args):
     # initialize DataModule and Trainer
     dm = AgentFormerDataModule(cfg, args)
     model = AgentFormerTrainer(cfg, args)
-    if args.log_graph:
-        model.set_example_input_array(next(iter(dm.train_dataloader())))
     model.model.set_device(model.device)
 
     # initialize logging and checkpointing and other training utils
@@ -121,8 +121,8 @@ def main(args):
     else:
         logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
     early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_joint')
-    checkpoint_callback = ModelCheckpointCustom(monitor='val/ADE_joint', mode='min', save_last=True,
-                                          every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}')
+    checkpoint_callback = ModelCheckpointCustom(visualize=args.save_viz, monitor='val/ADE_joint', mode='min', save_last=True,
+                                          every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}',)
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
 
     callbacks = [tqdm]
@@ -133,21 +133,44 @@ def main(args):
 
     print("LOGGING TO:", default_root_dir)
     print("\n\n")
-    trainer = pl.Trainer(check_val_every_n_epoch=args.val_every, num_sanity_val_steps=sanity_val_steps,
-                         devices=args.devices, strategy=plugin, accelerator=accelerator,
-                         log_every_n_steps=50 if lim_train_batch is None else lim_train_batch,
-                         limit_val_batches=lim_val_batch, limit_train_batches=lim_train_batch,
-                         max_epochs=cfg.num_epochs, default_root_dir=default_root_dir,
-                         logger=logger, callbacks=callbacks,)
 
     if 'train' in args.mode:
+        trainer = pl.Trainer(check_val_every_n_epoch=args.val_every, num_sanity_val_steps=sanity_val_steps,
+                             devices=args.devices, strategy=plugin, accelerator=accelerator,
+                             log_every_n_steps=50 if lim_train_batch is None else lim_train_batch,
+                             limit_val_batches=lim_val_batch, limit_train_batches=lim_train_batch,
+                             max_epochs=cfg.num_epochs, default_root_dir=default_root_dir,
+                             logger=logger,
+                             callbacks=callbacks, )  # deterministic=True)  # not needed to control for proper training batch order
+
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
-        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=logger)
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=logger,
+                             deterministic=True)
         args.save_viz = True
         model.update_args(args)
         trainer.test(model, datamodule=dm)
     elif 'test' in args.mode or 'val' in args.mode:
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=logger,
+                             deterministic=True)
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
+    elif 'viz' in args.mode:
+        print("visualizing ground truth")
+        from viz_utils_plot import _save_viz_gt
+        train_data = [{'gt_motion': np.stack(data['fut_motion'], 1),
+                 'obs_motion': np.stack(data[f'pre_motion'], 1),
+                 'frame': data['frame'],
+                 'seq': data['seq'],
+                 'data': data
+                 } for data in dm.get_dataloader('train')][:20]
+        _save_viz_gt(train_data, args, 'train')
+        import ipdb; ipdb.set_trace()
+        test_data = [{'gt_motion': np.stack(data['fut_motion'], 1),
+                 'obs_motion': np.stack(data[f'pre_motion'], 1),
+                 'frame': data['frame'],
+                 'seq': data['seq'],
+                 'data': data
+                 } for data in dm.get_dataloader('test')]
+        _save_viz_gt(test_data, args, 'test')
     else:
         raise NotImplementedError
 
@@ -182,6 +205,8 @@ if __name__ == '__main__':
     parser.add_argument('--start_frame', '-sf', default=None, type=int, help="frame to start loading data from, if you don't want to load entire dataset")
     parser.add_argument('--dont_save_test_results', '-dstr', dest='save_test_results', action='store_false', default=True, help='whether or not to save test results stats to tsv file (on test mode)')
     parser.add_argument('--wandb', '-wb', default=None, help='wandb project name')
+    parser.add_argument('--interaction_category', '-ic', action='store_true')#default='all', help='which interaction category to test on')
+
     args = parser.parse_args()
 
     main(args)

@@ -288,14 +288,14 @@ class jrdb_preprocess(object):
             for frame_i in range(self.past_frames):
                 single_frame = history[frame_i]
                 assert len(single_frame['pos']) > 0 and ped_id in single_frame['pos'][:, 1], 'ped_id %d not found in frame %d' % (ped_id, frame_i)
-                assert len(single_frame['joints'][ped_id]) > 0, 'ped_id %d not found in frame %d' % (ped_id, frame_i)
+                assert len(single_frame['kp'][ped_id]) > 0, 'ped_id %d not found in frame %d' % (ped_id, frame_i)
                 pos_history = single_frame['pos']
                 found_data = pos_history[pos_history[:, 1] == ped_id].squeeze()[
                                  [self.xind, self.zind]] / self.past_traj_scale
                 box_3d[self.past_frames - 1 - frame_i, :] = torch.from_numpy(found_data).float()
                 mask_i[self.past_frames - 1 - frame_i] = 1.0
                 kp_3d[self.past_frames - 1 - frame_i, :, :] = torch.from_numpy(
-                        single_frame['joints'][ped_id]).float()
+                        single_frame['kp'][ped_id]).float()
                 score[self.past_frames - 1 - frame_i, :] = torch.from_numpy(
                         single_frame['score'][ped_id]).float()
             motion.append(box_3d)
@@ -318,14 +318,14 @@ class jrdb_preprocess(object):
                 single_frame = history[frame_i]
                 assert len(single_frame['pos']) > 0 and ped_id in single_frame[
                     'pos'][:, 1], 'ped_id %d not found in frame %d' % (ped_id, frame_i)
-                assert len(single_frame['joints'][ped_id]) > 0, 'ped_id %d not found in frame %d' % (ped_id, frame_i)
+                assert len(single_frame['kp'][ped_id]) > 0, 'ped_id %d not found in frame %d' % (ped_id, frame_i)
                 pos_history = single_frame['pos']
                 found_data = pos_history[pos_history[:, 1] == ped_id].squeeze()[
                                  [self.xind, self.zind]] / self.past_traj_scale
                 box_3d[frame_i, :] = torch.from_numpy(found_data).float()
                 mask_i[frame_i] = 1.0
-                kp_3d[frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
-                kp_3d[frame_i, :, :] = torch.from_numpy(single_frame['joints'][ped_id]).float()
+                kp_3d[frame_i, :, :] = torch.from_numpy(single_frame['kp'][ped_id]).float()
+                kp_3d[frame_i, :, :] = torch.from_numpy(single_frame['kp'][ped_id]).float()
                 score[frame_i, :] = torch.from_numpy(
                         single_frame['score'][ped_id]).float()
             motion.append(box_3d)
@@ -339,39 +339,29 @@ class jrdb_preprocess(object):
         assert frame - self.init_frame >= 0 and frame - self.init_frame <= self.TotalFrame() - 1, 'frame is %d, total is %d' % (
         frame, self.TotalFrame())
 
-        # pre_data = self.PreData(frame)
-        # fut_data = self.FutureData(frame)
-        pre_data = self.PreData_pos_and_joints(frame)
-        fut_data = self.FutureData_pos_and_joints(frame)
+        pre_data = self.PreData_pos_and_kp(frame)
+        fut_data = self.FutureData_pos_and_kp(frame)
 
-        valid_id = self.get_valid_id_pos_and_joints(pre_data, fut_data)
+        valid_id = self.get_valid_id_pos_and_kp(pre_data, fut_data)
         if len(pre_data[0]) == 0 or len(fut_data[0]) == 0 or len(valid_id) == 0:
             return None
 
-        # pred_mask = self.get_pred_mask(pre_data[0], valid_id)
         heading = self.get_heading(pre_data[0], valid_id)
         heading_avg = self.get_heading_avg(pre_data, valid_id)
         pred_mask = None
 
-        # pre_motion, pre_motion_mask = self.PreMotion(pre_data, valid_id)  # reverses history
-        # fut_motion, fut_motion_mask = self.FutureMotion(fut_data, valid_id)
-
-        # pre_motion_joints, pre_kp_mask = self.PreJoints(pre_data, valid_id)  # reverses history
-        # fut_motion_joints, fut_kp_mask = self.FutureJoints(fut_data, valid_id)
-
-        pre_motion, pre_motion_joints, pre_motion_mask, scores = self.PreMotionJoints(pre_data, valid_id)
-        fut_motion, fut_motion_joints, fut_motion_mask, scores = self.FutureMotionJoints(fut_data, valid_id)
-
+        pre_motion, pre_motion_kp, pre_motion_mask, scores = self.PreMotionJoints(pre_data, valid_id)
+        fut_motion, fut_motion_kp, fut_motion_mask, scores = self.FutureMotionJoints(fut_data, valid_id)
 
         data = {
                 'pre_motion': pre_motion,
-                'pre_joints': pre_motion_joints,
+                'pre_kp': pre_motion_kp,
                 'fut_motion': fut_motion,
-                'fut_joints': fut_motion_joints,
+                'fut_kp': fut_motion_kp,
                 'fut_motion_mask': fut_motion_mask,
                 'pre_motion_mask': pre_motion_mask,
-                'pre_data': pre_data,
-                'fut_data': fut_data,
+                # 'pre_data': pre_data,
+                # 'fut_data': fut_data,
                 'heading': heading,  # only the heading for the last obs timestep
                 'heading_avg': heading_avg,  # the avg heading for all timesteps
                 'valid_id': valid_id,

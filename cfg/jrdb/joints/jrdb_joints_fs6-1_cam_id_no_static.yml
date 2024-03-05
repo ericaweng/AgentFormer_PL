@@ -29,7 +29,7 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel', 'heading', 'kp_norm', 'kp_vel', 'kp_scores', 'cam_intrinsics', 'cam_extrinsics']
+input_type: ['scene_norm', 'vel', 'kp_norm', 'kp_vel', 'cam_id']
 pred_type: 'scene_norm'
 dataloader_version: 2  # if we require that all trajectory data must have joints, and thus use new joints dataloader, rather than old only-heading dataloader
 sn_out_type: 'norm'

@@ -4,7 +4,7 @@ from scipy.spatial.distance import pdist, squareform, cdist
 from functools import partial
 
 
-def compute_ADE_joint(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
+def compute_ADE_joint(pred_arr, gt_arr, return_sample_vals=False, return_ped_vals=False, return_argmin=False, **kwargs):
     """
     pred_arr: (num_peds, samples, frames, 2)
     gt_arr: (num_peds, frames, 2)
@@ -15,17 +15,26 @@ def compute_ADE_joint(pred_arr, gt_arr, return_sample_vals=False, return_argmin=
     gt_arr = np.array(gt_arr)
     diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
     dist = np.linalg.norm(diff, axis=-1)  # num_peds x samples x frames
-    ade_per_sample = dist.mean(axis=-1).mean(axis=0)  # samples
+    ade_per_ped_sample = dist.mean(axis=-1)  # num_peds x samples
+    ade_per_sample = ade_per_ped_sample.mean(axis=0)  # samples
     ade = ade_per_sample.min(axis=0)  # (1, )
     return_vals = [ade]
     if return_sample_vals:  # for each sample: the avg ped ADE
         return_vals.append(ade_per_sample)
+    else:
+        return_vals.append(None)
+    if return_ped_vals:  # the ADE of each ped for the min-JADE sample (n_ped,)
+        return_vals.append(ade_per_ped_sample[..., ade_per_sample.argmin(axis=0)])
+    else:
+        return_vals.append(None)
     if return_argmin:  # index of sample that has min sequence ADE (1,)
         return_vals.append(ade_per_sample[:, np.newaxis].argmin(axis=0))
+    else:
+        return_vals.append(None)
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
-def compute_FDE_joint(pred_arr, gt_arr, return_sample_vals=False, return_argmin=False, **kwargs):
+def compute_FDE_joint(pred_arr, gt_arr, return_sample_vals=False, return_ped_vals=False, return_argmin=False, **kwargs):
     """
     pred_arr: (num_peds, samples, frames, 2)
     gt_arr: (num_peds, frames, 2)
@@ -41,8 +50,17 @@ def compute_FDE_joint(pred_arr, gt_arr, return_sample_vals=False, return_argmin=
     return_vals = [fde]
     if return_sample_vals:  # for each sample: the avg ped ADE (n_samples,)
         return_vals.append(fde_per_sample)
+    else:
+        return_vals.append(None)
+    if return_ped_vals:  # the FDE of each ped for the min-JFDE sample (n_ped,)
+        min_fde_idx = fde_per_sample.argmin(axis=0)  # (1, )
+        return_vals.append(dist[..., -1][:, min_fde_idx])
+    else:
+        return_vals.append(None)
     if return_argmin:  # index of sample that has min sequence FDE (1,)
         return_vals.append(fde_per_sample[:, np.newaxis].argmin(axis=0))
+    else:
+        return_vals.append(None)
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
@@ -64,10 +82,16 @@ def compute_ADE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_ped_
     return_vals = [avg_made]
     if return_sample_vals:  # for each sample: the avg ped ADE
         return_vals.append(ades_per_sample.mean(axis=0))
-    if return_ped_vals:  # the ADE of each ped-sample (n_ped, samples)
-        return_vals.append(ades_per_sample)
+    else:
+        return_vals.append(None)
+    if return_ped_vals:  # the min ade per ped across samples. old: the ADE of each ped-sample (n_ped, samples)
+        return_vals.append(made_per_ped)
+    else:
+        return_vals.append(None)
     if return_argmin:  # for each ped: index of sample that is argmin
         return_vals.append(ades_per_sample.argmin(axis=-1))
+    else:
+        return_vals.append(None)
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
@@ -84,10 +108,16 @@ def compute_FDE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_ped_
     return_vals = [avg_mfde]
     if return_sample_vals:  # for each sample: the avg ped ADE (n_samples,)
         return_vals.append(fdes_per_sample.mean(axis=0))
-    if return_ped_vals: # the FDE of each ped-sample (n_ped, samples)
-        return_vals.append(fdes_per_sample)
+    else:
+        return_vals.append(None)
+    if return_ped_vals: # the min fde per ped across samples. old: the FDE of each ped-sample (n_ped, samples)
+        return_vals.append(mfde_per_ped)
+    else:
+        return_vals.append(None)
     if return_argmin:  # for each ped: index of sample that is argmin (n_ped,)
         return_vals.append(fdes_per_sample.argmin(axis=-1))
+    else:
+        return_vals.append(None)
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
@@ -201,6 +231,7 @@ def compute_CR(pred_arr,
                aggregation='max',
                return_sample_vals=False,
                return_collision_mat=False,
+               return_ped_vals=False,
                collision_rad=None,
                **kwargs):
     """Compute collision rate and collision-free likelihood.
@@ -228,6 +259,8 @@ def compute_CR(pred_arr,
     pred_arr = np.array(pred_arr).swapaxes(1, 0)
     # (n_agents, n_samples, timesteps, 4) > (n_samples, n_agents, timesteps 4)
     col_pred = np.zeros((n_sample))
+    if return_ped_vals:
+        col_pred_by_ped = np.zeros((n_sample, n_ped))
     col_mats = []
     # if n_ped > 1:
     #     with nool(processes=multiprocessing.cpu_count() - 1) as pool:
@@ -237,6 +270,8 @@ def compute_CR(pred_arr,
     for sample_idx, pa in enumerate(pred_arr):
         n_ped_with_col_pred, col_mat = check_collision_per_sample_no_gt(pa, collision_rad)
         col_pred[sample_idx] += n_ped_with_col_pred.sum()
+        if return_ped_vals:
+            col_pred_by_ped[sample_idx] = n_ped_with_col_pred
         col_mats.append(col_mat)
     # else:
     #     col_mats.append(np.full((12,n_ped,n_ped), False))
@@ -255,8 +290,16 @@ def compute_CR(pred_arr,
     crs = [cr_pred / n_ped]
     if return_sample_vals:
         crs.append(col_pred / n_ped)
+    else:
+        crs.append(None)
+    if return_ped_vals:
+        crs.append(col_pred_by_ped.mean(0))  # use only mean number of collisions per ped across samples
+    else:
+        crs.append(None)
     if return_collision_mat:
         crs.append(col_mats if len(col_mats) > 0 else None)
+    else:
+        crs.append(None)
     return tuple(crs) if len(crs) > 1 else crs[0]
 
 
@@ -290,11 +333,11 @@ def cr_mr(pred_arr, gt_arr, threshold=2.0, return_sample_vals=False, **kwargs):
 stats_func = {
         'ADE_marginal': compute_ADE_marginal,
         'FDE_marginal': compute_FDE_marginal,
-        'CR_min': partial(compute_CR, aggregation='min'),
-        'CR_max': partial(compute_CR, aggregation='max'),
+        # 'CR_min': partial(compute_CR, aggregation='min'),
+        # 'CR_max': partial(compute_CR, aggregation='max'),
         'CR_mean': partial(compute_CR, aggregation='mean'),
-        'MR': miss_rate,
-        'CR_MR': cr_mr,
+        # 'MR': miss_rate,
+        # 'CR_MR': cr_mr,
         'ADE_joint': compute_ADE_joint,
         'FDE_joint': compute_FDE_joint,
         'CR_mADE': partial(compute_CR, aggregation=compute_ADE_marginal),
