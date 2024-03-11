@@ -10,7 +10,7 @@ class jrdb_preprocess(object):
     def __init__(self, data_root, seq_name, parser, split='train', phase='training'):
         self.parser = parser
         self.dataset = parser.dataset
-        self.exclude_cats = parser.get('exclude_cats', [])
+        self.include_cats = parser.get('include_cats', [])
         self.exclude_kpless_data = parser.get('exclude_kpless_data', False)
         self.data_root = data_root
         self.past_frames = parser.past_frames
@@ -43,9 +43,6 @@ class jrdb_preprocess(object):
         self.num_intrinsic_dims = 9
         self.num_extrinsic_dims = 7
 
-        # total invalid peds... just see how many there are total
-        self.total_invalid_peds = 0
-        self.total_valid_peds = 0
         # self.all_head_heading_data = self.all_data['head_heading'][capture_date]
         # self.all_body_heading_data = self.all_data['body_heading'][capture_date]
 
@@ -60,8 +57,18 @@ class jrdb_preprocess(object):
             0]), f"frame_ids_diff ({frame_ids_diff}) must be equal to frame_ids_diff[0] ({frame_ids_diff[0]})"
 
         fr_start, fr_end = frames.min(), frames.max()
-        self.num_fr = len(frames)
-        self.init_frame = fr_start
+        if 'half_and_half' in parser.get('split_type', 'normal'):
+            train_size = len(frames) * 3 // 4
+            test_size = len(frames) * 1 // 4
+            if split == 'train':
+                self.num_fr = train_size
+                self.init_frame = fr_start
+            else:
+                self.num_fr = test_size
+                self.init_frame = fr_start + train_size
+        else:
+            self.num_fr = len(frames)
+            self.init_frame = fr_start
 
         self.geom_scene_map = None
         self.class_names = {'Pedestrian': 1, 'Car': 2, 'Cyclist': 3, 'Truck': 4, 'Van': 5, 'Tram': 6,
@@ -131,45 +138,49 @@ class jrdb_preprocess(object):
                     is_invalid = True
                     break
             if is_invalid:
-                self.total_invalid_peds += 1
                 continue
             for frame in fut_data[:self.min_future_frames]:
                 if isinstance(frame['pos'], list) or idx not in frame['pos'][:,1] or self.exclude_kpless_data and idx not in frame['kp']:
                     is_invalid = True
                     break
             if is_invalid:
-                self.total_invalid_peds += 1
                 continue
-            if len(self.exclude_cats) > 0:
-                import ipdb; ipdb.set_trace()
+            if len(self.include_cats) > 0:
                 history_positions = np.array([p['pos'][p['pos'][:, 1] == idx][0][2:4] for p in pre_data])
                 future_positions = np.array([p['pos'][p['pos'][:, 1] == idx][0][2:4] for p in fut_data])
                 pos = np.concatenate([history_positions, future_positions], axis=0)
-                if ped_interactions.is_static(pos)[0]:
-                    continue
+                if ped_interactions.is_moving_to_static(pos)[0] \
+                    or ped_interactions.is_static_to_moving(pos)[0] \
+                    or ped_interactions.is_non_linear(pos)[0]:
+                        continue
             valid_id.append(idx)
-            self.total_valid_peds+=1
 
         return valid_id
 
+    @staticmethod
+    def transformed_theta(theta):
+        theta = theta % (2 * np.pi)
+        return np.where(theta <= np.pi, np.pi - theta, 3 * np.pi - theta)
+
     def get_heading(self, cur_data, valid_id):
-        heading = np.zeros((len(valid_id), 2))
+        heading = np.zeros((len(valid_id)))
         for i, idx in enumerate(valid_id):
-            h = cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()[self.heading_ind]
-            heading[i] = np.array([-np.cos(h), np.sin(h)])
-        return heading
+            heading[i] = cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()[self.heading_ind]
+        return self.transformed_theta(heading)
 
     def get_heading_avg(self, all_data, valid_id):
-        heading = np.zeros((len(all_data), len(valid_id), 2))
-        for ts in range(len(all_data)):
-            for i, idx in enumerate(valid_id):
-                this_ped = all_data[ts]['pos'][:, 1] == idx
-                this_ped_row = all_data[ts]['pos'][this_ped]
-                if len(all_data[ts]['pos'][this_ped]) == 0:
+        heading = np.zeros((len(valid_id)))
+        for i, idx in enumerate(valid_id):
+            headings_this_ped = []
+            for ts in range(len(all_data)):
+                h = all_data[ts]['pos'][all_data[ts]['pos'][:, 1] == idx].squeeze()
+                if len(h) == 0:
                     continue
-                h = this_ped_row.squeeze()[self.heading_ind]
-                heading[ts,i] = -np.cos(h), np.sin(h)
-        return heading.mean(0)
+                h = h[self.heading_ind]
+                headings_this_ped.append((np.cos(h), np.sin(h)))
+            heading_avg = np.stack(headings_this_ped).mean(0)
+            heading[i] = np.arctan2(heading_avg[1], heading_avg[0])
+        return self.transformed_theta(heading)
 
     def format_data(self, data, num_frames, valid_id, is_pre=False):
         motion = []

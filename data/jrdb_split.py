@@ -97,17 +97,86 @@ TEST = [
 ]
 # 27
 
+def get_jackrabbot_split_half_and_half_tiny():
+    train = ['gates-basement-elevators-2019-01-17_1',
+             'huang-lane-2019-02-12_0',
+             'stlc-111-2019-04-19_0', ]
+
+    val = ['gates-basement-elevators-2019-01-17_1',
+           'huang-lane-2019-02-12_0',
+           'stlc-111-2019-04-19_0', ]
+
+    test = ['gates-basement-elevators-2019-01-17_1',
+            'huang-lane-2019-02-12_0',
+            'stlc-111-2019-04-19_0',]
+    return train, val, test
+
+
+def get_jackrabbot_split_half_and_half():
+    train = ['bytes-cafe-2019-02-07_0',
+             'gates-ai-lab-2019-02-08_0',
+             'gates-basement-elevators-2019-01-17_1',
+             'hewlett-packard-intersection-2019-01-24_0',
+             'huang-lane-2019-02-12_0',
+             'jordan-hall-2019-04-22_0',
+             'packard-poster-session-2019-03-20_1',
+             'packard-poster-session-2019-03-20_2',
+             'stlc-111-2019-04-19_0',
+             'svl-meeting-gates-2-2019-04-08_0',
+             'svl-meeting-gates-2-2019-04-08_1',  # impercitible slight rotation
+             'tressider-2019-03-16_0',
+             'tressider-2019-03-16_1']
+    val = ['bytes-cafe-2019-02-07_0',
+             'gates-ai-lab-2019-02-08_0',
+             'gates-basement-elevators-2019-01-17_1',
+             'hewlett-packard-intersection-2019-01-24_0',
+             'huang-lane-2019-02-12_0',
+             'jordan-hall-2019-04-22_0',
+             'packard-poster-session-2019-03-20_1',
+             'packard-poster-session-2019-03-20_2',
+             'stlc-111-2019-04-19_0',
+             'svl-meeting-gates-2-2019-04-08_0',
+             'svl-meeting-gates-2-2019-04-08_1',  # impercitible slight rotation
+             'tressider-2019-03-16_0',
+             'tressider-2019-03-16_1']
+    test = ['bytes-cafe-2019-02-07_0',
+             'gates-ai-lab-2019-02-08_0',
+             'gates-basement-elevators-2019-01-17_1',
+             'hewlett-packard-intersection-2019-01-24_0',
+             'huang-lane-2019-02-12_0',
+             'jordan-hall-2019-04-22_0',
+             'packard-poster-session-2019-03-20_1',
+             'packard-poster-session-2019-03-20_2',
+             'stlc-111-2019-04-19_0',
+             'svl-meeting-gates-2-2019-04-08_0',
+             'svl-meeting-gates-2-2019-04-08_1',  # impercitible slight rotation
+             'tressider-2019-03-16_0',
+             'tressider-2019-03-16_1']
+
+    return train, val, test
+
 def get_jackrabbot_split_easy():
     """this one doesn't work"""
-    train = [ 'tressider-2019-03-16_0',
-              'svl-meeting-gates-2-2019-04-08_0',
-              'packard-poster-session-2019-03-20_2', ]
-    val = ['tressider-2019-03-16_1',
-           'svl-meeting-gates-2-2019-04-08_1',
-           'packard-poster-session-2019-03-20_1', ]
-    test = ['tressider-2019-03-16_1',
-           'svl-meeting-gates-2-2019-04-08_1',
-           'packard-poster-session-2019-03-20_1', ]
+    train = [
+            # 'tressider-2019-03-16_0',
+              'svl-meeting-gates-2-2019-04-08_0',]
+              # 'packard-poster-session-2019-03-20_2', ]
+    val = [
+            # 'tressider-2019-03-16_1',
+           'svl-meeting-gates-2-2019-04-08_1',]
+           # 'packard-poster-session-2019-03-20_1', ]
+    test = [
+            # 'tressider-2019-03-16_1',
+           'svl-meeting-gates-2-2019-04-08_1',]
+           # 'packard-poster-session-2019-03-20_1', ]
+
+    return train, val, test
+
+def get_jackrabbot_split_sanity():
+    """"""
+    train = ['tressider-2019-03-16_1',]
+    val = ['tressider-2019-03-16_1',]
+    test = ['tressider-2019-03-16_1',]
 
     return train, val, test
 
@@ -121,12 +190,6 @@ def get_jackrabbot_split():
              'jordan-hall-2019-04-22_0',
              'packard-poster-session-2019-03-20_1',
              'packard-poster-session-2019-03-20_2']
-
-    egomotion_adjusted_data = [
-            'huang-basement-2019-01-25_0',
-            'nvidia-aud-2019-04-18_0',
-            'clark-center-2019-02-28_0'
-    ]
 
     val = ['stlc-111-2019-04-19_0',
            'svl-meeting-gates-2-2019-04-08_0',

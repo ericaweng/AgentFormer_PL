@@ -100,7 +100,7 @@ def eval_one_seq(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
             agent_traj.shape) == 4, f"len(agent_traj.shape) should be 4 but is {len(agent_traj.shape)}"
 
     """compute stats"""
-    values = []
+    values = {}
     ped_values = {}
     all_sample_vals = {}
 
@@ -109,7 +109,7 @@ def eval_one_seq(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
                                                            collision_rad=collision_rad,
                                                            return_ped_vals=True,
                                                            return_sample_vals=return_sample_vals)
-    values.append(value)
+    values['ADE_joint'] = value
     ped_values['ADE_joint'] = ped_vals
     all_sample_vals['ADE'] = sample_vals
     # 'FDE_joint'
@@ -117,7 +117,7 @@ def eval_one_seq(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
                                                            collision_rad=collision_rad,
                                                            return_ped_vals=True,
                                                            return_sample_vals=return_sample_vals)
-    values.append(value)
+    values['FDE_joint'] = value
     ped_values['FDE_joint'] = ped_vals
     all_sample_vals['FDE'] = sample_vals
     # 'ADE_marginal'
@@ -125,14 +125,14 @@ def eval_one_seq(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
                                                           collision_rad=collision_rad,
                                                           return_ped_vals=True,
                                                           return_argmin=True)
-    values.append(value)
+    values['ADE_marginal'] = value
     ped_values['ADE_marginal'] = ped_vals
 
     # 'FDE_marginal'
     value, _, ped_vals, _ = stats_func['FDE_marginal'](pred_arr=agent_traj, gt_arr=gt_traj,
                                                  collision_rad=collision_rad,
                                                  return_ped_vals=True)
-    values.append(value)
+    values['FDE_marginal'] = value
     ped_values['FDE_marginal'] = ped_vals
 
     # 'CR_mean'
@@ -141,25 +141,25 @@ def eval_one_seq(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
                                                                          return_sample_vals=return_sample_vals,
                                                                          return_ped_vals=True,
                                                                          return_collision_mat=True)
-    values.append(value)
+    values['CR_mean'] = value
     all_sample_vals['CR'] = sample_vals
     ped_values['CR_mean'] = ped_vals
 
-    # 'CR_mADE'
-    value, _, ped_vals, collision_mats_mADE = stats_func['CR_mADE'](pred_arr=agent_traj, gt_arr=gt_traj,
-                                                                 collision_rad=collision_rad,
-                                                                 return_ped_vals=True,
-                                                                 return_collision_mat=True)
-    values.append(value)
-    ped_values['CR_mADE'] = ped_vals
-    collision_mats.extend(collision_mats_mADE)
-
-    # 'CR_mADEjoint'
-    value, _, ped_vals, _ = stats_func['CR_mADEjoint'](pred_arr=agent_traj, gt_arr=gt_traj,
-                                                 collision_rad=collision_rad,
-                                                 return_ped_vals=True)
-    values.append(value)
-    ped_values['CR_mADEjoint'] = ped_vals
+    # # 'CR_mADE'
+    # value, _, ped_vals, collision_mats_mADE = stats_func['CR_mADE'](pred_arr=agent_traj, gt_arr=gt_traj,
+    #                                                              collision_rad=collision_rad,
+    #                                                              return_ped_vals=True,
+    #                                                              return_collision_mat=True)
+    # values['CR_mADE'] = value
+    # ped_values['CR_mADE'] = ped_vals
+    # collision_mats.extend(collision_mats_mADE)
+    #
+    # # 'CR_mADEjoint'
+    # value, _, ped_vals, _ = stats_func['CR_mADEjoint'](pred_arr=agent_traj, gt_arr=gt_traj,
+    #                                              collision_rad=collision_rad,
+    #                                              return_ped_vals=True)
+    # values['CR_mADEjoint'] = value
+    # ped_values['CR_mADEjoint'] = ped_vals
 
     return values, ped_values, all_sample_vals, argmins, collision_mats
 

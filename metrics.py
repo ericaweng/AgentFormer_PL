@@ -71,7 +71,9 @@ def compute_ADE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_ped_
     pred_arr: (num_peds, samples, frames, 2)
     gt_arr: (num_peds, frames, 2)
     """
-    # assert pred_arr.shape[1] == 20, pred_arr.shape
+    # assert pred_arr.shape[1] == 5, pred_arr.shape
+    # assert pred_arr.shape[2] == 12, pred_arr.shape
+    # assert pred_arr.shape[3] == 2, pred_arr.shape
     pred_arr = np.array(pred_arr)
     gt_arr = np.array(gt_arr)
     diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2

@@ -23,8 +23,9 @@ class AgentFormerDataModule(pl.LightningDataModule):
         randomize_trial_data = self.args.randomize_trial_data if self.args.trial else False
         ds = AgentFormerDataset(self.cfg, split=mode, phase=phase, trial_ds_size=trial_ds_size,
                                 randomize_trial_data=randomize_trial_data,
-                                frames_list=self.args.frames_list, start_frame=self.args.start_frame)
-        shuffle = False if 'val' in mode or 'test' in mode or self.args.trial else True
+                                frames_list=self.args.frames_list, start_frame=self.args.start_frame, args=self.args)
+        shuffle = False if ('val' in mode or 'test' in mode or self.args.trial
+                            or self.args.mode == 'check_dl' or self.args.mode == 'viz') else True
         dataloader = DataLoader(ds, batch_size=self.args.batch_size, num_workers=self.args.num_workers,
                                 pin_memory=True, collate_fn=ds.collate, shuffle=shuffle, drop_last=shuffle)
         return dataloader

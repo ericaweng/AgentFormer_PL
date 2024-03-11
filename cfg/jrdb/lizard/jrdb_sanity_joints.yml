@@ -3,7 +3,9 @@
 description                  : AgentFormer (Before DLow)
 results_root_dir             : results
 seed                         : 1
-dataset                      : univ
+dataset                      : jrdb
+frame_skip                   : 6
+data_root_jrdb               : ../AgentFormerSDD/datasets/jrdb_adjusted
 data_root_ethucy             : datasets/eth_ucy
 data_root_nuscenes_pred      : datasets/nuscenes_pred
 
@@ -26,9 +28,15 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-input_type: ['scene_norm', 'vel']
+dataloader_version: 2
+preprocess_data: false
+input_type: ['scene_norm', 'vel', 'heading', 'kp_norm', 'kp_vel', 'kp_scores', 'cam_intrinsics', 'cam_extrinsics']
+kp_dim: 2
+num_joints: 17
+split_type: 'sanity'
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
+max_train_agent: 32
 pos_concat: true
 rand_rot_scene: true
 scene_orig_all_past: true
@@ -38,19 +46,21 @@ context_encoder:
 
 future_decoder:
   nlayer: 2
+  out_mlp_dim: [512, 256]
 
 future_encoder:
   nlayer: 2
+#  out_mlp_dim: [512, 256]
 
 # ------------------- VAE-------------------------
 
 nz                           : 32
-sample_k                     : 20
+sample_k                     : 5
 learn_prior                  : true
 
 # ------------------- Training Parameters -------------------------
 
-lr                           : 5.e-5
+lr                           : 1.e-5
 loss_cfg:
   mse:
     weight: 1.0
@@ -59,7 +69,7 @@ loss_cfg:
     min_clip: 2.0
   sample:
     weight: 1.0
-    k: 20
+    k: 5
 
 num_epochs                   : 100
 lr_fix_epochs                : 10

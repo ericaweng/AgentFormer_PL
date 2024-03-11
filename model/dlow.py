@@ -8,7 +8,6 @@ from utils.config import Config
 from .common.mlp import MLP
 from .common.dist import *
 from . import model_lib
-from .sfm import collision_term
 
 
 def compute_z_kld(data, cfg):

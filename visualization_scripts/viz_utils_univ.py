@@ -96,7 +96,7 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
         axes = axes.flatten()
     else:
         axes = [axes]
-    fig.subplots_adjust(hspace=0.3)
+    fig.subplots_adjust(hspace=0.25)
     if title is not None:
         fig.suptitle(title, fontsize=16)
 
@@ -463,12 +463,12 @@ class AnimObjBEVTraj2d:
         ax.tick_params(
                 axis='both',  # changes apply to both x and y-axis
                 which='both',  # both major and minor ticks are affected
-                bottom=False,  # ticks along the bottom edge are off
+                bottom=True,#False,  # ticks along the bottom edge are off
                 top=False,  # ticks along the top edge are off
-                left=False,  # ticks along the left edge are off
+                left=True,#False,  # ticks along the left edge are off
                 right=False,  # ticks along the right edge are off
-                labelbottom=False,  # labels along the bottom edge are off
-                labelleft=False  # labels along the left edge are off
+                labelbottom=True,#False,  # labels along the bottom edge are off
+                labelleft=True,#False  # labels along the left edge are off
         )
 
         # heatmap

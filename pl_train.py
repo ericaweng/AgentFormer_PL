@@ -1,13 +1,13 @@
 import os
 import glob
 import argparse
-
 import numpy as np
 import torch
-# import wandb
-torch.set_float32_matmul_precision('medium')
-torch.set_default_dtype(torch.float32)
-
+# torch.set_float32_matmul_precision('high')
+# torch.set_default_dtype(torch.float32)
+# torch.backends.cudnn.enabled = True
+# torch.backends.cudnn.deterministic = True
+# torch.backends.cudnn.benchmark = True
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
@@ -23,11 +23,9 @@ def main(args):
     # initialize AgentFormer config from full config filename
     cfg = Config(args.cfg)
 
-    if args.wandb is not None:
-        wandb.init(project=args.project_name, config=cfg, reinit=True)
-
     # Set global random seed
     pl.seed_everything(cfg.seed)
+    print("Setting global seed:", cfg.seed)
 
     # run with test run params if in ipython env; else with real run params
     try:
@@ -70,6 +68,7 @@ def main(args):
 
     # load checkpoint model
     default_root_dir = args.default_root_dir = os.path.join(args.logs_root, cfg.id)
+    models_ronnie = []
     if args.mode == 'train':
         # specify checkpoint to resume for dlow
         resume_cfg = cfg.get('resume_cfg', None)
@@ -82,6 +81,9 @@ def main(args):
             models = sorted(glob.glob(os.path.join(default_root_dir, 'last-v*.ckpt')))
             if len(models) == 0:
                 models = sorted(glob.glob(os.path.join(default_root_dir, 'last*.ckpt')))
+                if len(models) == 0:  # load ronnie version a checkpoint and adjust so that it's compatible
+                    models = sorted(glob.glob(os.path.join(default_root_dir, '*epoch=*.ckpt')))
+                    # models_ronnie = sorted(glob.glob(os.path.join(default_root_dir, '*.p')))
     elif args.mode == 'test' or args.mode == 'val':
         if args.checkpoint_str is not None:
             models = sorted(glob.glob(os.path.join(default_root_dir, f'*{args.checkpoint_str}*.ckpt')))
@@ -89,10 +91,8 @@ def main(args):
             models = sorted(glob.glob(os.path.join(default_root_dir, f'*epoch=*.ckpt')))
         if len(models) == 0:
             raise FileNotFoundError(f'If testing, must exist model in {default_root_dir}')
-    elif args.mode == 'viz':
-        models = []
     else:
-        raise NotImplementedError
+        models = []
     print("models:", models)
 
     if args.checkpoint_path is not None and args.resume:
@@ -103,6 +103,24 @@ def main(args):
     elif len(models) > 0 and os.path.isfile(models[-1]) and args.resume:
         resume_from_checkpoint = models[-1]
         print("LOADING from default model directory:", resume_from_checkpoint)
+        # load model with torch
+        checkpoint = torch.load(resume_from_checkpoint)
+        # print(f"checkpoint: {checkpoint.keys()}")
+        if len(models_ronnie) > 0:
+            ckpt_ronnie = torch.load(models_ronnie[-1])
+            print(f"checkpoint ronnie: {ckpt_ronnie.keys()}")
+            # replace the model weights with the ronnie model and resave as epoch={epoch}.ckpt
+            ckpt_ronnie['pytorch-lightning_version'] = checkpoint['pytorch-lightning_version']
+            ronnie_epoch = models_ronnie[-1].split('_')[-1].split('.')[0]
+            # checkpoint['state_dict'] = ckpt_ronnie['state_dict']
+            # checkpoint['global_step'] = None
+            # checkpoint['loops'] = None
+            # checkpoint['callbacks'] = None
+            path_to_save = os.path.join(default_root_dir, f'epoch={ronnie_epoch}.ckpt')
+            torch.save(ckpt_ronnie, path_to_save)
+            # delete ronnie model
+            os.remove(models_ronnie[-1])
+            resume_from_checkpoint = path_to_save
         args.current_epoch_model = resume_from_checkpoint.split('.ckpt')[0].split('epoch=')[-1]
     else:
         resume_from_checkpoint = None
@@ -115,14 +133,19 @@ def main(args):
     model.model.set_device(model.device)
 
     # initialize logging and checkpointing and other training utils
-    # if args.mode == 'train' and (not args.trial or args.log_on_trial):
-    if args.wandb is not None:
-        logger = WandbLogger(args.logs_root, name=cfg.id)
+    if args.mode == 'train' and (not args.trial or args.log_on_trial):
+        if args.wandb_project_name is not None:
+            suffix = f' ({args.tag})' if args.tag is not None else ''
+            logger = WandbLogger(name=f'{cfg.id}{suffix}', save_dir=args.logs_root, project=args.wandb_project_name,
+                                 config={**vars(cfg), 'args': vars(args)})
+        else:
+            logger = TensorBoardLogger(args.logs_root, name=cfg.id)
     else:
-        logger = TensorBoardLogger(args.logs_root, name=cfg.id, log_graph=args.log_graph)
-    early_stop_cb = EarlyStopping(patience=20, verbose=True, monitor='val/ADE_joint')
-    checkpoint_callback = ModelCheckpointCustom(visualize=args.save_viz, monitor='val/ADE_joint', mode='min', save_last=True,
-                                          every_n_epochs=1, dirpath=default_root_dir, filename='{epoch:04d}',)
+        logger = None
+    early_stop_cb = EarlyStopping(patience=5, verbose=True, monitor='val/ADE_joint')
+    checkpoint_callback = ModelCheckpointCustom(visualize=args.save_viz, monitor='val/ADE_joint', mode='min',
+                                                save_last=True, save_top_k=5, dirpath=default_root_dir,
+                                                filename='{epoch:04d}',)
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)
 
     callbacks = [tqdm]
@@ -144,33 +167,60 @@ def main(args):
                              callbacks=callbacks, )  # deterministic=True)  # not needed to control for proper training batch order
 
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
-        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=logger,
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=None,# logger=logger,  # don't log to tb or wandb on test
                              deterministic=True)
         args.save_viz = True
         model.update_args(args)
         trainer.test(model, datamodule=dm)
     elif 'test' in args.mode or 'val' in args.mode:
-        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=logger,
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=None,# logger=logger,
                              deterministic=True)
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
+    elif 'check_dl' in args.mode:
+        cfg.dataloader_version = 0
+        dl_train0 = dm.get_dataloader('train')
+        # dl_test0 = dm.get_dataloader('test')
+        cfg.dataloader_version = 2
+        dl_train2 = dm.get_dataloader('train')
+        # dl_test = dm.get_dataloader('test')
+
+        # check that the two dataloaders are the same
+        from check_dataloader import process_data_in_parallel
+        process_data_in_parallel(dl_train0, dl_train2, args.num_workers)
+        # process_data_in_parallel(dl_test0, dl_test, args.num_workers)
+
     elif 'viz' in args.mode:
         print("visualizing ground truth")
         from viz_utils_plot import _save_viz_gt
-        train_data = [{'gt_motion': np.stack(data['fut_motion'], 1),
-                 'obs_motion': np.stack(data[f'pre_motion'], 1),
-                 'frame': data['frame'],
-                 'seq': data['seq'],
-                 'data': data
-                 } for data in dm.get_dataloader('train')][:20]
-        _save_viz_gt(train_data, args, 'train')
-        import ipdb; ipdb.set_trace()
-        test_data = [{'gt_motion': np.stack(data['fut_motion'], 1),
-                 'obs_motion': np.stack(data[f'pre_motion'], 1),
-                 'frame': data['frame'],
-                 'seq': data['seq'],
-                 'data': data
-                 } for data in dm.get_dataloader('test')]
-        _save_viz_gt(test_data, args, 'test')
+
+        num_cpus = args.num_workers
+        to_save_data = []
+        for i, data in enumerate(dm.get_dataloader('train')):
+            to_save_data.append({'gt_motion': np.stack(data['fut_motion'], 1),
+            'obs_motion': np.stack(data[f'pre_motion'], 1),
+            'frame': data['frame'],
+            'seq': data['seq'],
+            'data': {'heading_avg': data['heading_avg'], 'heading': data['heading']}
+            })
+            if len(to_save_data) >= num_cpus:
+                _save_viz_gt(to_save_data, args, 'train')
+                to_save_data = []
+        if len(to_save_data) > 0:
+            _save_viz_gt(to_save_data, args, 'train')
+            to_save_data = []
+        for i, data in enumerate(dm.get_dataloader('val')):
+            val_data = {'gt_motion': np.stack(data['fut_motion'], 1),
+            'obs_motion': np.stack(data[f'pre_motion'], 1),
+            'frame': data['frame'],
+            'seq': data['seq'],
+            'data': {'heading_avg': data['heading_avg'], 'heading': data['heading']}
+            }
+            to_save_data.append(val_data)
+            if len(to_save_data) >= num_cpus:
+                _save_viz_gt(to_save_data, args, 'val')
+                to_save_data = []
+        if len(to_save_data) > 0:
+            _save_viz_gt(to_save_data, args, 'val')
     else:
         raise NotImplementedError
 
@@ -180,7 +230,7 @@ if __name__ == '__main__':
     parser.add_argument('cfg')
     parser.add_argument('--mode', '-m', default='train')
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_workers', type=int, default=24)
+    parser.add_argument('--num_workers', '-nw', type=int, default=24)
     parser.add_argument('--devices', type=int, default=None)
     parser.add_argument('--no_gpu', '-ng', action='store_true', default=False)
     parser.add_argument('--dont_resume', '-dr', '-nc', dest='resume', action='store_false', default=True)
@@ -188,24 +238,26 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_str', '-c', default=None)
     parser.add_argument('--trial', '-t', action='store_true', default=False, help='if true, then does a trial run (without save checkpoints or logs, and allows user to specify smaller dataset size for sanity checking)')
     parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
-    parser.add_argument('--save_viz', '-v', action='store_true', default=False)
+    parser.add_argument('--no_viz', '-nv', dest='save_viz', action='store_false')
     parser.add_argument('--save_viz_every_time', '-vv', action='store_true', default=False)
     parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
     parser.add_argument('--logs_root', '-lr', default='results_jrdb1', help='where to save checkpoints and tb logs')
+    parser.add_argument('--log_on_trial', '-lot', action='store_true', default=False)
     parser.add_argument('--ckpt_on_trial', '-l', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-s', action='store_true', default=False)
-    parser.add_argument('--log_graph', '-g', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
     parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
-    parser.add_argument('--val_every', '-ve', type=int, default=5)
+    parser.add_argument('--val_every', '-ve', type=int, default=3)
     parser.add_argument('--trial_ds_size', '-dz', default=10, type=int, help='max number of scenes to load when using the --trial flag')
     parser.add_argument('--randomize_trial_data', '-rtd', action='store_true', default=False)
     parser.add_argument('--test_dataset', '-d', default='test', help='which dataset to test on (train for sanity-checking)')
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')
     parser.add_argument('--start_frame', '-sf', default=None, type=int, help="frame to start loading data from, if you don't want to load entire dataset")
     parser.add_argument('--dont_save_test_results', '-dstr', dest='save_test_results', action='store_false', default=True, help='whether or not to save test results stats to tsv file (on test mode)')
-    parser.add_argument('--wandb', '-wb', default=None, help='wandb project name')
+    parser.add_argument('--wandb_project_name', '-wb', default='jrdb')#None, help='wandb project name')
     parser.add_argument('--interaction_category', '-ic', action='store_true')#default='all', help='which interaction category to test on')
+    parser.add_argument('--seq_frame', '-sqf', default=None)
+    parser.add_argument('--tag', '-tg', default=None)
 
     args = parser.parse_args()
 

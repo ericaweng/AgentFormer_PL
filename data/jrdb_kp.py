@@ -182,6 +182,7 @@ class jrdb_preprocess(object):
             for i, idx in enumerate(valid_id):
                 h = all_data[ts]['pos'][all_data[ts]['pos'][:, 1] == idx].squeeze()[self.heading_ind]
                 heading[ts,i] = np.cos(h), np.sin(h)
+                import ipdb; ipdb.set_trace()
         return heading.mean(0)
 
     def PreJoints(self, history, valid_id):

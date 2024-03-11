@@ -14,39 +14,13 @@ class Config:
         cfg_path = 'cfg/**/%s.yml' % cfg_id
         files = glob.glob(cfg_path, recursive=True)
         if len(files) == 0:
-            things = cfg_id.split("_")
-            files = glob.glob('cfg/**/%s.yml' % "_".join(things[:3]), recursive=True)
-            additional_cfg_vars = {'sigma_d': float(things[-1].split('-')[-1]), 'weight': float(things[3].split('-')[-1])}
-        else:
-            if additional_cfg_vars is not None and 'sigma_d' in additional_cfg_vars and additional_cfg_vars['sigma_d'] is not None:
-                self.id = f"{cfg_id}_weight-{additional_cfg_vars['weight']}_sigma_d-{additional_cfg_vars['sigma_d']}"
+            raise ValueError('No config file found for cfg_id %s' % cfg_id)
 
         assert (len(files) == 1), files
         self.yml_dict = EasyDict(yaml.safe_load(open(files[0], 'r')))
-        if additional_cfg_vars is not None and 'sigma_d' in additional_cfg_vars and additional_cfg_vars['sigma_d'] is not None:
-            """cfg new vars"""
-            self.yml_dict.sfm_params.sigma_d = additional_cfg_vars['sigma_d']
-            self.yml_dict.loss_cfg.sample_sfm = {}
-            self.yml_dict.loss_cfg.sample_sfm.weight = additional_cfg_vars['weight']
-            self.yml_dict.loss_cfg.recon_sfm = {}
-            self.yml_dict.loss_cfg.recon_sfm.weight = additional_cfg_vars['weight']
 
-        # data dir
-        self.results_root_dir = os.path.expanduser(self.yml_dict['results_root_dir'])
-        # results dirs
-        cfg_root_dir = '/tmp/agentformer' if tmp else self.results_root_dir
-        self.cfg_root_dir = os.path.expanduser(cfg_root_dir)
+        self.cfg_path = os.path.expanduser(files[0])
 
-        # self.cfg_dir = '%s/%s' % (self.cfg_root_dir, self.id)
-        # self.model_dir = '%s/models' % self.cfg_dir
-        # self.result_dir = '%s/results' % self.cfg_dir
-        # self.log_dir = '%s/log' % self.cfg_dir
-        # self.tb_dir = '%s/tb' % self.cfg_dir
-        # self.model_path = os.path.join(self.model_dir, 'model_%04d.p')
-        # self.model_path_last = os.path.join(self.model_dir, 'model_last.p')
-        # os.makedirs(self.model_dir, exist_ok=True)
-        # os.makedirs(self.result_dir, exist_ok=True)
-        # os.makedirs(self.log_dir, exist_ok=True)
         if create_dirs:
             recreate_dirs(self.tb_dir)
 

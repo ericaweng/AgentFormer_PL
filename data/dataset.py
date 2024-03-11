@@ -12,7 +12,7 @@ from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
-from .jrdb_split import get_jackrabbot_split, get_jackrabbot_split_easy
+from .jrdb_split import *#get_jackrabbot_split, get_jackrabbot_split_easy, get_jackrabbot_split_sanity
 from .ethucy_split import get_ethucy_split
 
 
@@ -20,7 +20,11 @@ class AgentFormerDataset(Dataset):
     """ torch Dataset """
 
     def __init__(self, parser, split='train', phase='training', trial_ds_size=None, randomize_trial_data=None,
-                 frames_list=None, start_frame=None):
+                 frames_list=None, start_frame=None, args=None):
+        self.args = args
+        if self.args.seq_frame is not None:
+            self.single_seq = self.args.seq_frame.split(" ")[0]
+            self.single_frame = int(self.args.seq_frame.split(" ")[1])
         self.past_frames = parser.past_frames
         self.min_past_frames = parser.min_past_frames
         self.frame_skip = parser.get('frame_skip', 1)
@@ -57,8 +61,15 @@ class AgentFormerDataset(Dataset):
             seq_train, seq_val, seq_test = get_stanford_drone_split()
         elif parser.dataset == 'jrdb':
             data_root = parser.data_root_jrdb
-            if parser.get('easy_split', False):
+            split_type = parser.get('split_type', 'normal')
+            if split_type == 'half_and_half':
+                seq_train, seq_val, seq_test = get_jackrabbot_split_half_and_half()
+            elif split_type == 'half_and_half_tiny':
+                seq_train, seq_val, seq_test = get_jackrabbot_split_half_and_half_tiny()
+            elif split_type == 'easy':
                 seq_train, seq_val, seq_test = get_jackrabbot_split_easy()
+            elif split_type == 'sanity':
+                seq_train, seq_val, seq_test = get_jackrabbot_split_sanity()
             else:
                 seq_train, seq_val, seq_test = get_jackrabbot_split()
             self.init_frame = 0
@@ -84,6 +95,7 @@ class AgentFormerDataset(Dataset):
             process_func = preprocess
         elif parser.dataset == 'jrdb':# and np.any(['kp' in it for it in parser.input_type]):
             dl_v = parser.get('dataloader_version', 1)
+            print(f"dl_v: {dl_v}")
             if dl_v == 2:
                 process_func = jrdb_preprocess_new
             elif dl_v == 1:
@@ -110,6 +122,9 @@ class AgentFormerDataset(Dataset):
         self.num_sample_list = []
         self.sequence = []
         for seq_name in self.sequence_to_load:
+            if self.args.seq_frame is not None:
+                if self.single_seq != seq_name:
+                    continue
             print("loading sequence {} ...".format(seq_name))
             preprocessor = process_func(data_root, seq_name, parser, self.split, self.phase)
 
@@ -125,42 +140,42 @@ class AgentFormerDataset(Dataset):
 
         self.preprocess_data = True if trial_ds_size is not None else parser.get('preprocess_data', True)
         if self.preprocess_data:
-            self.get_preprocessed_data(parser.get('dataloader_version', 0), split, num_total_samples, frames_list, start_frame)
+            self.get_preprocessed_data(num_total_samples, frames_list, start_frame)
         else:
             self.sample_list = [None for _ in range(num_total_samples)]
 
-    def get_preprocessed_data(self, dl_v, split, num_total_samples, frames_list, start_frame):
+    def get_preprocessed_data(self, num_total_samples, frames_list, start_frame):
         """ get data sequence windows from raw data blocks txt files"""
         datas = []
 
-        total_invalid_peds = 0
-        total_valid_peds = 0
-        invalid_peds_this_environment = 0
-        valid_peds_this_environment = 0
-        last_seq = None
+        # total_invalid_peds = 0
+        # total_valid_peds = 0
+        # invalid_peds_this_environment = 0
+        # valid_peds_this_environment = 0
+        # last_seq = None
         for idx in list(range(num_total_samples)):
             seq_index, frame = self.get_seq_and_frame(idx)
             seq = self.sequence[seq_index]
             data = seq(frame)
             if data is None:
                 continue
-
-            if last_seq is not None and data['seq'] != last_seq:
+            # if last_seq is not None and data['seq'] != last_seq:
                 # print(f'invalid_peds in {last_seq}: {invalid_peds_this_environment}, '
                 #       f'valid_peds in {last_seq}: {valid_peds_this_environment}')
                 # print(f'ratio of invalid_peds in {last_seq}: {round(invalid_peds_this_environment / (invalid_peds_this_environment + valid_peds_this_environment), 2)}')
-                invalid_peds_this_environment = 0
-                valid_peds_this_environment = 0
-            last_seq = data['seq']
+                # invalid_peds_this_environment = 0
+                # valid_peds_this_environment = 0
+            # last_seq = data['seq']
             # total_invalid_peds += seq.total_invalid_peds
             # total_valid_peds += seq.total_valid_peds
             # invalid_peds_this_environment += seq.total_invalid_peds
             # valid_peds_this_environment += seq.total_valid_peds
-
             if frames_list is not None and isinstance(frames_list, list) and len(frames_list) > 0 \
                     and frame not in frames_list:
                 continue
             if start_frame is not None and frame < start_frame:
+                continue
+            if self.args.seq_frame is not None and not (self.single_seq == data['seq'] and int(self.single_frame) == data['frame']):
                 continue
             if self.ped_categories is not None:  # filter out pedestrians that are not in the specified categories
                 masks_dir = '../trajectory_reward/results/interactions'
@@ -197,10 +212,10 @@ class AgentFormerDataset(Dataset):
 
 
         print(f'using {len(self.sample_list)} num samples')
-        if dl_v == 0 and split == 'train' and self.dataset == 'jrdb':
-            assert len(self.sample_list) == 8483
-        if dl_v == 0 and split == 'val' and self.dataset == 'jrdb':
-            assert len(self.sample_list) == 3835
+        # if dl_v == 0 and split == 'train' and self.dataset == 'jrdb':
+        #     assert len(self.sample_list) == 8483
+        # if dl_v == 0 and split == 'val' and self.dataset == 'jrdb':
+        #     assert len(self.sample_list) == 3835
 
         print("------------------------------ done --------------------------------\n")
         if len(self.sample_list) < 10:

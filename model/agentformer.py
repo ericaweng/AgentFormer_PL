@@ -15,7 +15,7 @@ from viz_utils import plot_traj_img
 from model.running_norm import RunningNorm
 
 
-INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'INTERACTION_HPARAMS[': 2, 'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 17,
+INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2, 'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 17,
                       'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1}
 
 def generate_ar_mask(sz, agent_num, agent_mask):
@@ -179,6 +179,7 @@ class ContextEncoder(nn.Module):
             elif key == 'scene_norm':
                 traj_in_list.append(data['pre_motion_scene_norm'])
             elif key == 'kp_norm':
+                import ipdb; ipdb.set_trace()
                 kp_input_list.append(data['pre_kp_norm'].reshape(data['pre_kp_norm'].shape[0],
                                                                    data['pre_kp_norm'].shape[1], -1))
             elif key == 'kp_vel':
@@ -187,6 +188,7 @@ class ContextEncoder(nn.Module):
                     vel = torch.cat([vel[[0]], vel], dim=0)
                 kp_input_list.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
             elif key == 'kp_scores':
+                import ipdb; ipdb.set_trace()
                 kp_input_list.append(data['pre_kp_scores'].reshape(data['pre_kp_scores'].shape[0], data['pre_kp_scores'].shape[1], -1))
             elif key == 'cam_id':
                 kp_input_list.append(data['pre_cam_id'].reshape(data['pre_cam_id'].shape[0], data['pre_cam_id'].shape[1], -1))
@@ -354,8 +356,6 @@ class FutureEncoder(nn.Module):
             elif key == 'map':
                 map_enc = data['map_enc'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
                 traj_in_list.append(map_enc)
-            elif key == 'sf_feat':
-                traj_in_list.append(data['fut_sf_feat'])
             else:
                 raise ValueError('unknown input_type!')
         if self.concat_all_inputs:
@@ -698,7 +698,7 @@ class AgentFormer(nn.Module):
         if self.training and len(data['pre_motion']) > self.max_train_agent:
             in_data = {}
             ind = np.random.choice(len(data['pre_motion']), self.max_train_agent).tolist()
-            for key in [k for k in data.keys() if k.split('_')[0] in ['pre', 'fut'] and 'data' not in k]:
+            for key in [k for k in data.keys() if k.split('_')[0] in ['pre', 'fut', 'heading'] and 'data' not in k]:
                 in_data[key] = [data[key][i] for i in ind if key in data and data[key] is not None]
         else:
             in_data = data
@@ -715,6 +715,7 @@ class AgentFormer(nn.Module):
 
         self.data['pre_motion'] = torch.stack(in_data['pre_motion'], dim=0).to(device).transpose(0, 1).contiguous()  # swap batch and time dim
         self.data['fut_motion'] = torch.stack(in_data['fut_motion'], dim=0).to(device).transpose(0, 1).contiguous()
+
         if 'pre_kp' in in_data:
             # flip the z, bc the people are upside-down in world coords
             self.data['pre_kp'][...,1] *= -1
@@ -742,6 +743,7 @@ class AgentFormer(nn.Module):
                 self.data[key], self.data[f'{key}_scene_norm'] = rotation_2d_torch(self.data[key], theta, self.data['scene_orig'])
             if 'heading' in in_data and in_data['heading'] is not None:
                 self.data['heading'] += theta
+                self.data['heading_avg'] += theta
         else:
             theta = torch.zeros(1).to(device)
             for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
@@ -760,12 +762,10 @@ class AgentFormer(nn.Module):
         self.data['pre_motion_norm'] = self.data['pre_motion'][:-1] - self.data['cur_motion']   # subtract last obs pos
         self.data['fut_motion_norm'] = self.data['fut_motion'] - self.data['cur_motion']
         if 'heading' in in_data and in_data['heading'] is not None:
-            if len(self.data['heading'].shape) == 1:  # if not already sin / cos'ed
-                self.data['heading_vec'] = torch.stack([torch.cos(self.data['heading']), torch.sin(self.data['heading'])], dim=-1)
-            else:
-                self.data['heading_vec'] = self.data['heading']
+            assert len(self.data['heading'].shape) == 1  # if not already sin / cos'ed
+            self.data['heading_vec'] = torch.stack([torch.cos(self.data['heading']), torch.sin(self.data['heading'])], dim=-1)
             if 'heading_avg' in self.data:
-                self.data['heading_avg'] = torch.tensor(np.array(in_data['heading_avg'])).float().to(device)
+                self.data['heading_avg'] = torch.stack([torch.cos(self.data['heading_avg']), torch.sin(self.data['heading_avg'])], dim=-1)
 
         # agent maps
         if self.use_map:

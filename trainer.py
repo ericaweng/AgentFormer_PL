@@ -12,11 +12,20 @@ from metrics import stats_func
 from utils.utils import mkdir_if_missing
 from utils.torch import get_scheduler
 
-from viz_utils_plot import _save_catch_all, _save_viz_w_pose_3d, _save_viz_w_pose_2d, _save_viz_w_heading, _save_viz_nuscenes, _save_viz
-from collision_rejection import run_model_w_col_rej
+from viz_utils_plot import _save_catch_all
 from data.categorize_interactions import get_interaction_matrix_for_scene, INTERACTION_CAT_ABBRS
 from data.ped_interactions import INTERACTION_CAT_NAMES
 
+
+def agg_metrics(all_metrics):
+    """Aggregate metrics across sequences. from list of dicts to dict of lists"""
+    d = {}
+    for elem in all_metrics:
+        for k, v in elem.items():
+            if k not in d:
+                d[k] = []
+            d[k].append(v)
+    return d
 
 def save_trajectories(trajectory, save_dir, seq_name, frame, suffix=''):
     """Save trajectories in a text file.
@@ -94,16 +103,36 @@ class AgentFormerTrainer(pl.LightningModule):
         self.num_workers = min(args.num_workers, num_workers)
         self.batch_size = args.batch_size
         self.collision_rad = cfg.get('collision_rad', 0.1)
-        self.hparams.update(vars(cfg))
-        self.hparams.update(vars(args))
+        # self.hparams.update(vars(cfg))
+        # self.hparams.update({'args': vars(args)})
         self.model_name = "_".join(self.cfg.id.split("_")[1:])
         self.dataset_name = self.cfg.id.split("_")[0].replace('-', '_')
+        self.log_train_this_time = False
         self.int_matrices = None
-        if self.args.trial:
-            self.args.save_num = max(1, self.args.save_num // 10)
+        # if self.args.trial:
+        #     self.args.save_num = max(1, self.args.save_num // 10)
 
     def update_args(self, args):
         self.args = args
+    def on_train_start(self):
+        if self.args.wandb_project_name is not None:
+            self.logger.experiment.save(self.cfg.cfg_path)
+            self.logger.experiment.save('model/agentformer.py')
+            self.logger.experiment.save('model/agentformer_loss.py')
+            self.logger.experiment.save('model/dlow.py')
+            self.logger.experiment.save('data/datamodule.py')
+            self.logger.experiment.save('data/dataset.py')
+            self.logger.experiment.save('data/ped_interactions.py')
+            self.logger.experiment.save('callbacks.py')
+            self.logger.experiment.save('eval.py')
+            self.logger.experiment.save('metrics.py')
+            self.logger.experiment.save('trainer.py')
+            self.logger.experiment.save('viz_utils_plot.py')
+            if 'jrdb' in self.cfg.dataset:
+                self.logger.experiment.save('data/jrdb.py')
+                self.logger.experiment.save('data/jrdb_kp.py')
+                self.logger.experiment.save('data/jrdb_kp2.py')
+                self.logger.experiment.save('data/jrdb_split.py')
 
     def on_test_start(self):
         self.model.set_device(self.device)
@@ -114,8 +143,29 @@ class AgentFormerTrainer(pl.LightningModule):
     def _step(self, batch, mode):
         # Compute predictions
         # data = self(batch)
-
-        # print(f"node rank: {torch.cuda.current_device()} step: {self.global_step}, frame: {batch['frame']}")
+        if self.global_step > 3400:
+            """
+            3452, frame: 798, seq: jordan-hall-2019-04-22_0                                                                                                              [988/3761]
+            3453, frame: 891, seq: jordan-hall-2019-04-22_0
+            3454, frame: 199, seq: huang-lane-2019-02-12_0
+            3455, frame: 119, seq: bytes-cafe-2019-02-07_0
+            ------------------------------------
+            3407, frame: 826, seq: hewlett-packard-intersection-2019-01-24_0
+            3408, frame: 615, seq: packard-poster-session-2019-03-20_1
+            Traceback (most recent call last):
+              File "/root/mambaforge/envs/p3d_/lib/python3.9/multiprocessing/queues.py", line 244, in _feed
+                obj = _ForkingPickler.dumps(obj)
+              File "/root/mambaforge/envs/p3d_/lib/python3.9/multiprocessing/reduction.py", line 51, in dumps
+                cls(buf, protocol).dump(obj)
+              File "/root/mambaforge/envs/p3d_/lib/python3.9/site-packages/torch/multiprocessing/reductions.py", line 366, in reduce_storage
+                fd, size = storage._share_fd_cpu_()
+            RuntimeError: unable to mmap 64 bytes from file </torch_39104_1377978244_63479>: Cannot allocate memory (12)
+            3409, frame: 567, seq: packard-poster-session-2019-03-20_2
+            3410, frame: 817, seq: hewlett-packard-intersection-2019-01-24_0
+            """
+            # print(f"{self.global_step}, frame: {batch['frame']}, seq: {batch['seq']}, num_agents: {len(batch['fut_motion'])}")
+        if self.current_epoch == 0 and self.global_step <= 5 and self.model.training:
+            print(f"node rank: {torch.cuda.current_device()} step: {self.global_step}, frame: {batch['frame']}")
 
         if batch is None:
             return
@@ -124,9 +174,10 @@ class AgentFormerTrainer(pl.LightningModule):
         total_loss, loss_dict, loss_unweighted_dict = self.model.compute_loss()
 
         # losses
-        self.log(f'{mode}/loss', total_loss, on_epoch=True, sync_dist=True, logger=True, batch_size=self.batch_size)
-        for loss_name, loss in loss_dict.items():
-            self.log(f'{mode}/{loss_name}', loss, on_step=False, on_epoch=True, sync_dist=True, logger=True, batch_size=self.batch_size)
+        if mode != 'test':
+            self.log(f'{mode}/loss', total_loss, on_epoch=True, sync_dist=True, logger=True, batch_size=self.batch_size)
+            for loss_name, loss in loss_dict.items():
+                self.log(f'{mode}/{loss_name}', loss, on_step=False, on_epoch=True, sync_dist=True, logger=True, batch_size=self.batch_size)
 
         # make gt_motion and pred_motion both have peds first, for the sake of evaluation
         gt_motion = self.cfg.traj_scale * data['fut_motion'].cpu().transpose(1, 0)
@@ -147,11 +198,8 @@ class AgentFormerTrainer(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         with torch.no_grad():
-            if self.cfg.get('collisions_ok', True):
-                return_dict = self._step(batch, 'test')
-            else:
-                return_dict = run_model_w_col_rej(batch, self.model, self.cfg.traj_scale, self.cfg.sample_k,
-                                                  self.cfg.collision_rad, self.model.device)
+            return_dict = self._step(batch, 'test')
+
         pred_motion = return_dict['pred_motion']  # (num_peds, num_samples, pred_steps, 2)
         gt_motion = return_dict['gt_motion']  # (pred_steps, num_peds, 2)
         obs_motion = return_dict['obs_motion']  # (obs_steps, num_peds, 2)
@@ -181,9 +229,6 @@ class AgentFormerTrainer(pl.LightningModule):
 
 
     def _compute_and_log_metrics(self, outputs, mode='test'):
-        # save outputs
-        # torch.save(f'../viz/af/{self.cfg.id}_{mode}_outputs.npy', outputs)
-
         args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]  #  if output is not None
 
         # calculate metrics for each sequence
@@ -202,16 +247,14 @@ class AgentFormerTrainer(pl.LightningModule):
         num_agent_per_seq = np.array([output['gt_motion'].shape[0] for output in outputs])
         total_num_agents = np.sum(num_agent_per_seq)
         results_dict = {}
-        for metric_name, results in zip(stats_func.keys(), zip(*all_metrics)):
+        all_metrics = agg_metrics(all_metrics)
+        for metric_name, results in all_metrics.items():
             value = np.mean(results)
             results_dict[metric_name] = value
             if 'marginal' in metric_name or metric_name == "MR":
                 value = np.sum(results * num_agent_per_seq) / np.sum(num_agent_per_seq)
                 results_dict[f"{metric_name}_agent"] = value
         # mask should be [num_samples, num_agents, 1]
-
-        # save results broken down by interaction categories
-        self.save_interaction_cat_results(outputs, all_ped_vals, total_num_agents)
 
         # get stats related to collision_rejection sampling
         is_test_mode = mode == 'test'
@@ -224,7 +267,7 @@ class AgentFormerTrainer(pl.LightningModule):
             results_dict['tot_frames_w_col'] = tot_frames_w_col
 
         # save results to file
-        if True or is_test_mode and self.args.save_test_results and not self.args.trial:
+        if is_test_mode and self.args.save_test_results and not self.args.trial:
             test_results_filename = f'{self.args.logs_root}/test_results/{self.cfg.id}.tsv'
             mkdir_if_missing(test_results_filename)
             with open(test_results_filename, 'w') as f:
@@ -238,6 +281,9 @@ class AgentFormerTrainer(pl.LightningModule):
                     f.write(f"{value:.4f}\n")
                 f.write(f"total_peds\t{total_num_agents}")
 
+            # save results broken down by interaction categories
+            self.save_interaction_cat_results(outputs, all_ped_vals, total_num_agents)
+
         # print results to console for easy copy-and-paste
         if is_test_mode:
             print(f"\n\n\n{self.current_epoch}")
@@ -246,12 +292,16 @@ class AgentFormerTrainer(pl.LightningModule):
             print(total_num_agents)
 
         # log metrics to tensorboard
-        for metric_name, value in results_dict.items():
-            self.log(f'{mode}/{metric_name}', value, sync_dist=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f'{mode}/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
+        if not is_test_mode:
+            for metric_name, value in results_dict.items():
+                self.log(f'{mode}/{metric_name}', value, sync_dist=True, on_epoch=True, prog_bar=True, logger=True)
+            self.log(f'{mode}/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
+            self.log(f'{mode}/lr', self.trainer.optimizers[0].param_groups[0]['lr'], sync_dist=True, logger=True)
 
         # save outputs for later visualization
-        self.outputs = outputs, all_sample_vals, all_metrics, argmins, collision_mats
+        # self.outputs = outputs, all_sample_vals, all_metrics, argmins, collision_mats
+        # torch.save((outputs, all_sample_vals, all_metrics, argmins, collision_mats), f'../viz/af/{self.cfg.id}_{mode}_outputs.pt')
+        return outputs, all_sample_vals, all_metrics, argmins, collision_mats
 
     def log_viz(self, args, mode):
         outputs, all_sample_vals, all_metrics, argmins, collision_mats = args
@@ -259,38 +309,45 @@ class AgentFormerTrainer(pl.LightningModule):
         num_test_samples = len(outputs)
 
         skip = max(1, int(num_test_samples / self.args.save_num))
-        all_figs = _save_catch_all(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-        # if 'nuscenes' in self.cfg.id:
-        #     all_figs = _save_viz_nuscenes(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-        # elif (('joints' in self.cfg.id or 'kp' in self.cfg.id)
-        #       and self.model.context_encoder.kp_dim == 3):
-        #     all_figs = _save_viz_w_pose_3d(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-        # elif (('joints' in self.cfg.id or 'kp' in self.cfg.id)
-        #       and hasattr(self.model.context_encoder, 'kp_dim')
-        #       and self.model.context_encoder.kp_dim == 2):
-        #     all_figs = _save_viz_w_pose_2d(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-        # elif 'heading' in self.model.input_type:
-        #     all_figs = _save_viz_w_heading(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode)
-        # else:
-        #     all_figs = _save_viz(self, outputs[::skip], all_sample_vals[::skip], all_metrics[::skip], argmins[::skip], collision_mats[::skip], mode)
+
+        if self.logger is None:
+            anim_save_dir = f'../viz/af_jrdb_viz/'
+        else:
+            anim_save_dir = None
+        all_figs = _save_catch_all(self, outputs[::skip], all_sample_vals[::skip], collision_mats[::skip], mode, anim_save_dir)
 
         # plot videos to tensorboard
         instance_is = np.arange(0, num_test_samples, skip)
-        for idx, (instance_i, figs) in enumerate(zip(instance_is, all_figs)):
-            video_tensor = np.stack(all_figs).transpose(0, 1, 4, 2, 3)
-            self.logger.experiment.add_video(f'{mode}/traj_{instance_i}', video_tensor[idx:idx+1], self.global_step, fps=6)
+        video_tensor = np.stack(all_figs).transpose(0, 1, 4, 2, 3)
+
+        # (num_samples (bs), num_timesteps, channels (4), height, width)
+        if self.args.wandb_project_name is not None and self.logger is not None:
+            import wandb
+            for idx, (instance_i, figs) in enumerate(zip(instance_is, all_figs)):
+                self.logger.experiment.log({f'{mode}_viz/traj_{instance_i}': wandb.Video(video_tensor[idx], fps=2.5, format='gif')})
+        elif self.logger is not None:  # tensorboard
+            for idx, (instance_i, figs) in enumerate(zip(instance_is, all_figs)):
+                self.logger.experiment.add_video(f'{mode}/traj_{instance_i}', video_tensor[idx:idx+1], self.global_step, fps=6)
 
     def training_epoch_end(self, outputs):
-        self._compute_and_log_metrics(outputs, 'train')
+        outputs_processed = self._compute_and_log_metrics(outputs, 'train')
+        if self.args.save_viz and self.log_train_this_time:
+            self.log_viz(outputs_processed, 'train')
+            self.log_train_this_time = False
         self.model.step_annealer()
 
     def validation_epoch_end(self, outputs):
-        self.val_outputs = outputs
-        if len(outputs) > 0:
-            self._compute_and_log_metrics(outputs, 'val')
+        print("hi!")
+        outputs_processed = self._compute_and_log_metrics(outputs, 'val')
+        if self.args.save_viz and self.trainer.callback_metrics.get("val/ADE_joint") <= self.best_model_score:
+            print("This is a new best model!")
+            self.log_viz(outputs_processed, 'val')
+            self.log_train_this_time = True
 
     def test_epoch_end(self, outputs):
-        self._compute_and_log_metrics(outputs)
+        outputs_processed = self._compute_and_log_metrics(outputs, 'test')
+        if self.args.save_viz:
+            self.log_viz(outputs_processed, 'test')
 
     def on_load_checkpoint(self, checkpoint):
         if 'model_dict' in checkpoint and 'epoch' in checkpoint:
@@ -401,16 +458,18 @@ class AgentFormerTrainer(pl.LightningModule):
                     results2[(int_name, 'fraction of pose peds / pose + no pose peds')] = total_peds_this_cat_pose / total_peds_this_cat
 
         import pandas as pd
-        df = pd.DataFrame.from_dict(results1, orient='index')
-        df.index = pd.MultiIndex.from_tuples(df.index)  # Convert index to MultiIndex
-        df = df.unstack()  # Unstack the MultiIndex
-        mkdir_if_missing(f'../viz/af')
-        test_results_filename = f'../viz/af/{self.cfg.id}_cats.tsv'
-        df.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
+        if len(results1) > 0:
+            df = pd.DataFrame.from_dict(results1, orient='index')
+            df.index = pd.MultiIndex.from_tuples(df.index)  # Convert index to MultiIndex
+            df = df.unstack()  # Unstack the MultiIndex
+            mkdir_if_missing(f'../viz/af')
+            test_results_filename = f'../viz/af/{self.cfg.id}_cats.tsv'
+            df.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
 
-        df2 = pd.DataFrame.from_dict(results2, orient='index')
-        df2.index = pd.MultiIndex.from_tuples(df2.index)  # Convert index to MultiIndex
-        df2 = df2.unstack()  # Unstack the MultiIndex
-        test_results_filename = f'../viz/af/{self.cfg.id}_totals.tsv'
-        df2.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
-        print(f"wrote test results to {test_results_filename}")
+        if len(results2) > 0:
+            df2 = pd.DataFrame.from_dict(results2, orient='index')
+            df2.index = pd.MultiIndex.from_tuples(df2.index)  # Convert index to MultiIndex
+            df2 = df2.unstack()  # Unstack the MultiIndex
+            test_results_filename = f'../viz/af/{self.cfg.id}_totals.tsv'
+            df2.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
+            print(f"wrote test results to {test_results_filename}")

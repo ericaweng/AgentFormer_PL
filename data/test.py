@@ -1,5 +1,42 @@
-# excluding poseless, dataloader 2
 
+"""
+3430, frame: 496, seq: packard-poster-session-2019-03-20_2, num_agents: 58
+3431, frame: 1343, seq: hewlett-packard-intersection-2019-01-24_0, num_agents: 18
+Traceback (most recent call last):
+  File "/root/mambaforge/envs/p3d_/lib/python3.9/multiprocessing/queues.py", line 244, in _feed
+    obj = _ForkingPickler.dumps(obj)
+  File "/root/mambaforge/envs/p3d_/lib/python3.9/multiprocessing/reduction.py", line 51, in dumps
+    cls(buf, protocol).dump(obj)
+  File "/root/mambaforge/envs/p3d_/lib/python3.9/site-packages/torch/multiprocessing/reductions.py", line 366, in reduce_storage
+    fd, size = storage._share_fd_cpu_()
+RuntimeError: unable to mmap 64 bytes from file </torch_48816_3235653068_63483>: Cannot allocate memory (12)
+3432, frame: 432, seq: hewlett-packard-intersection-2019-01-24_0, num_agents: 25
+3433, frame: 764, seq: packard-poster-session-2019-03-20_1, num_agents: 44
+3434, frame: 708, seq: bytes-cafe-2019-02-07_0, num_agents: 25
+3435, frame: 762, seq: hewlett-packard-intersection-2019-01-24_0, num_agents: 20
+3436, frame: 615, seq: hewlett-packard-intersection-2019-01-24_0, num_agents: 21
+3437, frame: 1188, seq: bytes-cafe-2019-02-07_0, num_agents: 22
+3438, frame: 516, seq: packard-poster-session-2019-03-20_2, num_agents: 58
+3439, frame: 515, seq: huang-lane-2019-02-12_0, num_agents: 55
+Epoch 0:  41%|██████████████████████████████████████▌                                                        | 3440/8483 [14:34<21:21,  3.93it/s, loss=117, v_num=jneo]3440, frame: 1020, seq: bytes-cafe-2019-02-07_0, num_agents: 23
+3441, frame: 436, seq: jordan-hall-2019-04-22_0, num_agents: 8
+3442, frame: 289, seq: bytes-cafe-2019-02-07_0, num_agents: 22
+3443, frame: 328, seq: huang-lane-2019-02-12_0, num_agents: 49
+3444, frame: 1167, seq: packard-poster-session-2019-03-20_2, num_agents: 57
+3445, frame: 284, seq: gates-ai-lab-2019-02-08_0, num_agents: 21
+3446, frame: 1324, seq: hewlett-packard-intersection-2019-01-24_0, num_agents: 18
+3447, frame: 862, seq: jordan-hall-2019-04-22_0, num_agents: 12
+3448, frame: 141, seq: packard-poster-session-2019-03-20_2, num_agents: 53
+3449, frame: 755, seq: hewlett-packard-intersection-2019-01-24_0, num_agents: 21
+3450, frame: 1269, seq: hewlett-packard-intersection-2019-01-24_0, num_agents: 19
+3451, frame: 644, seq: gates-basement-elevators-2019-01-17_1, num_agents: 13
+3452, frame: 798, seq: jordan-hall-2019-04-22_0, num_agents: 12
+3453, frame: 891, seq: jordan-hall-2019-04-22_0, num_agents: 11
+3454, frame: 199, seq: huang-lane-2019-02-12_0, num_agents: 45
+3455, frame: 119, seq: bytes-cafe-2019-02-07_0, num_agents: 21
+"""
+
+# excluding poseless, dataloader 2
 """
 -------------------------- loading val data --------------------------
 loading sequence stlc-111-2019-04-19_0 ...
