@@ -13,10 +13,13 @@ from utils.torch import *
 from utils.utils import initialize_weights
 from viz_utils import plot_traj_img
 from model.running_norm import RunningNorm
+from data.jrdb_kp3 import USE_ACTIONS
 
 
-INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2, 'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 17,
-                      'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1}
+INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2,
+                      'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 17,
+                      'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1,
+                      'action': len(USE_ACTIONS), 'action_score': len(USE_ACTIONS)}
 
 def generate_ar_mask(sz, agent_num, agent_mask):
     assert sz % agent_num == 0
@@ -134,6 +137,7 @@ class ContextEncoder(nn.Module):
             if key in ['scene_norm', 'vel', 'heading'] or self.concat_all_inputs:
                 in_dim += self.input_type_to_dims[key]
             else:
+                import ipdb; ipdb.set_trace()
                 in_dim_kp += self.input_type_to_dims[key]
         if in_dim_kp > 0:
             if ctx['add_kp']:
@@ -164,6 +168,7 @@ class ContextEncoder(nn.Module):
     def forward(self, data):
         traj_in_list = []
         kp_input_list = []
+        num_timesteps = data['pre_motion'].shape[0]
         for key in self.input_type:
             if key == 'pos':
                 traj_in_list.append(data['pre_motion'])
@@ -179,31 +184,32 @@ class ContextEncoder(nn.Module):
             elif key == 'scene_norm':
                 traj_in_list.append(data['pre_motion_scene_norm'])
             elif key == 'kp_norm':
-                import ipdb; ipdb.set_trace()
-                kp_input_list.append(data['pre_kp_norm'].reshape(data['pre_kp_norm'].shape[0],
-                                                                   data['pre_kp_norm'].shape[1], -1))
+                kp_input_list.append(data['pre_kp_norm'].reshape(*data['pre_kp_norm'].shape[0:2], -1))
             elif key == 'kp_vel':
                 vel = data['pre_kp_vel']
                 if len(self.input_type) > 1:
                     vel = torch.cat([vel[[0]], vel], dim=0)
                 kp_input_list.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
             elif key == 'kp_scores':
-                import ipdb; ipdb.set_trace()
-                kp_input_list.append(data['pre_kp_scores'].reshape(data['pre_kp_scores'].shape[0], data['pre_kp_scores'].shape[1], -1))
+                kp_input_list.append(data['pre_kp_scores'])
             elif key == 'cam_id':
-                kp_input_list.append(data['pre_cam_id'].reshape(data['pre_cam_id'].shape[0], data['pre_cam_id'].shape[1], -1))
+                kp_input_list.append(data['pre_cam_id'].unsqueeze(-1))
             elif key == 'cam_intrinsics':
-                kp_input_list.append(data['pre_cam_intrinsics'].reshape(data['pre_cam_intrinsics'].shape[0], data['pre_cam_intrinsics'].shape[1], -1))
+                kp_input_list.append(data['pre_cam_intrinsics'])
             elif key == 'cam_extrinsics':
-                kp_input_list.append(data['pre_cam_extrinsics'].reshape(data['pre_cam_extrinsics'].shape[0], data['pre_cam_extrinsics'].shape[1], -1))
+                kp_input_list.append(data['pre_cam_extrinsics'])
             elif key == 'heading':
-                hv = data['heading_vec'].unsqueeze(0).repeat((data['pre_motion'].shape[0], 1, 1))
+                hv = data['heading_vec'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)
             elif key == 'heading_avg':
-                hv = data['heading_avg'].unsqueeze(0).repeat((data['pre_motion'].shape[0], 1, 1))
+                hv = data['heading_avg'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)
+            elif key == 'action':
+                traj_in_list.append(data['pre_action_label'])
+            elif key == 'action_score':
+                traj_in_list.append(data['pre_action_score'])
             elif key == 'map':
-                map_enc = data['map_enc'].unsqueeze(0).repeat((data['pre_motion'].shape[0], 1, 1))
+                map_enc = data['map_enc'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(map_enc)
             elif key == 'sf_feat':
                 traj_in_list.append(data['pre_sf_feat'])
@@ -317,9 +323,10 @@ class FutureEncoder(nn.Module):
         # initialize
         initialize_weights(self.q_z_net.modules())
 
-    def forward(self, data, reparam=True):
+    def forward(self, data):
         traj_in_list = []
         kp_input_list = []
+        num_timesteps = data['fut_motion'].shape[0]
         for key in self.input_type:
             if key == 'pos':
                 traj_in_list.append(data['fut_motion'])
@@ -333,28 +340,31 @@ class FutureEncoder(nn.Module):
             elif key == 'scene_norm':
                 traj_in_list.append(data['fut_motion_scene_norm'])
             elif key == 'kp_norm':
-                kp_input_list.append(data['fut_kp_norm'].reshape(data['fut_kp_norm'].shape[0],
-                                                                   data['fut_kp_norm'].shape[1], -1))
+                kp_input_list.append(data['fut_kp_norm'].reshape(*data['fut_kp_norm'].shape[0:2], -1))  # compress 17, 3 to one dimension
             elif key == 'kp_vel':
                 vel = data['fut_kp_vel']
                 # vel = torch.cat([vel[[0]], vel], dim=0)  # unsure what this is for
                 kp_input_list.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
             elif key == 'kp_scores':
-                kp_input_list.append(data['fut_kp_scores'].reshape(data['fut_kp_scores'].shape[0], data['fut_kp_scores'].shape[1], -1))
+                kp_input_list.append(data['fut_kp_scores'])
             elif key == 'cam_id':
-                kp_input_list.append(data['fut_cam_id'].reshape(data['fut_cam_id'].shape[0], data['fut_cam_id'].shape[1], -1))
+                kp_input_list.append(data['fut_cam_id'].unsqueeze(-1))
             elif key == 'cam_intrinsics':
-                kp_input_list.append(data['fut_cam_intrinsics'].reshape(data['fut_cam_intrinsics'].shape[0], data['fut_cam_intrinsics'].shape[1], -1))
+                kp_input_list.append(data['fut_cam_intrinsics'])
             elif key == 'cam_extrinsics':
-                kp_input_list.append(data['fut_cam_extrinsics'].reshape(data['fut_cam_extrinsics'].shape[0], data['fut_cam_extrinsics'].shape[1], -1))
+                kp_input_list.append(data['fut_cam_extrinsics'])
             elif key == 'heading':
-                hv = data['heading_vec'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
+                hv = data['heading_vec'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)
             elif key == 'heading_avg':
-                hv = data['heading_avg'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
+                hv = data['heading_avg'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)
+            elif key == 'action':
+                traj_in_list.append(data['fut_action_label'])
+            elif key == 'action_score':
+                traj_in_list.append(data['fut_action_score'])
             elif key == 'map':
-                map_enc = data['map_enc'].unsqueeze(0).repeat((data['fut_motion'].shape[0], 1, 1))
+                map_enc = data['map_enc'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(map_enc)
             else:
                 raise ValueError('unknown input_type!')
@@ -644,7 +654,7 @@ class AgentFormer(nn.Module):
             'vel_heading': cfg.get('vel_heading', False),
             'learn_prior': cfg.get('learn_prior', False),
             'use_map': cfg.get('use_map', False),
-            'concat_all_inputs': cfg.get('concat_all_inputs', False),
+            'concat_all_inputs': cfg.get('concat_all_inputs', True),
             'input_type_to_dims': cfg.get('input_type_to_dims', INPUT_TYPE_TO_DIMS),
             'kp_dim': cfg.get('kp_dim', 3),
             'num_kp': cfg.get('num_kp', 24),
@@ -717,7 +727,7 @@ class AgentFormer(nn.Module):
         self.data['fut_motion'] = torch.stack(in_data['fut_motion'], dim=0).to(device).transpose(0, 1).contiguous()
 
         if 'pre_kp' in in_data:
-            # flip the z, bc the people are upside-down in world coords
+            # flip the z, bc the people are in image coords in which the z (vertical)-axis points downward wrt world coordinate frame
             self.data['pre_kp'][...,1] *= -1
             self.data['fut_kp'][...,1] *= -1
         self.data['fut_motion_orig'] = torch.stack(in_data['fut_motion'], dim=0).to(device)   # future motion without transpose
@@ -733,9 +743,17 @@ class AgentFormer(nn.Module):
         if 'heading_avg' in in_data and in_data['heading_avg'] is not None:
             self.data['heading_avg'] = torch.tensor(np.array(in_data['heading_avg'])).float().to(device)
 
-        # rotate the scene
+        # rotate the scene randomly during training to prevent scene-specific overfitting
         if self.rand_rot_scene and self.training:
-            if self.discrete_rot:
+            if 'cam_id' in self.input_type:  # only rotate in increments of 2/5*np.pi because there are 5 cameras
+                CAM_INCREMENT = 2  # how much in between adjacent cam ids
+                theta_i = torch.randint(high=5, size=(1,)).to(device) * CAM_INCREMENT
+                NUM_CAMS = 5 * CAM_INCREMENT
+                self.data['pre_cam_id'] = torch.where(self.data['pre_cam_id'] != -1, (self.data['pre_cam_id'] - theta_i) % NUM_CAMS, -1)
+                self.data['fut_cam_id'] = torch.where(self.data['fut_cam_id'] != -1, (self.data['fut_cam_id'] - theta_i) % NUM_CAMS, -1)
+                theta = theta_i * np.pi * 2 / (NUM_CAMS * CAM_INCREMENT)
+                assert 0<=theta < np.pi * 2
+            elif self.discrete_rot:  # only rotate scene in increments
                 theta = torch.randint(high=24, size=(1,)).to(device) * (np.pi / 12)
             else:
                 theta = torch.rand(1).to(device) * np.pi * 2
@@ -744,14 +762,17 @@ class AgentFormer(nn.Module):
             if 'heading' in in_data and in_data['heading'] is not None:
                 self.data['heading'] += theta
                 self.data['heading_avg'] += theta
+            # TODO: add functionality for poses
         else:
             theta = torch.zeros(1).to(device)
             for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
                 self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   #  subtract last obs, meaned over agents
-            if 'kp_norm' in self.input_type and 'kp_norm' in self.input_type:
-                for key in ['pre_kp', 'fut_kp']:
-                    # 0 = hip joint is subtracted from each ped's joints to normalize
-                    self.data[f'{key}_norm'] = self.data[key]# - self.data[key][:,:,:1]  # already normalized in data processing tho
+        self.data['train_theta'] = theta  # save for plotting
+
+        if 'kp_norm' in self.input_type and 'kp_norm' in self.input_type:
+            for key in ['pre_kp', 'fut_kp']:
+                # 0 = hip joint is subtracted from each ped's joints to normalize
+                self.data[f'{key}_norm'] = self.data[key]# - self.data[key][:,:,:1]  # already normalized in data processing tho
 
         self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
         self.data['fut_vel'] = self.data['fut_motion'] - torch.cat([self.data['pre_motion'][[-1]], self.data['fut_motion'][:-1, :]])
@@ -759,8 +780,10 @@ class AgentFormer(nn.Module):
             self.data['pre_kp_vel'] = self.data['pre_kp'][1:] - self.data['pre_kp'][:-1]
             self.data['fut_kp_vel'] = self.data['fut_kp'] - torch.cat([self.data['pre_kp'][[-1]], self.data['fut_kp'][:-1, :]])
         self.data['cur_motion'] = self.data['pre_motion'][[-1]]
-        self.data['pre_motion_norm'] = self.data['pre_motion'][:-1] - self.data['cur_motion']   # subtract last obs pos
-        self.data['fut_motion_norm'] = self.data['fut_motion'] - self.data['cur_motion']
+        # another norm prediction option for norming each ped independently of one another
+        # (we are currently using scene_norm, which normes each ped by a single mean scene point)
+        # self.data['pre_motion_norm'] = self.data['pre_motion'][:-1] - self.data['cur_motion']   # subtract last obs pos
+        # self.data['fut_motion_norm'] = self.data['fut_motion'] - self.data['cur_motion']
         if 'heading' in in_data and in_data['heading'] is not None:
             assert len(self.data['heading'].shape) == 1  # if not already sin / cos'ed
             self.data['heading_vec'] = torch.stack([torch.cos(self.data['heading']), torch.sin(self.data['heading'])], dim=-1)
@@ -786,6 +809,7 @@ class AgentFormer(nn.Module):
         else:
             self.data['agent_enc_shuffle'] = None
 
+        # mask out ped-ped cross attention links when the peds are too far apart (at the last observation step)
         conn_dist = self.cfg.get('conn_dist', 100000.0)
         cur_motion = self.data['cur_motion'][0]
         if conn_dist < 1000.0:

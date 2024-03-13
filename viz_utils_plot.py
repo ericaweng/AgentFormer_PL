@@ -98,9 +98,9 @@ def _save_catch_all(self, outputs, all_sample_vals, collision_mats, tag='', anim
         list_of_arg_dicts = []
         list_of_functions = []
 
-        if "joints" in self.cfg.id:
+        if "joints" in self.cfg.id or 'kp' in self.cfg.id:
             from visualization_scripts.viz_utils_univ import AnimObjPose2d, AnimObjPose3d
-            images = output['data']['image_paths']
+            # images = output['data']['image_paths']
             kp_history = output['data']['pre_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
             kp_future = output['data']['fut_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
             args_dict = {'gt_history': kp_history,

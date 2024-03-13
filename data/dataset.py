@@ -9,6 +9,7 @@ from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
 from .jrdb_kp import jrdb_preprocess
 from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
+from .jrdb_kp3 import jrdb_preprocess as jrdb_preprocess_w_action_label
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
@@ -94,14 +95,18 @@ class AgentFormerDataset(Dataset):
         elif parser.dataset == 'nuscenes_pred':
             process_func = preprocess
         elif parser.dataset == 'jrdb':# and np.any(['kp' in it for it in parser.input_type]):
-            dl_v = parser.get('dataloader_version', 1)
+            dl_v = parser.get('dataloader_version', 3)
             print(f"dl_v: {dl_v}")
-            if dl_v == 2:
-                process_func = jrdb_preprocess_new
-            elif dl_v == 1:
+            if dl_v == 1:
+                import ipdb; ipdb.set_trace()
                 process_func = jrdb_preprocess
+            elif dl_v == 2:
+                process_func = jrdb_preprocess_new
+            elif dl_v == 3:
+                process_func = jrdb_preprocess_w_action_label
             else:
                 assert dl_v == 0
+                import ipdb; ipdb.set_trace()
                 process_func = jrdb_vanilla
         else:
             assert parser.dataset == 'pedx'

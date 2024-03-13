@@ -1,3 +1,26 @@
+""" problem: memory error with multiprocessing (so either when loading data in dataloader, or plotting videos) """
+# if self.global_step > 3400:
+"""
+3452, frame: 798, seq: jordan-hall-2019-04-22_0                                                                                                              [988/3761]
+3453, frame: 891, seq: jordan-hall-2019-04-22_0
+3454, frame: 199, seq: huang-lane-2019-02-12_0
+3455, frame: 119, seq: bytes-cafe-2019-02-07_0
+------------------------------------
+3407, frame: 826, seq: hewlett-packard-intersection-2019-01-24_0
+3408, frame: 615, seq: packard-poster-session-2019-03-20_1
+Traceback (most recent call last):
+  File "/root/mambaforge/envs/p3d_/lib/python3.9/multiprocessing/queues.py", line 244, in _feed
+    obj = _ForkingPickler.dumps(obj)
+  File "/root/mambaforge/envs/p3d_/lib/python3.9/multiprocessing/reduction.py", line 51, in dumps
+    cls(buf, protocol).dump(obj)
+  File "/root/mambaforge/envs/p3d_/lib/python3.9/site-packages/torch/multiprocessing/reductions.py", line 366, in reduce_storage
+    fd, size = storage._share_fd_cpu_()
+RuntimeError: unable to mmap 64 bytes from file </torch_39104_1377978244_63479>: Cannot allocate memory (12)
+3409, frame: 567, seq: packard-poster-session-2019-03-20_2
+3410, frame: 817, seq: hewlett-packard-intersection-2019-01-24_0
+"""
+# print(f"{self.global_step}, frame: {batch['frame']}, seq: {batch['seq']}, num_agents: {len(batch['fut_motion'])}")
+
 
 """
 3430, frame: 496, seq: packard-poster-session-2019-03-20_2, num_agents: 58

@@ -28,18 +28,19 @@ class jrdb_preprocess(object):
         self.split = split
         self.phase = phase
 
-        # self.data_file = os.path.join(data_root, 'pedx_joint_pos2.npz')
+        # trajectory positions information
         label_path = f'{data_root}/{seq_name}.txt'
         self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=float)
 
+        # pose and joints and action labels trajectories information
         path = f'{data_root}/poses_2d.npz'
-        self.data = np.load(path, allow_pickle=True)['arr_0'].item()
+        data = np.load(path, allow_pickle=True)['arr_0'].item()
+        self.all_kp_data = data['poses'][seq_name]
+        self.all_score_data = data['scores'][seq_name]
+        self.cam_ids = data['cam_ids'][seq_name]
+        self.cam_extrinsics = data['extrinsics'][seq_name]
+        self.cam_intrinsics = data['intrinsics'][seq_name]
 
-        self.all_kp_data = self.data['poses'][seq_name]
-        self.all_score_data = self.data['scores'][seq_name]
-        self.cam_ids = self.data['cam_ids'][seq_name]
-        self.cam_extrinsics = self.data['extrinsics'][seq_name]
-        self.cam_intrinsics = self.data['intrinsics'][seq_name]
         self.num_intrinsic_dims = 9
         self.num_extrinsic_dims = 7
 
@@ -109,7 +110,7 @@ class jrdb_preprocess(object):
 
         data_pos = self.gt[self.gt[:, 0] == frame_id]
         return {'kp': data_kp, 'pos': data_pos, 'score': data_score, 'cam_ids': cam_ids,
-                         'cam_intrinsics': cam_intrinsics, 'cam_extrinsics': cam_extrinsics}
+                         'cam_intrinsics': cam_intrinsics, 'cam_extrinsics': cam_extrinsics,}
 
     def get_pre_data(self, frame):
         DataList = []
@@ -292,7 +293,6 @@ class jrdb_preprocess(object):
                 'fut_cam_id': fut_cam_ids,
                 'fut_cam_intrinsics': fut_cam_intrinsics,
                 'fut_cam_extrinsics': fut_cam_extrinsics,
-                # 'interaction_mask': interaction_mask,
                 'heading': heading,  # only the heading for the last obs timestep
                 'heading_avg': heading_avg,  # the avg heading for all timesteps
                 'traj_scale': self.traj_scale,

@@ -2,14 +2,12 @@ import yaml
 import os
 import os.path as osp
 import glob
-import numpy as np
 from easydict import EasyDict
-from .utils import recreate_dirs
 
 
 class Config:
 
-    def __init__(self, cfg_id, tmp=False, create_dirs=False, additional_cfg_vars=None):
+    def __init__(self, cfg_id):
         self.id = cfg_id
         cfg_path = 'cfg/**/%s.yml' % cfg_id
         files = glob.glob(cfg_path, recursive=True)
@@ -20,9 +18,6 @@ class Config:
         self.yml_dict = EasyDict(yaml.safe_load(open(files[0], 'r')))
 
         self.cfg_path = os.path.expanduser(files[0])
-
-        if create_dirs:
-            recreate_dirs(self.tb_dir)
 
     def get_last_epoch(self):
         model_files = sorted(glob.glob(os.path.join(self.model_dir, 'model_*.p')))

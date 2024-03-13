@@ -1,45 +1,42 @@
-"""this function rotates a camera extrinsic matrix by a given angle counter-clockwise around the z-axis.
+"""this script rotates a camera extrinsic matrix by a given angle counter-clockwise around the z-axis.
 and it visualizes it to test if the function works."""
-
-x = np.array([0, 0, 0, 1])
-
+from pyquaternion import Quaternion
+import yaml
 import numpy as np
+import matplotlib.pyplot as plt
+
+from utils.utils import mkdir_if_missing
 
 
-def create_extrinsic_matrix(quat, theta):
+def rotate_extrinsic_matrix(quat, theta):
     """
-    Create an extrinsic camera matrix with an additional rotation about the Z axis.
+    Create an extrinsic camera matrix with an additional rotation about the Z axis using pyquaternion.
 
     Parameters:
-    - x, y, z: Translations in the respective directions.
-    - qx, qy, qz, qw: Quaternion components representing the rotation.
+    - quat: A tuple containing the translation (x, y, z) and quaternion rotation (qx, qy, qz, qw).
     - theta: Additional rotation angle (in radians) about the Z axis (counterclockwise).
 
     Returns:
     - A 4x4 numpy array representing the extrinsic matrix with the additional rotation.
     """
     x, y, z, qx, qy, qz, qw = quat
+    initial_rotation = Quaternion(qw, qx, qy, qz)
 
-    # Create a rotation matrix from the quaternion
-    quat_rotation = R.from_quat([qx, qy, qz, qw])
-    rotation_matrix = quat_rotation.as_matrix()
-
-    # Create the additional rotation matrix about the Z axis
-    z_rotation_matrix = np.array([[np.cos(theta), -np.sin(theta), 0],
-                                  [np.sin(theta), np.cos(theta), 0],
-                                  [0, 0, 1]])
+    # Create the additional rotation quaternion about the Z axis
+    z_rotation = Quaternion(axis=[0, 0, 1], angle=theta)
 
     # Combine the rotations
-    combined_rotation_matrix = np.dot(z_rotation_matrix, rotation_matrix)
+    combined_rotation = z_rotation * initial_rotation
 
-    # Create the quaternion rotation matrix
+    # Convert combined quaternion to rotation matrix
+    rotation_matrix = combined_rotation.rotation_matrix
 
-    return extrinsic_matrix
+    # Create the extrinsic matrix
+    extrinsic_matrix = np.eye(4)
+    extrinsic_matrix[:3, :3] = rotation_matrix
+    extrinsic_matrix[:3, 3] = [x, y, z]
 
-
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import numpy as np
+    return extrinsic_matrix[:3]
 
 
 def plot_camera_extrinsic(ax, extrinsic_matrix, color='r'):
@@ -78,29 +75,81 @@ def plot_camera_extrinsic(ax, extrinsic_matrix, color='r'):
                 color=color
         )
 
-if __name__ == '__main__':
-    # Example usage
-    x, y, z = 1, 2, 3  # Translation
-    qx, qy, qz, qw = 0, 0, 0, 1  # Quaternion (no rotation)
+
+def quat_to_extrinsic_matrix(quat):
+    """ converts shape (7,) translation, rotation_as_quaternion representation to 4x3 extrinsic matrix """
+    x, y, z, qx, qy, qz, qw = quat
+    initial_rotation = Quaternion(qw, qx, qy, qz)
+    extrinsic_matrix = np.eye(4)
+    extrinsic_matrix[:3, :3] = initial_rotation.rotation_matrix
+    extrinsic_matrix[:3, 3] = [x, y, z]
+    return extrinsic_matrix[:3]
+
+def round_to_orthogonal(matrix):
+    # Perform Singular Value Decomposition
+    U, _, Vt = np.linalg.svd(matrix)
+
+    # Reconstruct the nearest orthogonal matrix
+    orthogonal_matrix = np.dot(U, Vt)
+
+    return orthogonal_matrix
+
+def main():
+    # Example camera extrinsic parameters
+    quat = (1, 2, 3, 0, 0, 0, 1)  # Translation (1, 2, 3) and Quaternion rotation (0, 0, 0, 1)
     theta = np.radians(45)  # Additional rotation about Z axis (45 degrees)
 
-    extrinsic_matrix = create_extrinsic_matrix(x, y, z, qx, qy, qz, qw, theta)
-    print(extrinsic_matrix)
+    # now load real params from file
 
-    # Example usage
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    # load camera calibration params for jrdb
+    jrdb_calib_path = '../AgentFormerSDD/cameras.yaml'
+    with open(jrdb_calib_path) as f:
+        camera_config_dict = yaml.safe_load(f)
 
-    # Create and plot extrinsic matrix with additional rotation
-    extrinsic_matrix = create_extrinsic_matrix(x, y, z, qx, qy, qz, qw, theta)
-    plot_camera_extrinsic(ax, extrinsic_matrix, 'r')
+    intrinsic_params = {}
+    extrinsic_params = {}
+    for cam_num in [0, 2, 4, 6, 8]:
+        camera_params = camera_config_dict['cameras'][f'sensor_{cam_num}']
+        K = camera_params['K'].split(' ')
+        fx, fy, cx, cy = K[0], K[2], K[4], K[5]
+        intrinsic_params[cam_num] = np.array(
+                list(map(float, [fx, fy, cx, cy, *camera_params['D'].split(' ')])))  # intrinsic + distortion
 
-    # Setting the viewing angle for better visualization
-    ax.view_init(elev=20, azim=30)
+        R = np.array(list(map(float, camera_params['R'].splitlines()[0].split(' ')))).reshape(3, 3)
+        T = np.array(list(map(float, camera_params['T'].splitlines()[0].split(' '))))
+        extrinsic_matrix = np.eye(4)
+        extrinsic_matrix[:3, :3] = R
+        extrinsic_matrix[:3, 3] = T
+        extrinsic_params[cam_num] = extrinsic_matrix[:3]
 
-    # Setting labels
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
+        try:
+            q = Quaternion(matrix=R)
+        except ValueError:
+            q = Quaternion(matrix=round_to_orthogonal(R))
+        # get R and T as length 7 vector (*xyz, *quaternion)
+        extrinsic_params[cam_num] = np.array([*T, *q])
 
-    plt.show()
+    fig = plt.figure(figsize=(15, 5))
+    num_plots = 3
+    for i in range(num_plots):
+        ax = fig.add_subplot(int(f"1{num_plots}{i+1}"), projection='3d')
+        for cam_num in [0, 2, 4, 6, 8]:
+            extrinsics = extrinsic_params[cam_num]
+            # plot_camera_extrinsic(ax, extrinsics, 'b')
+            plot_camera_extrinsic(ax, quat_to_extrinsic_matrix(extrinsics), 'b')
+            # plot_camera_extrinsic(ax, rotate_extrinsic_matrix(extrinsics, theta), 'r')
+
+        # Setting the viewing angle for better visualization
+        ax.view_init(elev=i*30, azim=i*30)
+
+        # Setting labels
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('Z')
+
+    mkdir_if_missing('../viz/test_rotate_cam_extrinsic')
+    plt.savefig('../viz/test_rotate_cam_extrinsic/camera.png')
+
+
+if __name__ == '__main__':
+    main()

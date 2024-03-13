@@ -100,7 +100,7 @@ class AgentFormerTrainer(pl.LightningModule):
         self.args = args
         self.current_epoch_model = args.current_epoch_model
         num_workers = int(multiprocessing.cpu_count() / (args.devices + 1e-5)) if args.devices is not None else float('inf')
-        self.num_workers = min(args.num_workers, num_workers)
+        self.num_workers = max(min(args.num_workers, num_workers), 1)
         self.batch_size = args.batch_size
         self.collision_rad = cfg.get('collision_rad', 0.1)
         # self.hparams.update(vars(cfg))
@@ -114,25 +114,6 @@ class AgentFormerTrainer(pl.LightningModule):
 
     def update_args(self, args):
         self.args = args
-    def on_train_start(self):
-        if self.args.wandb_project_name is not None:
-            self.logger.experiment.save(self.cfg.cfg_path)
-            self.logger.experiment.save('model/agentformer.py')
-            self.logger.experiment.save('model/agentformer_loss.py')
-            self.logger.experiment.save('model/dlow.py')
-            self.logger.experiment.save('data/datamodule.py')
-            self.logger.experiment.save('data/dataset.py')
-            self.logger.experiment.save('data/ped_interactions.py')
-            self.logger.experiment.save('callbacks.py')
-            self.logger.experiment.save('eval.py')
-            self.logger.experiment.save('metrics.py')
-            self.logger.experiment.save('trainer.py')
-            self.logger.experiment.save('viz_utils_plot.py')
-            if 'jrdb' in self.cfg.dataset:
-                self.logger.experiment.save('data/jrdb.py')
-                self.logger.experiment.save('data/jrdb_kp.py')
-                self.logger.experiment.save('data/jrdb_kp2.py')
-                self.logger.experiment.save('data/jrdb_split.py')
 
     def on_test_start(self):
         self.model.set_device(self.device)
@@ -142,28 +123,6 @@ class AgentFormerTrainer(pl.LightningModule):
 
     def _step(self, batch, mode):
         # Compute predictions
-        # data = self(batch)
-        if self.global_step > 3400:
-            """
-            3452, frame: 798, seq: jordan-hall-2019-04-22_0                                                                                                              [988/3761]
-            3453, frame: 891, seq: jordan-hall-2019-04-22_0
-            3454, frame: 199, seq: huang-lane-2019-02-12_0
-            3455, frame: 119, seq: bytes-cafe-2019-02-07_0
-            ------------------------------------
-            3407, frame: 826, seq: hewlett-packard-intersection-2019-01-24_0
-            3408, frame: 615, seq: packard-poster-session-2019-03-20_1
-            Traceback (most recent call last):
-              File "/root/mambaforge/envs/p3d_/lib/python3.9/multiprocessing/queues.py", line 244, in _feed
-                obj = _ForkingPickler.dumps(obj)
-              File "/root/mambaforge/envs/p3d_/lib/python3.9/multiprocessing/reduction.py", line 51, in dumps
-                cls(buf, protocol).dump(obj)
-              File "/root/mambaforge/envs/p3d_/lib/python3.9/site-packages/torch/multiprocessing/reductions.py", line 366, in reduce_storage
-                fd, size = storage._share_fd_cpu_()
-            RuntimeError: unable to mmap 64 bytes from file </torch_39104_1377978244_63479>: Cannot allocate memory (12)
-            3409, frame: 567, seq: packard-poster-session-2019-03-20_2
-            3410, frame: 817, seq: hewlett-packard-intersection-2019-01-24_0
-            """
-            # print(f"{self.global_step}, frame: {batch['frame']}, seq: {batch['seq']}, num_agents: {len(batch['fut_motion'])}")
         if self.current_epoch == 0 and self.global_step <= 5 and self.model.training:
             print(f"node rank: {torch.cuda.current_device()} step: {self.global_step}, frame: {batch['frame']}")
 
@@ -337,9 +296,9 @@ class AgentFormerTrainer(pl.LightningModule):
         self.model.step_annealer()
 
     def validation_epoch_end(self, outputs):
-        print("hi!")
         outputs_processed = self._compute_and_log_metrics(outputs, 'val')
-        if self.args.save_viz and self.trainer.callback_metrics.get("val/ADE_joint") <= self.best_model_score:
+        if self.args.save_viz and (hasattr(self, 'best_model_score')
+                                   and self.trainer.callback_metrics.get("val/ADE_joint") <= self.best_model_score):
             print("This is a new best model!")
             self.log_viz(outputs_processed, 'val')
             self.log_train_this_time = True

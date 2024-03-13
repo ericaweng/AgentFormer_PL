@@ -30,10 +30,10 @@ tf_nhead: 8
 tf_dropout: 0.1
 dataloader_version: 2
 preprocess_data: false
-input_type: ['scene_norm', 'vel', 'heading', 'kp_norm', 'kp_vel', 'kp_scores', 'cam_intrinsics', 'cam_extrinsics']
+input_type: ['scene_norm', 'vel', 'kp_norm', 'kp_vel', 'kp_scores', 'cam_id'] #_intrinsics', 'cam_extrinsics']
+concat_all_inputs: true
 kp_dim: 2
 num_joints: 17
-split_type: 'half_and_half_tiny'
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 32

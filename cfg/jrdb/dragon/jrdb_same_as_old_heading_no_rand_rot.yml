@@ -36,7 +36,7 @@ pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 32
 pos_concat: true
-rand_rot_scene: true
+rand_rot_scene: false
 scene_orig_all_past: true
 
 context_encoder:
@@ -58,7 +58,7 @@ learn_prior                  : true
 
 # ------------------- Training Parameters -------------------------
 
-lr                           : 1.e-5
+lr                           : 1.e-4
 loss_cfg:
   mse:
     weight: 1.0

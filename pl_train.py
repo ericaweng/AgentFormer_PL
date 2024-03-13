@@ -3,11 +3,9 @@ import glob
 import argparse
 import numpy as np
 import torch
-# torch.set_float32_matmul_precision('high')
-# torch.set_default_dtype(torch.float32)
-# torch.backends.cudnn.enabled = True
-# torch.backends.cudnn.deterministic = True
-# torch.backends.cudnn.benchmark = True
+
+torch.set_float32_matmul_precision('medium')
+
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
@@ -138,11 +136,29 @@ def main(args):
             suffix = f' ({args.tag})' if args.tag is not None else ''
             logger = WandbLogger(name=f'{cfg.id}{suffix}', save_dir=args.logs_root, project=args.wandb_project_name,
                                  config={**vars(cfg), 'args': vars(args)})
+            # save all the relevant code files
+            logger.experiment.save(cfg.cfg_path)
+            logger.experiment.save('model/agentformer.py')
+            logger.experiment.save('model/agentformer_loss.py')
+            logger.experiment.save('model/dlow.py')
+            logger.experiment.save('data/datamodule.py')
+            logger.experiment.save('data/dataset.py')
+            logger.experiment.save('data/ped_interactions.py')
+            logger.experiment.save('callbacks.py')
+            logger.experiment.save('eval.py')
+            logger.experiment.save('metrics.py')
+            logger.experiment.save('trainer.py')
+            logger.experiment.save('viz_utils_plot.py')
+            if 'jrdb' in cfg.dataset:
+                logger.experiment.save('data/jrdb.py')
+                logger.experiment.save('data/jrdb_kp.py')
+                logger.experiment.save('data/jrdb_kp2.py')
+                logger.experiment.save('data/jrdb_split.py')
         else:
             logger = TensorBoardLogger(args.logs_root, name=cfg.id)
     else:
         logger = None
-    early_stop_cb = EarlyStopping(patience=5, verbose=True, monitor='val/ADE_joint')
+    early_stop_cb = EarlyStopping(patience=10, verbose=True, monitor='val/ADE_joint')
     checkpoint_callback = ModelCheckpointCustom(visualize=args.save_viz, monitor='val/ADE_joint', mode='min',
                                                 save_last=True, save_top_k=5, dirpath=default_root_dir,
                                                 filename='{epoch:04d}',)
@@ -254,7 +270,7 @@ if __name__ == '__main__':
     parser.add_argument('--frames_list', '-fl', default=None, type=lambda x: list(map(int, x.split(','))), help='test only certain frame numbers')
     parser.add_argument('--start_frame', '-sf', default=None, type=int, help="frame to start loading data from, if you don't want to load entire dataset")
     parser.add_argument('--dont_save_test_results', '-dstr', dest='save_test_results', action='store_false', default=True, help='whether or not to save test results stats to tsv file (on test mode)')
-    parser.add_argument('--wandb_project_name', '-wb', default='jrdb')#None, help='wandb project name')
+    parser.add_argument('--wandb_project_name', '-wb', default=None, help='wandb project name')
     parser.add_argument('--interaction_category', '-ic', action='store_true')#default='all', help='which interaction category to test on')
     parser.add_argument('--seq_frame', '-sqf', default=None)
     parser.add_argument('--tag', '-tg', default=None)

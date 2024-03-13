@@ -57,7 +57,7 @@ learn_prior                  : true
 
 # ------------------- Training Parameters -------------------------
 
-lr                           : 1.e-5
+lr                           : 1.e-4
 loss_cfg:
   mse:
     weight: 1.0
