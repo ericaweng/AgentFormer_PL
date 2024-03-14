@@ -2,7 +2,7 @@
 
 description                  : AgentFormer (Before DLow)
 results_root_dir             : results
-seed                         : 2
+seed                         : 1
 dataset                      : jrdb
 frame_skip                   : 6
 data_root_jrdb               : ../AgentFormerSDD/datasets/jrdb_adjusted
@@ -28,9 +28,9 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-dataloader_version: 2
+dataloader_version: 3
 preprocess_data: false
-input_type: ['scene_norm', 'vel', 'kp_norm', 'kp_vel', 'kp_scores', 'cam_id'] #_intrinsics', 'cam_extrinsics']
+input_type: ['scene_norm', 'vel', 'heading', 'action']
 kp_dim: 2
 num_joints: 17
 pred_type: 'scene_norm'
@@ -59,7 +59,7 @@ learn_prior                  : true
 
 # ------------------- Training Parameters -------------------------
 
-lr                           : 5.e-5
+lr                           : 1.e-4
 loss_cfg:
   mse:
     weight: 1.0

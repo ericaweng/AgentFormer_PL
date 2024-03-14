@@ -39,6 +39,66 @@ def rotate_extrinsic_matrix(quat, theta):
     return extrinsic_matrix[:3]
 
 
+import torch
+import matplotlib.pyplot as plt
+from pytorch3d.vis.plotly_vis import plot_batch_individually, plot_scene
+from pytorch3d.renderer import FoVPerspectiveCameras, look_at_view_transform
+from pytorch3d.renderer.cameras import OpenGLOrthographicCameras
+from pytorch3d.structures import Pointclouds
+from pytorch3d.transforms import Transform3d
+
+def visualize_cameras_as_pyramids(intrinsics, extrinsics):
+    """
+    Visualizes cameras as pyramids.
+
+    Parameters:
+    - intrinsics: Tensor of shape (N, 3, 3) containing the intrinsic parameters of N cameras.
+    - extrinsics: Tensor of shape (N, 4, 4) containing the extrinsic parameters of N cameras.
+    """
+
+    # Assuming intrinsics and extrinsics are provided as tensors
+    device = intrinsics.device
+
+    # Create a batch of cameras
+    # PyTorch3D uses extrinsics as (R, T) from world to camera, so we invert extrinsics for cameras
+    R = extrinsics[:, :3, :3].transpose(1, 2)  # Invert rotation
+    T = -torch.bmm(R, extrinsics[:, :3, 3:].unsqueeze(-1)).squeeze(-1)  # Invert translation
+    cameras = FoVPerspectiveCameras(device=device, R=R, T=T)
+
+    # Create a simple scene and render it
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111, projection='3d')
+
+    for i in range(len(cameras)):
+        # Define camera pyramid vertices in camera coordinates
+        h = 0.1  # pyramid height
+        w = h * 0.75  # pyramid base width
+        vertices = torch.tensor([
+            [0, 0, 0],  # camera position
+            [-w, -w, h],
+            [-w, w, h],
+            [w, w, h],
+            [w, -w, h],
+        ], dtype=torch.float32).to(device)
+
+        # Transform vertices to world coordinates
+        transform = Transform3d(device=device).compose(
+            Transform3d().rotate(R[i]).inverse(),
+            Transform3d().translate(T[i])
+        )
+        vertices_world = transform.transform_points(vertices)
+
+        # Plot pyramid edges
+        edges = [(0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (2, 3), (3, 4), (4, 1)]
+        for start, end in edges:
+            ax.plot3D(*zip(vertices_world[start], vertices_world[end]), color="b")
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    plt.show()
+
+
 def plot_camera_extrinsic(ax, extrinsic_matrix, color='r'):
     """
     Visualize the camera extrinsics as pyramids in a 3D scene.
@@ -150,6 +210,18 @@ def main():
     mkdir_if_missing('../viz/test_rotate_cam_extrinsic')
     plt.savefig('../viz/test_rotate_cam_extrinsic/camera.png')
 
+def main2():
+    # Example usage
+    N = 2  # Number of cameras
+    intrinsics = torch.eye(3).unsqueeze(0).repeat(N, 1, 1)  # Dummy intrinsics
+    extrinsics = torch.eye(4).unsqueeze(0).repeat(N, 1, 1)  # Dummy extrinsics for demonstration
+
+    # Adjust extrinsics to place cameras at different positions/orientations
+    extrinsics[1, :3, 3] = torch.tensor([0.5, 0.5, 0.5])  # Move the second camera
+
+    visualize_cameras_as_pyramids(intrinsics, extrinsics)
+
 
 if __name__ == '__main__':
-    main()
+    # main()
+    main2()

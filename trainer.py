@@ -335,25 +335,32 @@ class AgentFormerTrainer(pl.LightningModule):
         results1 = {}
         results2 = {}
         if self.args.interaction_category:
-            if self.int_matrices is None:
-                # load
-                if os.path.exists(f'../viz/af/{self.cfg.id}_int_matrices.npy'):
-                    self.int_matrices = int_matrices = np.load(f'../viz/af/{self.cfg.id}_int_matrices.npy', allow_pickle=True).tolist()
-                else:
-                    if self.args.mp:
+            if self.int_matrices is None:  # need to compute or load in
+                int_matrices_path = f'../viz/af/jrdb_int_matrices.npy'
+                if os.path.exists(int_matrices_path):  # load
+                    self.int_matrices = int_matrices = np.load(int_matrices_path, allow_pickle=True).tolist()
+                    # self.int_matrices = int_matrices = np.load(int_matrices_path, allow_pickle=True)['arr_0'].item()
+                    # self.int_matrices = int_matrices = np.load(int_matrices_path, allow_pickle=True)['arr_0'].item()
+                else: # compute
+                    if self.args.mp: # compute in parallel
                         with multiprocessing.Pool(self.num_workers) as pool:
                             int_matrices = pool.map(get_interaction_matrix_for_scene,
                                                     [np.concatenate([output['obs_motion'],
-                                                                     output['gt_motion'].swapaxes(0,1)], axis=0)
+                                                                     output['gt_motion'].swapaxes(0,1)], axis=0)[0]
                                                      for output in outputs])
-                            self.int_matrices = int_matrices = [mat[0] for mat in int_matrices]
-                            np.save(f'../viz/af/{self.cfg.id}_int_matrices.npy', int_matrices)
-                    else:
-                        int_matrices = [get_interaction_matrix_for_scene(
-                            np.concatenate([output['obs_motion'], output['gt_motion'].swapaxes(0,1)], axis=0))[0]
-                            for output in outputs]
-            else:
+                            self.int_matrices = int_matrices = {(output['seq'], output['frame']): mat
+                                                                for output, mat in zip(outputs, int_matrices)}
+                            np.save(int_matrices_path, int_matrices)
+                    else:  # compute in serial
+                        self.int_matrices = int_matrices = {(output['seq'], output['frame']):
+                                                                get_interaction_matrix_for_scene(
+                                                                        np.concatenate([output['obs_motion'],
+                                                output['gt_motion'].swapaxes(0,1)], axis=0))[0] for output in outputs}
+                        np.save(int_matrices_path, int_matrices)
+            else: # already computed
                 int_matrices = self.int_matrices
+            # print('int_matrices', len(int_matrices), 'first 10 frames of int matrices', list(int_matrices.keys())[:10])
+            assert len(outputs) == len(int_matrices), f"{len(outputs)} != {len(int_matrices)}"
 
             # get performance for each category
             for int_idx, int_cat in enumerate(INTERACTION_CAT_ABBRS):
@@ -368,7 +375,7 @@ class AgentFormerTrainer(pl.LightningModule):
                     for int_matrix, sequence_results in zip(int_matrices, all_ped_vals):
                         value += np.sum(sequence_results[metric_name] * int_matrix[..., int_idx])
                     results1[(metric_name, int_name, 'pose+no_pose')] = value / total_peds_this_cat
-                results2[(int_name, 'fraction of this cat peds / total peds')] = total_peds_this_cat / total_num_agents
+                results2[(int_name, 'fraction of peds in this cat / total peds')] = total_peds_this_cat / total_num_agents
 
         # aggregate by trajectories which have poses
         # (see if trajectories with poses in the observation perform better than those without)
@@ -417,18 +424,30 @@ class AgentFormerTrainer(pl.LightningModule):
                     results2[(int_name, 'fraction of pose peds / pose + no pose peds')] = total_peds_this_cat_pose / total_peds_this_cat
 
         import pandas as pd
+        save_dir = '../viz/af'
+        test_results_filename = f'{save_dir}/all_results.tsv'
+
         if len(results1) > 0:
             df = pd.DataFrame.from_dict(results1, orient='index')
             df.index = pd.MultiIndex.from_tuples(df.index)  # Convert index to MultiIndex
             df = df.unstack()  # Unstack the MultiIndex
-            mkdir_if_missing(f'../viz/af')
-            test_results_filename = f'../viz/af/{self.cfg.id}_cats.tsv'
+            if os.path.exists(test_results_filename):
+                df_old = pd.read_csv(test_results_filename, sep='\t', index_col=[0, 1, 2])
+                df = pd.concat([df_old, df])
+            mkdir_if_missing(save_dir)
+            import ipdb; ipdb.set_trace()
             df.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
 
         if len(results2) > 0:
             df2 = pd.DataFrame.from_dict(results2, orient='index')
             df2.index = pd.MultiIndex.from_tuples(df2.index)  # Convert index to MultiIndex
             df2 = df2.unstack()  # Unstack the MultiIndex
-            test_results_filename = f'../viz/af/{self.cfg.id}_totals.tsv'
+            mkdir_if_missing(save_dir)
+            test_results_filename = f'{save_dir}/{self.cfg.get("split_type", "normal")}{"-trial" if self.args.trial else ""}_breakdowns.tsv'
+            if os.path.exists(test_results_filename):
+                df_old = pd.read_csv(test_results_filename, sep='\t', index_col=[0, 1, 2])
+                if not (df_old.shape == df2.shape and np.allclose(df_old.to_numpy(), df2.to_numpy())):
+                    import ipdb; ipdb.set_trace()
+            # test_results_filename = f'{save_dir}/{self.cfg.id}_interaction_category_totals.tsv'
             df2.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
             print(f"wrote test results to {test_results_filename}")

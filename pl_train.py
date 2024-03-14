@@ -183,14 +183,12 @@ def main(args):
                              callbacks=callbacks, )  # deterministic=True)  # not needed to control for proper training batch order
 
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
-        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=None,# logger=logger,  # don't log to tb or wandb on test
-                             deterministic=True)
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=None)  # don't log to tb or wandb on test
         args.save_viz = True
         model.update_args(args)
         trainer.test(model, datamodule=dm)
     elif 'test' in args.mode or 'val' in args.mode:
-        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=None,# logger=logger,
-                             deterministic=True)
+        trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=None,)
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
     elif 'check_dl' in args.mode:
         cfg.dataloader_version = 0
