@@ -22,8 +22,8 @@ def main(args):
     cfg = Config(args.cfg)
 
     # Set global random seed
-    pl.seed_everything(cfg.seed)
-    print("Setting global seed:", cfg.seed)
+    pl.seed_everything(args.seed)
+    print("Setting global seed:", args.seed)
 
     # run with test run params if in ipython env; else with real run params
     try:
@@ -43,7 +43,7 @@ def main(args):
             args.devices = torch.cuda.device_count()
             accelerator = 'gpu'
         else:
-            plugin = None#'ddp_notebook'
+            plugin = None
             args.devices = 1
             accelerator = 'gpu'
 
@@ -66,7 +66,6 @@ def main(args):
 
     # load checkpoint model
     default_root_dir = args.default_root_dir = os.path.join(args.logs_root, cfg.id)
-    models_ronnie = []
     if args.mode == 'train':
         # specify checkpoint to resume for dlow
         resume_cfg = cfg.get('resume_cfg', None)
@@ -79,9 +78,8 @@ def main(args):
             models = sorted(glob.glob(os.path.join(default_root_dir, 'last-v*.ckpt')))
             if len(models) == 0:
                 models = sorted(glob.glob(os.path.join(default_root_dir, 'last*.ckpt')))
-                if len(models) == 0:  # load ronnie version a checkpoint and adjust so that it's compatible
+                if len(models) == 0:
                     models = sorted(glob.glob(os.path.join(default_root_dir, '*epoch=*.ckpt')))
-                    # models_ronnie = sorted(glob.glob(os.path.join(default_root_dir, '*.p')))
     elif args.mode == 'test' or args.mode == 'val':
         if args.checkpoint_str is not None:
             models = sorted(glob.glob(os.path.join(default_root_dir, f'*{args.checkpoint_str}*.ckpt')))
@@ -101,24 +99,6 @@ def main(args):
     elif len(models) > 0 and os.path.isfile(models[-1]) and args.resume:
         resume_from_checkpoint = models[-1]
         print("LOADING from default model directory:", resume_from_checkpoint)
-        # load model with torch
-        checkpoint = torch.load(resume_from_checkpoint)
-        # print(f"checkpoint: {checkpoint.keys()}")
-        if len(models_ronnie) > 0:
-            ckpt_ronnie = torch.load(models_ronnie[-1])
-            print(f"checkpoint ronnie: {ckpt_ronnie.keys()}")
-            # replace the model weights with the ronnie model and resave as epoch={epoch}.ckpt
-            ckpt_ronnie['pytorch-lightning_version'] = checkpoint['pytorch-lightning_version']
-            ronnie_epoch = models_ronnie[-1].split('_')[-1].split('.')[0]
-            # checkpoint['state_dict'] = ckpt_ronnie['state_dict']
-            # checkpoint['global_step'] = None
-            # checkpoint['loops'] = None
-            # checkpoint['callbacks'] = None
-            path_to_save = os.path.join(default_root_dir, f'epoch={ronnie_epoch}.ckpt')
-            torch.save(ckpt_ronnie, path_to_save)
-            # delete ronnie model
-            os.remove(models_ronnie[-1])
-            resume_from_checkpoint = path_to_save
         args.current_epoch_model = resume_from_checkpoint.split('.ckpt')[0].split('epoch=')[-1]
     else:
         resume_from_checkpoint = None
@@ -185,6 +165,7 @@ def main(args):
         trainer.fit(model, dm, ckpt_path=resume_from_checkpoint)
         trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=None)  # don't log to tb or wandb on test
         args.save_viz = True
+        args.mode = 'test'
         model.update_args(args)
         trainer.test(model, datamodule=dm)
     elif 'test' in args.mode or 'val' in args.mode:
@@ -193,15 +174,12 @@ def main(args):
     elif 'check_dl' in args.mode:
         cfg.dataloader_version = 0
         dl_train0 = dm.get_dataloader('train')
-        # dl_test0 = dm.get_dataloader('test')
         cfg.dataloader_version = 2
         dl_train2 = dm.get_dataloader('train')
-        # dl_test = dm.get_dataloader('test')
 
         # check that the two dataloaders are the same
         from check_dataloader import process_data_in_parallel
         process_data_in_parallel(dl_train0, dl_train2, args.num_workers)
-        # process_data_in_parallel(dl_test0, dl_test, args.num_workers)
 
     elif 'viz' in args.mode:
         print("visualizing ground truth")
@@ -243,6 +221,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('cfg')
     parser.add_argument('--mode', '-m', default='train')
+    parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_workers', '-nw', type=int, default=24)
     parser.add_argument('--devices', type=int, default=None)
@@ -258,7 +237,7 @@ if __name__ == '__main__':
     parser.add_argument('--logs_root', '-lr', default='results_jrdb1', help='where to save checkpoints and tb logs')
     parser.add_argument('--log_on_trial', '-lot', action='store_true', default=False)
     parser.add_argument('--ckpt_on_trial', '-l', '-ck', action='store_true', default=False)
-    parser.add_argument('--save_traj', '-s', action='store_true', default=False)
+    parser.add_argument('--save_traj', '-st', action='store_true', default=False)
     parser.add_argument('--find_unused_params', '-f', action='store_true', default=False)
     parser.add_argument('--tqdm_rate', '-tq', type=int, default=20)
     parser.add_argument('--val_every', '-ve', type=int, default=3)

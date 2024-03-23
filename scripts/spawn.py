@@ -1,6 +1,7 @@
 """test models nocol
 and train cmd"""
 import multiprocessing
+from itertools import chain
 import os
 import glob
 from pathlib import Path
@@ -18,6 +19,43 @@ def get_cmds_wandb(args):
 
 
 def get_cmds(args):
+    cmds = []
+    cmd_i = 0  # index of cmd to-run (but not necessarily launched)
+    no_model = 0
+    already_computed = 0
+
+    cfgs = args.cfgs
+    if cfgs is None:
+        cfgs = []
+        assert args.glob_str is not None, "must specify --cfgs or --glob_str"
+        for gs in args.glob_str:
+            cfgs.extend([str(file).split('.yml')[0].split('/')[-1]
+                         for file in chain(Path('cfg').rglob(f'{gs}/*.yml'), (Path('cfg').rglob(f'*{gs}*.yml')))])
+
+    for seed in [0,2,3]:
+        for cfg in cfgs:
+            cmd_i += 1
+            if cmd_i <= args.start_from:
+                continue
+            if len(cmds) >= args.max_cmds:
+                break
+            cmd = f"python pl_train.py {cfg} -s {seed} -wb jrdb_tiny -tg 'seed={seed}'"
+            cmds.append(cmd)
+
+
+
+
+    print("launching all cmds until cmd_i:", cmd_i)
+    assert len(cmds) <= args.max_cmds, f"{len(cmds)} !< {args.max_cmds}"
+    print("num no_model:", no_model)
+    print("num already_computed:", already_computed)
+    # print("num config_files:", len(config_files))
+    print("num yet to compute:", len(cmds))
+    # assert len(cmds) == len(cmd) - no_model - already_computed, f"{len(cmds)} != {len(config_files)} - {no_model} - {already_computed}"
+    return cmds
+
+
+def get_cmds_old(args):
     cmds = []
     cmd_i = 0  # index of cmd to-run (but not necessarily launched)
     no_model = 0

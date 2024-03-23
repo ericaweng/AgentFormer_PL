@@ -123,8 +123,8 @@ class AgentFormerTrainer(pl.LightningModule):
 
     def _step(self, batch, mode):
         # Compute predictions
-        if self.current_epoch == 0 and self.global_step <= 5 and self.model.training:
-            print(f"node rank: {torch.cuda.current_device()} step: {self.global_step}, frame: {batch['frame']}")
+        # if self.current_epoch == 0 and self.global_step <= 5 and self.model.training:
+        #     print(f"node rank: {torch.cuda.current_device()} step: {self.global_step}, frame: {batch['frame']}")
 
         if batch is None:
             return
@@ -289,19 +289,11 @@ class AgentFormerTrainer(pl.LightningModule):
                 self.logger.experiment.add_video(f'{mode}/traj_{instance_i}', video_tensor[idx:idx+1], self.global_step, fps=6)
 
     def training_epoch_end(self, outputs):
-        outputs_processed = self._compute_and_log_metrics(outputs, 'train')
-        if self.args.save_viz and self.log_train_this_time:
-            self.log_viz(outputs_processed, 'train')
-            self.log_train_this_time = False
+        self.outputs = self._compute_and_log_metrics(outputs, 'train')
         self.model.step_annealer()
 
     def validation_epoch_end(self, outputs):
-        outputs_processed = self._compute_and_log_metrics(outputs, 'val')
-        if self.args.save_viz and (hasattr(self, 'best_model_score')
-                                   and self.trainer.callback_metrics.get("val/ADE_joint") <= self.best_model_score):
-            print("This is a new best model!")
-            self.log_viz(outputs_processed, 'val')
-            self.log_train_this_time = True
+        self.outputs = self._compute_and_log_metrics(outputs, 'val')
 
     def test_epoch_end(self, outputs):
         outputs_processed = self._compute_and_log_metrics(outputs, 'test')
@@ -435,7 +427,6 @@ class AgentFormerTrainer(pl.LightningModule):
                 df_old = pd.read_csv(test_results_filename, sep='\t', index_col=[0, 1, 2])
                 df = pd.concat([df_old, df])
             mkdir_if_missing(save_dir)
-            import ipdb; ipdb.set_trace()
             df.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
 
         if len(results2) > 0:
