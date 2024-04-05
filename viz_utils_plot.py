@@ -64,7 +64,8 @@ def _save_viz_nuscenes(self, outputs, all_sample_vals, collision_mats, tag=''):
         seq_to_plot_args.append(plot_args_list)
 
     if self.args.mp:
-        with multiprocessing.Pool(self.num_workers) as pool:
+        with multiprocessing.Pool(10) as pool:
+        # with multiprocessing.Pool(self.num_workers) as pool:
             all_figs = pool.starmap(plot_anim_grid, seq_to_plot_args)
 
     else:
@@ -103,11 +104,17 @@ def _save_catch_all(self, outputs, all_sample_vals, collision_mats, tag='', anim
             # images = output['data']['image_paths']
             kp_history = output['data']['pre_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
             kp_future = output['data']['fut_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
+            print(f"{kp_future.shape=}")
             args_dict = {'gt_history': kp_history,
                          'gt_future': kp_future,
                          'positions': np.concatenate([obs_traj, pred_gt_traj])}
             list_of_arg_dicts.append(args_dict)
-            list_of_functions.append(AnimObjPose2d)
+            if output['data']['pre_kp'].shape[-1] == 3:
+                list_of_functions.append(AnimObjPose3d)
+            else:
+                import ipdb; ipdb.set_trace()
+                assert output['data']['pre_kp'].shape[-1] == 2
+                list_of_functions.append(AnimObjPose2d)
 
         # best JADE sample
         if seq_to_sample_metrics['ADE'] is not None:
@@ -152,7 +159,8 @@ def _save_catch_all(self, outputs, all_sample_vals, collision_mats, tag='', anim
         seq_to_plot_args.append(plot_args_list)
 
     if self.args.mp:
-        with multiprocessing.Pool(self.args.num_workers) as pool:
+        # min(self.args.num_workers)
+        with multiprocessing.Pool(10) as pool:
             async_results = []
             for one_anim in seq_to_plot_args:
                 async_results.append(pool.apply_async(plot_anim_grid, kwds=one_anim))

@@ -4,6 +4,18 @@ from torch.utils.data import DataLoader, Dataset
 from data.dataset import AgentFormerDataset
 
 
+# gin.parse_config_files_and_bindings(
+#         [os.path.join('config', 'jrdb_challenge', 'dataset_params.gin')],
+#         None,
+#         skip_unknown=True,
+# )
+#
+# print('Actual gin config used:')
+# # print(gin.config_str())
+#
+# # load dataset and see what it looks like
+# d_params = jrdb_dp.JRDBDatasetParams()
+
 class AgentFormerDataModule(pl.LightningDataModule):
     def __init__(self, cfg, args):#batch_size):#
         super().__init__()

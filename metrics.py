@@ -334,6 +334,8 @@ def cr_mr(pred_arr, gt_arr, threshold=2.0, return_sample_vals=False, **kwargs):
 
 stats_func = {
         'ADE_marginal': compute_ADE_marginal,
+        'FDE_marginal_2s': lambda **kwargs: compute_FDE_marginal(kwargs['pred_arr'][...,:5,:], kwargs['gt_arr'][...,:5,:]),
+        'FDE_marginal_4s': lambda **kwargs: compute_FDE_marginal(kwargs['pred_arr'][...,:10,:], kwargs['gt_arr'][...,:10,:]),
         'FDE_marginal': compute_FDE_marginal,
         # 'CR_min': partial(compute_CR, aggregation='min'),
         # 'CR_max': partial(compute_CR, aggregation='max'),

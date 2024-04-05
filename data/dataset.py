@@ -10,6 +10,7 @@ from .preprocessor_sdd import SDDPreprocess
 from .jrdb_kp import jrdb_preprocess
 from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb_kp3 import jrdb_preprocess as jrdb_preprocess_w_action_label
+from .jrdb_kp4 import jrdb_preprocess as jrdb_preprocess_full
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
@@ -29,7 +30,10 @@ class AgentFormerDataset(Dataset):
         self.past_frames = parser.past_frames
         self.min_past_frames = parser.min_past_frames
         self.frame_skip = parser.get('frame_skip', 1)
-        self.data_skip = parser.get('data_skip', 1)
+        if split == 'train':
+            self.data_skip = parser.get('data_skip', 1)
+        else:
+            self.data_skip = 1
         self.phase = phase
         self.split = split
         self.dataset = parser.dataset
@@ -62,8 +66,10 @@ class AgentFormerDataset(Dataset):
             seq_train, seq_val, seq_test = get_stanford_drone_split()
         elif parser.dataset == 'jrdb':
             data_root = parser.data_root_jrdb
-            split_type = parser.get('split_type', 'normal')
-            if split_type == 'half_and_half':
+            split_type = parser.get('split_type', 'full')
+            if split_type == 'full':
+                seq_train, seq_val, seq_test = get_jrdb_split_full()
+            elif split_type == 'half_and_half':
                 seq_train, seq_val, seq_test = get_jackrabbot_split_half_and_half()
             elif split_type == 'half_and_half_tiny':
                 seq_train, seq_val, seq_test = get_jackrabbot_split_half_and_half_tiny()
@@ -72,6 +78,7 @@ class AgentFormerDataset(Dataset):
             elif split_type == 'sanity':
                 seq_train, seq_val, seq_test = get_jackrabbot_split_sanity()
             else:
+                assert split_type == 'normal'
                 seq_train, seq_val, seq_test = get_jackrabbot_split()
             self.init_frame = 0
         elif parser.dataset == 'pedx':
@@ -95,7 +102,7 @@ class AgentFormerDataset(Dataset):
         elif parser.dataset == 'nuscenes_pred':
             process_func = preprocess
         elif parser.dataset == 'jrdb':# and np.any(['kp' in it for it in parser.input_type]):
-            dl_v = parser.get('dataloader_version', 3)
+            dl_v = parser.get('dataloader_version', 4)
             print(f"dl_v: {dl_v}")
             if dl_v == 1:
                 import ipdb; ipdb.set_trace()
@@ -104,6 +111,8 @@ class AgentFormerDataset(Dataset):
                 process_func = jrdb_preprocess_new
             elif dl_v == 3:
                 process_func = jrdb_preprocess_w_action_label
+            elif dl_v == 4:
+                process_func = jrdb_preprocess_full
             else:
                 assert dl_v == 0
                 import ipdb; ipdb.set_trace()
@@ -133,17 +142,19 @@ class AgentFormerDataset(Dataset):
             print("loading sequence {} ...".format(seq_name))
             preprocessor = process_func(data_root, seq_name, parser, self.split, self.phase)
 
-            num_seq_samples = preprocessor.num_fr - (
-                        parser.min_past_frames + parser.min_future_frames - 1) * self.frame_skip
+            num_seq_samples = (preprocessor.num_fr - (
+                        parser.min_past_frames + parser.min_future_frames - 1) * self.frame_skip) // self.data_skip + 1
 
             num_total_samples += num_seq_samples
             self.num_sample_list.append(num_seq_samples)
             self.sequence.append(preprocessor)
+            if self.trial_ds_size is not None and num_total_samples >= 20 * self.trial_ds_size:
+                break
 
         print(f'total num samples: {num_total_samples}')
         self.num_total_samples = num_total_samples
 
-        self.preprocess_data = True if trial_ds_size is not None else parser.get('preprocess_data', True)
+        self.preprocess_data = True if trial_ds_size is not None else parser.get('preprocess_data', False)
         if self.preprocess_data:
             self.get_preprocessed_data(num_total_samples, frames_list, start_frame)
         else:
@@ -215,12 +226,7 @@ class AgentFormerDataset(Dataset):
         # print(f'total_invalid_peds: {total_invalid_peds}, total_valid_peds: {total_valid_peds}')
         # print(f'ratio of invalid_peds: {round(total_invalid_peds / (total_invalid_peds + total_valid_peds), 2)}')
 
-
         print(f'using {len(self.sample_list)} num samples')
-        # if dl_v == 0 and split == 'train' and self.dataset == 'jrdb':
-        #     assert len(self.sample_list) == 8483
-        # if dl_v == 0 and split == 'val' and self.dataset == 'jrdb':
-        #     assert len(self.sample_list) == 3835
 
         print("------------------------------ done --------------------------------\n")
         if len(self.sample_list) < 10:
@@ -236,8 +242,9 @@ class AgentFormerDataset(Dataset):
         # find the seq_name (environment) this index corresponds to, and then the frame in that environment
         for seq_index in range(len(self.num_sample_list)):  # 0-indexed  # for each seq_name
             if index_tmp < self.num_sample_list[seq_index]:
-                frame_index = index_tmp + (self.min_past_frames - 1) * self.frame_skip + self.sequence[
-                    seq_index].init_frame  # from 0-indexed list index to 1-indexed frame index (for mot)
+                frame_index = (index_tmp * self.data_skip
+                               + (self.min_past_frames - 1) * self.frame_skip  # return frame is the last obs frame
+                               + self.sequence[seq_index].init_frame)  # from 0-indexed list index to 1-indexed frame index (for mot)
                 return seq_index, frame_index
             else:
                 index_tmp -= self.num_sample_list[seq_index]

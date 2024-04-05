@@ -138,8 +138,11 @@ def main(args):
             logger = TensorBoardLogger(args.logs_root, name=cfg.id)
     else:
         logger = None
-    early_stop_cb = EarlyStopping(patience=10, verbose=True, monitor='val/ADE_joint')
-    checkpoint_callback = ModelCheckpointCustom(visualize=args.save_viz, monitor='val/ADE_joint', mode='min',
+
+    monitor = cfg.get('ckpt_monitor', 'val/ADE_joint')
+    print(f"{monitor=}")
+    early_stop_cb = EarlyStopping(patience=10, verbose=True, monitor=monitor)
+    checkpoint_callback = ModelCheckpointCustom(visualize=args.save_viz, monitor=monitor, mode='min',
                                                 save_last=True, save_top_k=5, dirpath=default_root_dir,
                                                 filename='{epoch:04d}',)
     tqdm = TQDMProgressBar(refresh_rate=args.tqdm_rate)

@@ -1,0 +1,81 @@
+# ------------------- General Options -------------------------
+
+description                  : AgentFormer (Before DLow)
+results_root_dir             : results
+seed                         : 0
+dataset                      : jrdb
+frame_skip                   : 6
+data_skip                    : 10
+data_root_jrdb               : ../AgentFormerSDD/datasets/jrdb_adjusted
+data_root_ethucy             : datasets/eth_ucy
+data_root_nuscenes_pred      : datasets/nuscenes_pred
+
+# ------------------- Feature Extractor -------------------------
+
+past_frames                  : 5
+future_frames                : 10
+min_past_frames              : 5
+min_future_frames            : 10
+
+traj_scale                   : 1
+motion_dim                   : 2
+forecast_dim                 : 2
+
+# ------------------- Model -------------------------
+
+model_id: agentformer
+tf_version: v2
+tf_model_dim: 256
+tf_ff_dim: 512
+tf_nhead: 8
+tf_dropout: 0.1
+dataloader_version: 4
+split_type: full
+#zero_kpless_data: true  # zero out kpless data during train and val
+input_type: ['scene_norm', 'vel', 'heading']
+ckpt_monitor: 'val/ADE_marginal'
+pred_type: 'scene_norm'
+sn_out_type: 'norm'
+max_train_agent: 32
+pos_concat: true
+rand_rot_scene: true
+scene_orig_all_past: true
+
+context_encoder:
+  nlayer: 2
+
+future_decoder:
+  nlayer: 2
+  out_mlp_dim: [512, 256]
+
+future_encoder:
+  nlayer: 2
+#  out_mlp_dim: [512, 256]
+
+# ------------------- VAE-------------------------
+
+nz                           : 32
+sample_k                     : 20
+learn_prior                  : true
+
+# ------------------- Training Parameters -------------------------
+
+lr                           : 5.e-5
+loss_cfg:
+  mse:
+    weight: 1.0
+  kld:
+    weight: 1.0
+    min_clip: 2.0
+  sample:
+    weight: 1.0
+    k: 20
+
+num_epochs                   : 100
+lr_fix_epochs                : 3  # how many epochs to ramp_up, for ramp_up lr policy
+lr_scheduler: 'linear_ramp_up'
+decay_step: 10
+decay_gamma: 0.4
+print_freq                   : 20
+model_save_freq              : 10
+

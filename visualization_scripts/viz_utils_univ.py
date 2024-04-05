@@ -13,7 +13,10 @@ H36M_FULL_CONNECTIVITIES = [(0, 1), (0, 2), (0, 3), (1, 4), (2, 5), (3, 6), (4, 
                             (21, 23)]
 H36M_CONNECTIVITIES = [ (0, 1), (1, 2), (2, 3), (0, 6), (6, 7), (7, 8), (0, 9), (9, 10), (10, 11), (11, 12), (10, 13),
                         (13, 14), (14, 15), (10, 16), (16, 17), (17, 18), ]
-
+BLAZEPOSE_CONNECTIVITIES = [(1, 2), (1, 5), (2, 3), (3, 7), (5, 6), (6, 7), (7, 9), (6, 8), (8, 10), (5, 4), (4, 11),
+                            (11, 13), (13, 15), (15, 17), (17, 19), (19, 21), (6, 12), (12, 14), (14, 16), (16, 18),
+                            (18, 20), (20, 22), (11, 23), (12, 24), (23, 24), (23, 25), (24, 26), (25, 27), (27, 29),
+                            (29, 31), (26, 28), (28, 30), (30, 32)]
 
 def fig_to_array(fig):
     fig.canvas.draw()
@@ -39,6 +42,8 @@ def ax_set_up(ax, stuff):
         dim_min_z = center[2] - width / 2
         dim_max_z = center[2] + width / 2
         ax.set_zlim(dim_min_z, dim_max_z)
+    else:
+        import ipdb; ipdb.set_trace()
 
 def get_grid_size_from_num_grids(n):
     """ returns a tuple of (width, height) for a grid of n plots """
@@ -91,11 +96,24 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
             f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
 
     # make plots grid
-    fig, axes = plt.subplots(num_plots_height, num_plots_width, figsize=(7.5 * num_plots_width, 5 * num_plots_height))
-    if isinstance(axes, np.ndarray):
-        axes = axes.flatten()
-    else:
-        axes = [axes]
+    fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
+    axes = []
+    for i, po in enumerate(list_of_plotting_objs):
+        if po == AnimObjPose3d:
+            ax = fig.add_subplot(num_plots_height, num_plots_width, i + 1, projection='3d')
+            # set viewing angle
+            ax.view_init(elev=20, azim=40)
+        else:
+            assert po == AnimObjPose2d or po == AnimObjBEVTraj2d
+            ax = fig.add_subplot(num_plots_height, num_plots_width, i + 1)
+        axes.append(ax)
+
+    # fig, axes = plt.subplots(num_plots_height, num_plots_width)
+    # if isinstance(axes, np.ndarray):
+    #     axes = axes.flatten()
+    # else:
+    #     axes = [axes]
+
     fig.subplots_adjust(hspace=0.25)
     if title is not None:
         fig.suptitle(title, fontsize=16)
@@ -111,6 +129,7 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
                 bounds2d.append(np.array(val).reshape(-1, val.shape[-1]))
     bounds2d = np.concatenate(bounds2d)
     bounds2d = [*(np.min(bounds2d, axis=0) - 0.2), *(np.max(bounds2d, axis=0) + 0.2)]
+    assert len(bounds2d) in [4, ], f"bounds2d must be of length 4 , not {len(bounds2d)}"
 
     anim_objects = []
     animation_frames = []
@@ -120,7 +139,7 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
         if isinstance(ao, AnimObjPose2d) or isinstance(ao, AnimObjBEVTraj2d):
             bounds = bounds2d[:4]
         else:
-            bounds = None
+            bounds = bounds2d + [-0.5, 2]
         ao.plot_traj_anim(**arg_dict, ax=ax, bounds=bounds)
 
     def mass_update(frame_i):
@@ -184,13 +203,22 @@ class AnimObjPose2d:
 class AnimObjPose3d:
     def __init__(self):
         self.update = None
-    def plot_traj_anim(self, gt_history, gt_future, ax=None, bounds=None):
+    def plot_traj_anim(self, gt_history, gt_future, positions, ax=None, bounds=None):
         """
         Create a 3D video of the pose.
         """
         obs_len = gt_history.shape[2]
-        stuff = np.concatenate([gt_history, gt_future], axis=2)
+
+        if positions is not None:
+            # add additional dimension for z-axis
+            positions = np.concatenate([positions, np.zeros((*positions.shape[:-1], 1))], axis=-1).transpose(1, 0, 2)[:, None]
+            # gt_history[..., 1] = - gt_history[..., 1]
+            gt_history = gt_history * 1 + positions[:, :, :obs_len]
+            # gt_future[..., 1] = - gt_future[..., 1]
+            gt_future = gt_future * 1 + positions[:, :, obs_len:]
+
         if bounds is None:
+            stuff = np.concatenate([gt_history, gt_future], axis=2).reshape(-1, 3)
             ax_set_up(ax, stuff)
         else:
             dim_min_x, dim_min_y, dim_min_z, dim_max_x, dim_max_y, dim_max_z = bounds
@@ -206,9 +234,9 @@ class AnimObjPose3d:
             ax.cla()  # Clear the axis to draw a new pose
             ax_set_up(ax, stuff)
             if frame_idx < obs_len:
-                draw_pose_3d_single_frame(gt_history, ax, color='g', frame_idx=frame_idx)
+                draw_pose_3d_single_frame(gt_history, ax, True, frame_idx=frame_idx)
             else:
-                draw_pose_3d_single_frame(gt_future, ax, color='b', frame_idx=frame_idx-obs_len)
+                draw_pose_3d_single_frame(gt_future, ax, False, frame_idx=frame_idx-obs_len)
 
         self.update = update
 
@@ -227,17 +255,17 @@ def draw_pose_2d_single_frame(pose, ax, thin, frame_idx):
             ax.plot(x, y, lw=1 if thin else 2, color=COLORS[i % len(COLORS)])
 
 
-def draw_pose_3d_single_frame(pose, ax, color, frame_idx):
+def draw_pose_3d_single_frame(pose, ax, thin, frame_idx):
     """
     Draw a single pose for a given frame index.
     """
     for i in range(pose.shape[0]):  # for each ped
         vals = pose[i, :, frame_idx]
-        for j1, j2 in COCO_CONNECTIVITIES:
+        for j1, j2 in BLAZEPOSE_CONNECTIVITIES:
             x = np.array([vals[j1, 0], vals[j2, 0]])
             y = np.array([vals[j1, 1], vals[j2, 1]])
             z = np.array([vals[j1, 2], vals[j2, 2]])
-            ax.plot(x, y, z, lw=2, color=color)
+            ax.plot(x, y, z, lw=1 if thin else 2, color=COLORS[i % len(COLORS)])
 
 
 class AnimObjBEVTraj2d:

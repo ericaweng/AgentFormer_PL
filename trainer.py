@@ -126,6 +126,9 @@ class AgentFormerTrainer(pl.LightningModule):
         # if self.current_epoch == 0 and self.global_step <= 5 and self.model.training:
         #     print(f"node rank: {torch.cuda.current_device()} step: {self.global_step}, frame: {batch['frame']}")
 
+        # if torch.all(torch.stack(batch['pre_kp']) == 0):
+        #     return
+
         if batch is None:
             return
         self.model.set_data(batch)
@@ -313,14 +316,17 @@ class AgentFormerTrainer(pl.LightningModule):
         # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.hparams.scheduler_step_size,
         #                                                  gamma=0.5)
         scheduler_type = self.cfg.get('lr_scheduler', 'linear')
-        if scheduler_type == 'linear':
-            scheduler = get_scheduler(optimizer, policy='lambda', nepoch_fix=self.cfg.lr_fix_epochs, nepoch=self.cfg.num_epochs)
+        if scheduler_type == 'linear_ramp_up':
+            scheduler = get_scheduler(optimizer, policy='linear_ramp_up', nepoch_fix=self.cfg.lr_fix_epochs, nepoch=self.cfg.num_epochs,
+                                      decay_step=self.cfg.decay_step, decay_gamma=self.cfg.decay_gamma)
+        elif scheduler_type == 'linear':
+            scheduler = [get_scheduler(optimizer, policy='lambda', nepoch_fix=self.cfg.lr_fix_epochs, nepoch=self.cfg.num_epochs)]
         elif scheduler_type == 'step':
-            scheduler = get_scheduler(optimizer, policy='step', decay_step=self.cfg.decay_step, decay_gamma=self.cfg.decay_gamma)
+            scheduler = [get_scheduler(optimizer, policy='step', decay_step=self.cfg.decay_step, decay_gamma=self.cfg.decay_gamma)]
         else:
             raise ValueError('unknown scheduler type!')
 
-        return [optimizer], [scheduler]
+        return [optimizer], scheduler
 
     def save_interaction_cat_results(self, outputs, all_ped_vals, total_num_agents):
         # aggregate by interaction category

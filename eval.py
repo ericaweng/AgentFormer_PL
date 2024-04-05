@@ -45,6 +45,13 @@ def eval_one_seq(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
     values['FDE_marginal'] = value
     ped_values['FDE_marginal'] = ped_vals
 
+    # 'FDE_marginal 2s'
+    value, _, ped_vals, _ = stats_func['FDE_marginal_2s'](pred_arr=agent_traj, gt_arr=gt_traj,
+                                                 collision_rad=collision_rad,
+                                                 return_ped_vals=True)
+    values['FDE_marginal_2s'] = value
+    ped_values['FDE_marginal_2s'] = ped_vals
+
     # 'CR_mean'
     value, sample_vals, ped_vals, collision_mats = stats_func['CR_mean'](pred_arr=agent_traj, gt_arr=gt_traj,
                                                                          collision_rad=collision_rad,

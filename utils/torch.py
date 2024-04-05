@@ -169,7 +169,24 @@ def filter_state_dict(state_dict, filter_keys):
                 break
 
 def get_scheduler(optimizer, policy, nepoch_fix=None, nepoch=None, decay_step=None, decay_gamma=0.1):
-    if policy == 'lambda':
+    if policy == 'linear_ramp_up':
+        ramp_up_epochs = nepoch_fix  # number of epochs for lr ramp-up
+
+        # Lambda function for linear ramp-up
+        lr_lambda = lambda epoch: min(1., epoch / ramp_up_epochs) if epoch <= ramp_up_epochs else 1.0
+        scheduler_ramp_up = lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+        # StepLR for decay after ramp-up
+        scheduler_step_decay = lr_scheduler.StepLR(optimizer, step_size=decay_step, gamma=decay_gamma)
+
+        # To apply the schedulers sequentially, you need to return them as part of a list
+        # and specify their step interval ('epoch' or 'step') and how they should be applied ('chain')
+        scheduler = [
+                {"scheduler": scheduler_ramp_up, "interval": "epoch", "frequency": 1},
+                {"scheduler": scheduler_step_decay, "interval": "epoch", "frequency": 1,
+                 "start_epoch": ramp_up_epochs}
+        ]
+    elif policy == 'lambda':
         def lambda_rule(epoch):
             lr_l = 1.0 - max(0, epoch - nepoch_fix) / float(nepoch - nepoch_fix + 1)
             return lr_l

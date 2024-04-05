@@ -1,20 +1,9 @@
-""" dataloader for jrdb for positions + heading, 2d_kp, kp score, cam_extrinsics, cam_intrinsics """
+""" dataloader for jrdb for positions, heading, hst-processed 3d_kp """
 
 import torch
 import numpy as np
 from data import ped_interactions
-from utils.utils import multi_hot_encode, multi_hot_scores
 
-
-ACTIONS_TO_IDX = {'impossible': -1, 'standing': 0, 'walking': 1, 'sitting': 2, 'holding sth': 3, 'listening to someone': 4,
-                  'talking to someone': 5, 'looking at robot': 6, 'looking into sth': 7, 'cycling': 8,
-                  'looking at sth': 9, 'going upstairs': 10, 'bending': 11, 'typing': 12, 'interaction with door': 13,
-                  'eating sth': 14, 'talking on the phone': 15, 'going downstairs': 16, 'scootering': 17,
-                  'pointing at sth': 18, 'pushing': 19, 'reading': 20, 'skating': 21, 'running': 22,
-                  'greeting gestures': 23, 'writing': 24, 'lying': 25, 'pulling': 26,}
-
-USE_ACTIONS = {'standing', 'walking', 'sitting', 'cycling'}
-USE_ACTION_IDXS = {ACTIONS_TO_IDX[a] for a in USE_ACTIONS}
 
 class jrdb_preprocess(object):
 
@@ -23,6 +12,7 @@ class jrdb_preprocess(object):
         self.dataset = parser.dataset
         self.include_cats = parser.get('include_cats', [])
         self.exclude_kpless_data = parser.get('exclude_kpless_data', False)
+        self.zero_kpless_data = parser.get('zero_kpless_data', False)
         self.data_root = data_root
         self.past_frames = parser.past_frames
         self.past_frames_pos = parser.get('past_frames_pos', self.past_frames)
@@ -40,23 +30,17 @@ class jrdb_preprocess(object):
         self.phase = phase
 
         # trajectory positions information
-        label_path = f'{data_root}/{seq_name}.txt'
+        split_type = parser.get('split_type', 'full')
+        assert split_type == 'full'  # only use hst odometry-adjusted data for this preprocessor
+
+        label_path = f'{data_root}/odometry_adjusted/{seq_name}.csv'
+        path = f'{data_root}/odometry_adjusted/{seq_name}_kp.npz'
+        data = np.load(path, allow_pickle=True)['arr_0'].item()
+        self.all_kp_data = data
+
         self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=float)
 
-        path = f'{data_root}/poses_2d_action_labels/{seq_name}.npz'
-        data = np.load(path, allow_pickle=True)['arr_0'].item()
-        self.all_kp_data = data['poses']
-        self.all_score_data = data['scores']
-        self.cam_ids = data['cam_ids']
-        self.cam_extrinsics = data['extrinsics']
-        self.cam_intrinsics = data['intrinsics']
-        self.action_labels = data['action_labels']
-        self.action_scores = data['action_scores']
-
-        self.num_intrinsic_dims = 9
-        self.num_extrinsic_dims = 7
-
-        self.kp_mask = np.arange(17)
+        self.kp_mask = np.arange(33)
 
         # check that frame_ids are equally-spaced
         frames = np.unique(self.gt[:, 0].astype(int))
@@ -100,29 +84,12 @@ class jrdb_preprocess(object):
 
     def get_data(self, frame_id):
         if frame_id in self.all_kp_data:
-            assert frame_id in self.all_score_data
-            assert frame_id in self.cam_extrinsics
-            assert frame_id in self.cam_intrinsics
             data_kp = self.all_kp_data[frame_id]
-            data_score = self.all_score_data[frame_id]
-            cam_ids = self.cam_ids[frame_id]
-            cam_intrinsics = self.cam_intrinsics[frame_id]
-            cam_extrinsics = self.cam_extrinsics[frame_id]
-            action_labels = self.action_labels[frame_id]
-            action_scores = self.action_scores[frame_id]
         else:
             data_kp = {}
-            data_score = {}
-            cam_ids = {}
-            cam_intrinsics = {}
-            cam_extrinsics = {}
-            action_labels = {}
-            action_scores = {}
 
         data_pos = self.gt[self.gt[:, 0] == frame_id]
-        return {'kp': data_kp, 'pos': data_pos, 'score': data_score, 'cam_ids': cam_ids,
-                'cam_intrinsics': cam_intrinsics, 'cam_extrinsics': cam_extrinsics,
-                'action_labels': action_labels, 'action_scores': action_scores}
+        return {'kp': data_kp, 'pos': data_pos}
 
     def get_pre_data(self, frame):
         DataList = []
@@ -170,17 +137,11 @@ class jrdb_preprocess(object):
 
         return valid_id
 
-    @staticmethod
-    def transformed_theta(theta):
-        theta = theta % (2 * np.pi)
-        return np.where(theta <= np.pi, np.pi - theta, 3 * np.pi - theta)
-
     def get_heading(self, cur_data, valid_id):
         heading = np.zeros((len(valid_id)))
         for i, idx in enumerate(valid_id):
             heading[i] = cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()[self.heading_ind]
         return heading  # don't need transformed theta given data preprocessed w odometry
-        # return self.transformed_theta(heading)
 
     def get_heading_avg(self, all_data, valid_id):
         heading = np.zeros((len(valid_id)))
@@ -195,29 +156,15 @@ class jrdb_preprocess(object):
             heading_avg = np.stack(headings_this_ped).mean(0)
             heading[i] = np.arctan2(heading_avg[1], heading_avg[0])
         return heading  # don't need transformed theta given data preprocessed w odometry
-        # return self.transformed_theta(heading)
 
     def format_data(self, data, num_frames, valid_id, is_pre=False):
         motion = []
         mask = []
         kp_motion = []
-        scores = []
-        cam_ids = []
-        cam_intrinsics = []
-        cam_extrinsics = []
-        action_labels = []
-        action_scores = []
         for ped_id in valid_id:
             mask_i = torch.zeros(num_frames)
             box_3d = torch.zeros([num_frames, 2])
-            kp_3d = torch.zeros([num_frames, len(self.kp_mask), 2])
-            score = torch.zeros([num_frames, len(self.kp_mask)])
-            cam_id = torch.zeros([num_frames])
-            cam_intrinsic = torch.zeros([num_frames, self.num_intrinsic_dims])
-            cam_extrinsic = torch.zeros([num_frames, self.num_extrinsic_dims])
-            action_label = torch.zeros([num_frames, len(USE_ACTIONS)])
-            action_score = torch.zeros([num_frames, len(USE_ACTIONS)])
-
+            kp_3d = torch.zeros([num_frames, len(self.kp_mask), 3])
             for f_i, frame_i in enumerate(range(num_frames)):
                 single_frame = data[frame_i]
                 pos_history = single_frame['pos']
@@ -225,53 +172,29 @@ class jrdb_preprocess(object):
                 # edit frame index for pre data, which is ordered backwards
                 if is_pre:
                     frame_i = num_frames - 1 - frame_i
-                # unsure when this is true...
-                if is_pre and f_i > self.past_frames_pos:
-                    import ipdb; ipdb.set_trace()
-                    box_3d[frame_i] = 0
-                    mask_i[frame_i] = 0.0
-                else:
+                if not self.zero_kpless_data\
+                        or self.zero_kpless_data and single_frame['kp'] is not None and ped_id in single_frame['kp']:
                     found_data = pos_history[pos_history[:, 1] == ped_id].squeeze()[
-                                     [self.xind, self.zind]] / self.past_traj_scale
+                                 [self.xind, self.zind]] / self.past_traj_scale
                     assert len(found_data) != 0
                     box_3d[frame_i] = torch.from_numpy(found_data).float()
                     mask_i[frame_i] = 1.0
+                else:
+                    import ipdb; ipdb.set_trace()
+                    box_3d[frame_i] = torch.zeros((1, 2))
+                    mask_i[frame_i] = 0
                 # if joints info exists
                 if single_frame['kp'] is not None and ped_id in single_frame['kp']:
                     kp_3d[frame_i] = torch.from_numpy(single_frame['kp'][ped_id]).float()
-                    score[frame_i] = torch.from_numpy(single_frame['score'][ped_id]).float()
-                    cam_id[frame_i] = single_frame['cam_ids'][ped_id]
-                    cam_intrinsic[frame_i] = torch.from_numpy(single_frame['cam_intrinsics'][ped_id])
-                    cam_extrinsic[frame_i] = torch.from_numpy(single_frame['cam_extrinsics'][ped_id])
                 else:
                     kp_3d[frame_i] = 0
-                    score[frame_i] = 0
-                    cam_id[frame_i] = -1
-                    cam_intrinsic[frame_i] = 0
-                    cam_extrinsic[frame_i] = 0
-                    action_label[frame_i] = 0
-                    action_score[frame_i] = 0
-                # if action labels exist
-                if single_frame['action_labels'] is not None and ped_id in single_frame['action_labels']:
-                    action_label[frame_i] = multi_hot_encode(single_frame['action_labels'][ped_id],
-                                                             len(USE_ACTIONS), USE_ACTION_IDXS)
-                    action_score[frame_i] = multi_hot_scores(single_frame['action_labels'][ped_id],
-                                                             single_frame['action_scores'][ped_id],
-                                                             len(USE_ACTIONS), USE_ACTION_IDXS)
-                else:
-                    action_label[frame_i] = 0
-                    action_score[frame_i] = 0
             motion.append(box_3d)
             mask.append(mask_i)
+            # replace nan with 0
+            kp_3d[kp_3d != kp_3d] = 0
             kp_motion.append(kp_3d)
-            scores.append(score)
-            cam_ids.append(cam_id)
-            cam_intrinsics.append(cam_intrinsic)
-            cam_extrinsics.append(cam_extrinsic)
-            action_labels.append(action_label)
-            action_scores.append(action_score)
 
-        return motion, kp_motion, mask, scores, cam_ids, cam_intrinsics, cam_extrinsics, action_labels, action_scores
+        return motion, kp_motion, mask
 
     def get_formatted_pre_data(self, data, valid_id):
         return self.format_data(data, self.past_frames, valid_id, is_pre=True)
@@ -301,51 +224,29 @@ class jrdb_preprocess(object):
         if len(pre_data[0]) == 0 or len(fut_data[0]) == 0 or len(valid_id) == 0:
             return None
 
-        # interaction_mask = self.get_interaction_mask(pre_data, fut_data, valid_id)
-
         heading = self.get_heading(pre_data[0], valid_id)
         heading_avg = self.get_heading_avg(pre_data, valid_id)
         pred_mask = None
 
-        (pre_motion, pre_motion_kp, pre_motion_mask, pre_scores, pre_cam_ids,
-         pre_cam_intrinsics, pre_cam_extrinsics, pre_action, pre_action_score) = self.get_formatted_pre_data(pre_data, valid_id)
-        (fut_motion, fut_motion_kp, fut_motion_mask, fut_scores, fut_cam_ids,
-         fut_cam_intrinsics, fut_cam_extrinsics, fut_action, fut_action_score) = self.get_formatted_fut_data(fut_data, valid_id)
+        pre_motion, pre_motion_kp, pre_motion_mask = self.get_formatted_pre_data(pre_data, valid_id)
+        fut_motion, fut_motion_kp, fut_motion_mask = self.get_formatted_fut_data(fut_data, valid_id)
 
         data = {
                 # These fields have a pre and fut, and are organized by ped. (num_peds, num_timesteps, **)
                 'pre_motion': pre_motion,
                 'pre_motion_mask': pre_motion_mask,
                 'pre_kp': pre_motion_kp,
-                'pre_kp_scores': pre_scores,
-                'pre_cam_id': pre_cam_ids,
-                'pre_cam_intrinsics': pre_cam_intrinsics,
-                'pre_cam_extrinsics': pre_cam_extrinsics,
-                'pre_action_label': pre_action,
-                'pre_action_score': pre_action_score,
                 'fut_motion': fut_motion,
                 'fut_motion_mask': fut_motion_mask,
                 'fut_kp': fut_motion_kp,
-                'fut_kp_scores': fut_scores,
-                'fut_cam_id': fut_cam_ids,
-                'fut_cam_intrinsics': fut_cam_intrinsics,
-                'fut_cam_extrinsics': fut_cam_extrinsics,
-                'fut_action_label': fut_action,
-                'fut_action_score': fut_action_score,
                 'heading': heading,  # only the heading for the last obs timestep
                 'heading_avg': heading_avg,  # the avg heading for all timesteps
-                ### pre_data and fut_data contains all the above data except heading... does not seem much needed though
-                # 'pre_data': pre_data,
-                # 'fut_data': fut_data,
-                # 'interaction_mask': interaction_mask,
-                ### the following are not per-pedestrian
                 'traj_scale': self.traj_scale,
                 'pred_mask': pred_mask,
                 'scene_map': self.geom_scene_map,
                 'seq': self.seq_name,
                 'frame_scale': 1,
                 'frame': frame,
-                'image_paths': [f'{self.seq_name}/{f:06d}.jpg' for f in range(frame-self.past_frames, frame+self.future_frames)],
                 'valid_id': valid_id,
         }
 

@@ -18,19 +18,20 @@ class ModelCheckpointCustom(ModelCheckpoint):
 
     def on_validation_epoch_end(self, trainer, pl_module):
         super().on_validation_end(trainer, pl_module)
-        if self.visualize and (self.best_model_score or pl_module.current_epoch == 0 and len(pl_module.outputs) > 0):
+        if self.visualize and (self.best_model_score and trainer.callback_metrics.get(self.monitor)
+                               or pl_module.current_epoch == 0 and len(pl_module.outputs) > 0):
             if pl_module.current_epoch == 0:
                 pl_module.args.save_num = 5
                 pl_module.log_viz(pl_module.outputs, 'val')
                 pl_module.outputs = None
                 self.log_train_this_time = True
-            elif trainer.callback_metrics.get("val/ADE_joint") <= self.best_model_score:
+            elif trainer.callback_metrics.get(self.monitor) <= self.best_model_score:
                 print("This is a new best model!")
                 pl_module.args.save_num = 12
                 pl_module.log_viz(pl_module.outputs, 'val')
                 pl_module.outputs = None
                 self.log_train_this_time = True
-        elif pl_module.args.save_viz_every_time:
+        elif pl_module.args.save_viz_every_time and hasattr(pl_module, 'outputs') and len(pl_module.outputs) > 0:
             pl_module.log_viz(pl_module.outputs, 'val')
             pl_module.outputs = None
             self.log_train_this_time = True

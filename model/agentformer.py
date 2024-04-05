@@ -11,13 +11,16 @@ from .agentformer_lib import AgentFormerEncoderLayer, AgentFormerDecoderLayer, A
 from .map_encoder import MapEncoder
 from utils.torch import *
 from utils.utils import initialize_weights
-from viz_utils import plot_traj_img
 from model.running_norm import RunningNorm
 from data.jrdb_kp3 import USE_ACTIONS
 
 
 INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2,
-                      'kp_norm': 34, 'kp_vel': 34, 'kp_scores': 17,
+                      'kp_norm': 99, # 34,
+                      'kp_norm_3dhst': 99,
+                      'kp_vel': 99, #34,
+                      # 'kp_vel_3dhst': 34,
+                      'kp_scores': 17,
                       'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1,
                       'action': len(USE_ACTIONS), 'action_score': len(USE_ACTIONS)}
 
@@ -183,6 +186,8 @@ class ContextEncoder(nn.Module):
                 traj_in_list.append(data['pre_motion_norm'])
             elif key == 'scene_norm':
                 traj_in_list.append(data['pre_motion_scene_norm'])
+            elif key == 'kp':
+                kp_input_list.append(data['pre_kp'].reshape(*data['pre_kp'].shape[0:2], -1))
             elif key == 'kp_norm':
                 kp_input_list.append(data['pre_kp_norm'].reshape(*data['pre_kp_norm'].shape[0:2], -1))
             elif key == 'kp_vel':
@@ -394,6 +399,12 @@ class FutureEncoder(nn.Module):
         tgt_agent_mask = data['agent_mask'].clone()
         mem_mask = generate_mask(tf_in.shape[0], data['context_enc'].shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
         tgt_mask = generate_mask(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask).to(tf_in.device)
+
+        # tgt_mask = generate_mask_missing_ts(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask).to(tf_in.device)
+        # print(f"{mem_mask.shape=}")
+        # print(f"{tgt_mask.shape=}")
+        # print(f"{data['pre_mask'].shape=}")
+        # import ipdb; ipdb.set_trace()
 
         tf_out, _ = self.tf_decoder(tf_in_pos, data['context_enc'], memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'])
         tf_out = tf_out.view(batch_size, -1, self.model_dim)
@@ -726,10 +737,10 @@ class AgentFormer(nn.Module):
         self.data['pre_motion'] = torch.stack(in_data['pre_motion'], dim=0).to(device).transpose(0, 1).contiguous()  # swap batch and time dim
         self.data['fut_motion'] = torch.stack(in_data['fut_motion'], dim=0).to(device).transpose(0, 1).contiguous()
 
-        if 'pre_kp' in in_data:
-            # flip the z, bc the people are in image coords in which the z (vertical)-axis points downward wrt world coordinate frame
-            self.data['pre_kp'][...,1] *= -1
-            self.data['fut_kp'][...,1] *= -1
+        # if 'pre_kp' in in_data:
+        #     # flip the z, bc the people are in image coords in which the z (vertical)-axis points downward wrt world coordinate frame
+        #     self.data['pre_kp'][...,1] *= -1
+        #     self.data['fut_kp'][...,1] *= -1
         self.data['fut_motion_orig'] = torch.stack(in_data['fut_motion'], dim=0).to(device)   # future motion without transpose
         self.data['fut_mask'] = torch.stack(in_data['fut_motion_mask'], dim=0).to(device)
         self.data['pre_mask'] = torch.stack(in_data['pre_motion_mask'], dim=0).to(device)
@@ -776,7 +787,7 @@ class AgentFormer(nn.Module):
 
         self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
         self.data['fut_vel'] = self.data['fut_motion'] - torch.cat([self.data['pre_motion'][[-1]], self.data['fut_motion'][:-1, :]])
-        if np.any(['kp_vel' in key for key in self.input_type]):
+        if np.any(['kp_vel' in self.input_type]):
             self.data['pre_kp_vel'] = self.data['pre_kp'][1:] - self.data['pre_kp'][:-1]
             self.data['fut_kp_vel'] = self.data['fut_kp'] - torch.cat([self.data['pre_kp'][[-1]], self.data['fut_kp'][:-1, :]])
         self.data['cur_motion'] = self.data['pre_motion'][[-1]]
