@@ -73,7 +73,8 @@ def get_agents_features_df_with_box(
     return df[['p', 'yaw', 'l', 'h', 'w']]
 
 
-def jrdb_preprocess_test(input_path, output_path):
+def jrdb_preprocess_test(args):
+    input_path, output_path = args.input_path, args.output_path
     """Preprocesses the raw test split of JRDB."""
     AGENT_KEYPOINTS = True
 
@@ -139,12 +140,14 @@ def jrdb_preprocess_test(input_path, output_path):
         )
         # plot_pedestrian_trajectories(agents_df.rename_axis(['timestep', 'id']), scene, 'before_odo', end=1000, skip=10)
 
-        agents_in_odometry_df = agents_to_odometry_frame(
+        if args.adjust_w_odometry:
+            agents_in_odometry_df = agents_to_odometry_frame(
                 agents_df, robot_df.iloc[::subsample].reset_index(drop=True)
-        )
-        # Assuming your DataFrame is named df
-        # plot_pedestrian_trajectories(agents_in_odometry_df, scene, 'after_odo', end=1000, skip=10)
-        # save agents_in_odometry_df to txt
+            )
+            # plot_pedestrian_trajectories(agents_in_odometry_df, scene, 'after_odo', end=1000, skip=10)
+            # save agents_in_odometry_df to txt
+        else:
+            agents_in_odometry_df = agents_df.rename_axis(['timestep', 'id'])
 
         os.makedirs(output_path, exist_ok=True)
         ## change df to out format
@@ -154,30 +157,36 @@ def jrdb_preprocess_test(input_path, output_path):
         agents_in_odometry_df['x'] = agents_in_odometry_df['p'].apply(lambda x: round(x[0],6))
         agents_in_odometry_df['y'] = agents_in_odometry_df['p'].apply(lambda x: round(x[1],6))
 
-        # assert not os.path.exists(f'{output_path}/{scene}.csv'), f"{output_path}/{scene}.csv already exists"
-        # agents_in_odometry_df[['timestep', 'id2', 'x', 'y', 'yaw']].to_csv(f'{output_path}/{scene}.csv', sep=' ', header=False, index=False)
-        # print(f"saved to {output_path=}")
+        if args.save_trajectories:
+            # assert not os.path.exists(f'{output_path}/{scene}.csv'), f"{output_path}/{scene}.csv already exists"
+            agents_in_odometry_df[['timestep', 'id2', 'x', 'y', 'yaw']].to_csv(f'{output_path}/{scene}.txt', sep=' ', header=False, index=False)
+            print(f"saved trajectories to {output_path=}")
 
-        nested_dict = {}
-        for index, row in agents_in_odometry_df.iterrows():
-            timestep = row['timestep']
-            agent_id = row['id2']
-            keypoints = row['keypoints']
+        if args.save_keypoints:
+            nested_dict = {}
+            for index, row in agents_in_odometry_df.iterrows():
+                timestep = row['timestep']
+                agent_id = row['id2']
+                keypoints = row['keypoints']
 
-            if timestep not in nested_dict:
-                nested_dict[timestep] = {}
-            nested_dict[timestep][agent_id] = keypoints
+                if timestep not in nested_dict:
+                    nested_dict[timestep] = {}
+                nested_dict[timestep][agent_id] = keypoints
 
-        assert not os.path.exists(f'{output_path}/{scene}_kp.npz'), f"{output_path}/{scene}_kp.npz already exists"
-        np.savez(f'{output_path}/{scene}_kp.npz', nested_dict)
-        print(f"saved to {output_path=}")
+            assert not os.path.exists(f'{output_path}/{scene}_kp.npz'), f"{output_path}/{scene}_kp.npz already exists"
+            np.savez(f'{output_path}/{scene}_kp.npz', nested_dict)
+            print(f"saved to {output_path=}")
 
 
 def main():
     parser = argparse.ArgumentParser(description='Process JRDB2022 dataset with additional tracking and confidence options.')
     parser.add_argument('--input_path', default='datasets/jrdb', help='Path to jrdb2022 dataset.')
-    parser.add_argument('--output_path', default='datasets/jrdb_adjusted/odometry_adjusted',
+    parser.add_argument('--output_path', '-op', default='datasets/jrdb_adjusted/odometry_adjusted',
                         help='Path to output folder.')
+    parser.add_argument('--no_odometry', '-no', dest='adjust_w_odometry', action='store_false')
+    parser.add_argument('--save_keypoints', '-sk', action='store_true', default=False,
+                        help='Whether to save keypoints.')
+    parser.add_argument('--save_trajectories', '-st', action='store_true', default=False, )
     parser.add_argument('--process_pointclouds', action='store_true', default=True,
                         help='Whether to process pointclouds.')
     parser.add_argument('--max_distance_to_robot', type=float, default=15.,
@@ -192,7 +201,7 @@ def main():
     args = parser.parse_args()
 
     # Now use the arguments
-    jrdb_preprocess_test(args.input_path, args.output_path)
+    jrdb_preprocess_test(args)
 
 
 if __name__ == '__main__':

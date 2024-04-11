@@ -67,7 +67,11 @@ class AgentFormerDataset(Dataset):
         elif parser.dataset == 'jrdb':
             data_root = parser.data_root_jrdb
             split_type = parser.get('split_type', 'full')
-            if split_type == 'full':
+            if split_type == 'no_egomotion':
+                seq_train, seq_val, seq_test = get_jrdb_split_no_egomotion()
+            elif split_type == 'egomotion':
+                seq_train, seq_val, seq_test = get_jrdb_split_egomotion()
+            elif split_type == 'full':
                 seq_train, seq_val, seq_test = get_jrdb_split_full()
             elif split_type == 'half_and_half':
                 seq_train, seq_val, seq_test = get_jackrabbot_split_half_and_half()
@@ -221,7 +225,7 @@ class AgentFormerDataset(Dataset):
             skip = len(datas) // self.trial_ds_size
             datas = datas[::skip]
         print(f"len(data) before frame_skip downsample: {len(datas)}")
-        self.sample_list = datas[::self.data_skip]
+        self.sample_list = datas#[::self.data_skip]
         print(f"len(data) after frame_skip downsample: {len(self.sample_list)}")
         # print(f'total_invalid_peds: {total_invalid_peds}, total_valid_peds: {total_valid_peds}')
         # print(f'ratio of invalid_peds: {round(total_invalid_peds / (total_invalid_peds + total_valid_peds), 2)}')
@@ -269,10 +273,11 @@ class AgentFormerDataset(Dataset):
         """
         if self.preprocess_data:
             return self.get_item_preprocessed(idx)
-        if self.sample_list[idx] is not None:
-            return self.sample_list[idx]
-        self.sample_list[idx] = self.get_item_online(idx)
-        return self.sample_list[idx]
+        # if self.sample_list[idx] is not None:
+        #     return self.sample_list[idx]
+        # self.sample_list[idx] = self.get_item_online(idx)
+        # return self.sample_list[idx]
+        return self.get_item_online(idx)
 
     @staticmethod
     def collate(batch):

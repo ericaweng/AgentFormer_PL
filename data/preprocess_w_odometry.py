@@ -335,15 +335,15 @@ def jrdb_preprocess_train(args):
 
     # plot_pedestrian_trajectories(robot_df, scene, 'robot')
     # plot_pedestrian_trajectories(agents_df.rename_axis(['timestep', 'id']), scene, 'before_odo', end=1000, skip=10)
-
-    agents_in_odometry_df0 = agents_to_odometry_frame(
-        agents_df, robot_df.iloc[::subsample].reset_index(drop=True)
-    )
-    print(f"{agents_in_odometry_df0=}")
-
-    # Assuming your DataFrame is named df
-    # plot_pedestrian_trajectories(agents_in_odometry_df, scene, 'after_odo', end=1000, skip=10)
-    # save agents_in_odometry_df to txt
+    if args.adjust_w_odometry:
+      agents_in_odometry_df0 = agents_to_odometry_frame(
+          agents_df, robot_df.iloc[::subsample].reset_index(drop=True)
+      )
+      print(f"{agents_in_odometry_df0=}")
+      # plot_pedestrian_trajectories(agents_in_odometry_df, scene, 'after_odo', end=1000, skip=10)
+      # save agents_in_odometry_df to txt
+    else:
+      agents_in_odometry_df0 = agents_df.rename_axis(['timestep', 'id'])
 
     os.makedirs(output_path, exist_ok=True)
     ## change df to out format
@@ -353,28 +353,34 @@ def jrdb_preprocess_train(args):
     agents_in_odometry_df['x'] = agents_in_odometry_df['p'].apply(lambda x: round(x[0],6))
     agents_in_odometry_df['y'] = agents_in_odometry_df['p'].apply(lambda x: round(x[1],6))
 
-    # agents_in_odometry_df[['timestep', 'id2', 'x', 'y', 'yaw']].to_csv(f'{output_path}/{scene}.csv', sep=' ', header=False, index=False)
+    if args.save_trajectories:
+      agents_in_odometry_df[['timestep', 'id2', 'x', 'y', 'yaw']].to_csv(f'{output_path}/{scene}.txt', sep=' ', header=False, index=False)
 
     # Transforming the dataframe into the nested dictionary
-    nested_dict = {}
-    for index, row in agents_in_odometry_df.iterrows():
-      timestep = row['timestep']
-      agent_id = row['id2']
-      keypoints = row['keypoints']
+    if args.save_keypoints:
+      nested_dict = {}
+      for index, row in agents_in_odometry_df.iterrows():
+        timestep = row['timestep']
+        agent_id = row['id2']
+        keypoints = row['keypoints']
 
-      if timestep not in nested_dict:
-        nested_dict[timestep] = {}
-      nested_dict[timestep][agent_id] = keypoints
+        if timestep not in nested_dict:
+          nested_dict[timestep] = {}
+        nested_dict[timestep][agent_id] = keypoints
 
-    np.savez(f'{output_path}/{scene}_kp.npz', nested_dict)
-    print(f"saved to {output_path=}")
+      np.savez(f'{output_path}/{scene}_kp.npz', nested_dict)
+      print(f"saved to {output_path=}")
 
 
 def main():
     parser = argparse.ArgumentParser(description='JRDB2022 Dataset Preprocessing')
-    parser.add_argument('--input_path', default='datasets/jrdb', help='Path to jrdb2022 dataset.')
-    parser.add_argument('--output_path', default='datasets/jrdb_adjusted/odometry_adjusted', help='Path to output folder.')
-    parser.add_argument('--process_pointclouds', action='store_true', default=False,
+    parser.add_argument('--input_path', '-ip', default='datasets/jrdb', help='Path to jrdb2022 dataset.')
+    parser.add_argument('--output_path', '-op', default='datasets/jrdb_adjusted/odometry_adjusted', help='Path to output folder.')
+    parser.add_argument('--no_odometry','-no', dest='adjust_w_odometry', action='store_false')
+    parser.add_argument('--save_keypoints', '-sk', action='store_true', default=False,
+                        help='Whether to save keypoints.')
+    parser.add_argument('--save_trajectories', '-st', action='store_true', default=False,)
+    parser.add_argument('--process_pointclouds', '-pp', action='store_true', default=False,
                         help='Whether to process pointclouds.')
     parser.add_argument('--max_distance_to_robot', type=float, default=15.,
                         help='Maximum distance of agent to the robot to be included in the processed dataset.')

@@ -19,7 +19,8 @@ class ModelCheckpointCustom(ModelCheckpoint):
     def on_validation_epoch_end(self, trainer, pl_module):
         super().on_validation_end(trainer, pl_module)
         if self.visualize and (self.best_model_score and trainer.callback_metrics.get(self.monitor)
-                               or pl_module.current_epoch == 0 and len(pl_module.outputs) > 0):
+                               or pl_module.current_epoch == 0
+                               and hasattr(pl_module, 'outputs') and len(pl_module.outputs) > 0):
             if pl_module.current_epoch == 0:
                 pl_module.args.save_num = 5
                 pl_module.log_viz(pl_module.outputs, 'val')

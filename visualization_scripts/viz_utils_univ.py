@@ -25,25 +25,34 @@ def fig_to_array(fig):
     return fig_image
 
 
-def ax_set_up(ax, stuff):
+def ax_set_up(ax, stuff=None, bounds=None):
     """ stuff is (N_examples, 2 or 3) """
-    center = (stuff.min(axis=0) + stuff.max(axis=0)) / 2
-    width_xyz = (stuff.max(axis=0) - stuff.min(axis=0))
-    width = width_xyz.max()
+    if bounds is None:
+        assert stuff is not None
+        center = (stuff.min(axis=0) + stuff.max(axis=0)) / 2
+        width_xyz = (stuff.max(axis=0) - stuff.min(axis=0))
+        width = width_xyz.max()
 
-    dim_min_x = center[0] - width / 2
-    dim_max_x = center[0] + width / 2
-    dim_min_y = center[1] - width / 2
-    dim_max_y = center[1] + width / 2
-    ax.set_xlim(dim_min_x, dim_max_x)
-    ax.set_ylim(dim_min_y, dim_max_y)
+        dim_min_x = center[0] - width / 2
+        dim_max_x = center[0] + width / 2
+        dim_min_y = center[1] - width / 2
+        dim_max_y = center[1] + width / 2
+        ax.set_xlim(dim_min_x, dim_max_x)
+        ax.set_ylim(dim_min_y, dim_max_y)
 
-    if stuff.shape[1] == 3:
-        dim_min_z = center[2] - width / 2
-        dim_max_z = center[2] + width / 2
-        ax.set_zlim(dim_min_z, dim_max_z)
+        if stuff.shape[1] == 3:
+            dim_min_z = center[2] - width / 2
+            dim_max_z = center[2] + width / 2
+            ax.set_zlim(dim_min_z, dim_max_z)
+        else:
+            import ipdb; ipdb.set_trace()
     else:
-        import ipdb; ipdb.set_trace()
+        dim_min_x, dim_min_y, dim_max_x, dim_max_y = bounds[:4]
+        ax.set_xlim(dim_min_x, dim_max_x)
+        ax.set_ylim(dim_min_y, dim_max_y)
+        if len(bounds) == 6:
+            dim_min_z, dim_max_z = bounds[-2], bounds[-1]
+            ax.set_zlim(dim_min_z, dim_max_z)
 
 def get_grid_size_from_num_grids(n):
     """ returns a tuple of (width, height) for a grid of n plots """
@@ -217,14 +226,8 @@ class AnimObjPose3d:
             # gt_future[..., 1] = - gt_future[..., 1]
             gt_future = gt_future * 1 + positions[:, :, obs_len:]
 
-        if bounds is None:
-            stuff = np.concatenate([gt_history, gt_future], axis=2).reshape(-1, 3)
-            ax_set_up(ax, stuff)
-        else:
-            dim_min_x, dim_min_y, dim_min_z, dim_max_x, dim_max_y, dim_max_z = bounds
-            ax.set_xlim(dim_min_x, dim_max_x)
-            ax.set_ylim(dim_min_y, dim_max_y)
-            ax.set_zlim(dim_min_z, dim_max_z)
+        stuff = np.concatenate([gt_history, gt_future], axis=2).reshape(-1, 3)
+        ax_set_up(ax, stuff, bounds)
 
         def update(frame_idx):
             """
@@ -232,7 +235,7 @@ class AnimObjPose3d:
             """
             nonlocal obs_len
             ax.cla()  # Clear the axis to draw a new pose
-            ax_set_up(ax, stuff)
+            ax_set_up(ax, stuff, bounds)
             if frame_idx < obs_len:
                 draw_pose_3d_single_frame(gt_history, ax, True, frame_idx=frame_idx)
             else:

@@ -31,7 +31,7 @@ class jrdb_preprocess(object):
 
         # trajectory positions information
         split_type = parser.get('split_type', 'full')
-        assert split_type == 'full'  # only use hst odometry-adjusted data for this preprocessor
+        # assert split_type == 'full'  # only use hst odometry-adjusted data for this preprocessor
 
         label_path = f'{data_root}/odometry_adjusted/{seq_name}.csv'
         path = f'{data_root}/odometry_adjusted/{seq_name}_kp.npz'
@@ -114,7 +114,8 @@ class jrdb_preprocess(object):
         for idx in cur_ped_id:
             is_invalid = False
             for frame in pre_data[:self.min_past_frames]:
-                if isinstance(frame['pos'], list) or idx not in frame['pos'][:,1] or self.exclude_kpless_data and idx not in frame['kp']:
+                if isinstance(frame['pos'], list) or idx not in frame['pos'][:,1] or self.exclude_kpless_data and (
+                        idx not in frame['kp'] or np.all(frame['kp'][idx]==0) or np.all(np.isnan(frame['kp'][idx]))):
                     is_invalid = True
                     break
             if is_invalid:
@@ -230,15 +231,19 @@ class jrdb_preprocess(object):
 
         pre_motion, pre_motion_kp, pre_motion_mask = self.get_formatted_pre_data(pre_data, valid_id)
         fut_motion, fut_motion_kp, fut_motion_mask = self.get_formatted_fut_data(fut_data, valid_id)
+        # , pre_motion_kp_mask
+        # , fut_motion_kp_mask
 
         data = {
                 # These fields have a pre and fut, and are organized by ped. (num_peds, num_timesteps, **)
                 'pre_motion': pre_motion,
                 'pre_motion_mask': pre_motion_mask,
                 'pre_kp': pre_motion_kp,
+                # 'pre_kp_mask': pre_motion_kp_mask,
                 'fut_motion': fut_motion,
                 'fut_motion_mask': fut_motion_mask,
                 'fut_kp': fut_motion_kp,
+                # 'fut_kp_mask': fut_motion_kp_mask,
                 'heading': heading,  # only the heading for the last obs timestep
                 'heading_avg': heading_avg,  # the avg heading for all timesteps
                 'traj_scale': self.traj_scale,

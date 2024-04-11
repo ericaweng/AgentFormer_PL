@@ -140,7 +140,6 @@ class ContextEncoder(nn.Module):
             if key in ['scene_norm', 'vel', 'heading'] or self.concat_all_inputs:
                 in_dim += self.input_type_to_dims[key]
             else:
-                import ipdb; ipdb.set_trace()
                 in_dim_kp += self.input_type_to_dims[key]
         if in_dim_kp > 0:
             if ctx['add_kp']:
@@ -231,10 +230,8 @@ class ContextEncoder(nn.Module):
         if self.ctx['add_kp']:
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         else:
-            import ipdb; ipdb.set_trace()
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim - self.kp_embedding_dim)
         if len(kp_input_list) > 0:
-            import ipdb; ipdb.set_trace()
             kp_input_tensor = torch.cat(kp_input_list, dim=-1)
             kp_input_tensor = kp_input_tensor.view(-1, 1, kp_input_tensor.shape[-1])
             kp_embedding = self.input_fc_kp(kp_input_tensor)
@@ -291,7 +288,6 @@ class FutureEncoder(nn.Module):
             else:
                 in_dim_kp += self.input_type_to_dims[key]
         if in_dim_kp > 0:
-            import ipdb; ipdb.set_trace()
             if ctx['add_kp']:
                 if ctx['n_projection_layer'] == 2:
                     self.input_fc_kp = nn.ModuleList([nn.Linear(in_dim_kp, self.model_dim),
@@ -404,7 +400,6 @@ class FutureEncoder(nn.Module):
         # print(f"{mem_mask.shape=}")
         # print(f"{tgt_mask.shape=}")
         # print(f"{data['pre_mask'].shape=}")
-        # import ipdb; ipdb.set_trace()
 
         tf_out, _ = self.tf_decoder(tf_in_pos, data['context_enc'], memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'])
         tf_out = tf_out.view(batch_size, -1, self.model_dim)

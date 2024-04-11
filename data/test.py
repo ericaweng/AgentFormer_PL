@@ -1,4 +1,10 @@
 """ problem: memory error with multiprocessing (so either when loading data in dataloader, or plotting videos) """
+
+# 1. check how much worse scenes / frames with movement vs. without
+# 2. visualize with poses vs. without
+# 3. allow empty poses and positions timesteps
+
+
 # if self.global_step > 3400:
 """
 3452, frame: 798, seq: jordan-hall-2019-04-22_0                                                                                                              [988/3761]

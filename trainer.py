@@ -161,6 +161,8 @@ class AgentFormerTrainer(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         with torch.no_grad():
             return_dict = self._step(batch, 'test')
+            if return_dict is None:
+                return
 
         pred_motion = return_dict['pred_motion']  # (num_peds, num_samples, pred_steps, 2)
         gt_motion = return_dict['gt_motion']  # (pred_steps, num_peds, 2)
@@ -244,7 +246,7 @@ class AgentFormerTrainer(pl.LightningModule):
                 f.write(f"total_peds\t{total_num_agents}")
 
             # save results broken down by interaction categories
-            self.save_interaction_cat_results(outputs, all_ped_vals, total_num_agents)
+            # self.save_interaction_cat_results(outputs, all_ped_vals, total_num_agents)
 
         # print results to console for easy copy-and-paste
         if is_test_mode:
@@ -296,7 +298,8 @@ class AgentFormerTrainer(pl.LightningModule):
         self.model.step_annealer()
 
     def validation_epoch_end(self, outputs):
-        self.outputs = self._compute_and_log_metrics(outputs, 'val')
+        if len(outputs) > 0:
+            self.outputs = self._compute_and_log_metrics(outputs, 'val')
 
     def test_epoch_end(self, outputs):
         outputs_processed = self._compute_and_log_metrics(outputs, 'test')
