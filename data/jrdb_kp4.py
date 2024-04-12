@@ -31,10 +31,11 @@ class jrdb_preprocess(object):
 
         # trajectory positions information
         split_type = parser.get('split_type', 'full')
-        # assert split_type == 'full'  # only use hst odometry-adjusted data for this preprocessor
+        assert split_type in ['full', 'egomotion', 'no_egomotion']  # only use hst odometry-adjusted data for this preprocessor
 
-        label_path = f'{data_root}/odometry_adjusted/{seq_name}.csv'
-        path = f'{data_root}/odometry_adjusted/{seq_name}_kp.npz'
+        # label_path = f'{data_root}/odometry_adjusted/{seq_name}.csv'
+        path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}_kp.npz'
+        label_path = f'{data_root}/{seq_name}.txt'
         data = np.load(path, allow_pickle=True)['arr_0'].item()
         self.all_kp_data = data
 

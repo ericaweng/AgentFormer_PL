@@ -130,6 +130,8 @@ class ContextEncoder(nn.Module):
         self.input_norm_type = cfg.get('input_norm_type', None)
         ctx['context_dim'] = self.model_dim
         self.concat_all_inputs = ctx['concat_all_inputs']
+        self.pos_embedding_dim = ctx['pos_embedding_dim']
+        self.kp_embedding_dim = ctx['kp_embedding_dim']
         self.input_type_to_dims = ctx['input_type_to_dims']
         self.num_kp = ctx['num_kp']
         self.kp_dim = ctx['kp_dim']
@@ -143,16 +145,15 @@ class ContextEncoder(nn.Module):
                 in_dim_kp += self.input_type_to_dims[key]
         if in_dim_kp > 0:
             if ctx['add_kp']:
-                if ctx['n_projection_layer'] == 2:
-                    self.input_fc_kp = nn.ModuleList([nn.Linear(in_dim_kp, self.model_dim),
-                                                      nn.Linear(self.model_dim, self.model_dim)])
-                else:
-                    self.input_fc_kp = nn.Linear(in_dim_kp, self.model_dim)
+                self.input_fc_kp = nn.Sequential(nn.Linear(in_dim_kp, self.model_dim),
+                                                 *[nn.Linear(self.model_dim, self.model_dim)
+                                                   for _ in range(ctx['n_projection_layer']-1)])
                 self.input_fc = nn.Linear(in_dim, self.model_dim)
             else:
-                self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
+                # self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
                 self.input_fc_kp = nn.Linear(in_dim_kp, self.kp_embedding_dim)
-                self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
+                self.input_fc = nn.Linear(in_dim, self.pos_embedding_dim)
+                # self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
         else:
             self.kp_embedding_dim = 0
             self.input_fc_kp = None
@@ -165,6 +166,7 @@ class ContextEncoder(nn.Module):
 
         encoder_layers = AgentFormerEncoderLayer(ctx['tf_cfg'], self.model_dim, self.nhead, self.ff_dim, self.dropout)
         self.tf_encoder = AgentFormerEncoder(encoder_layers, self.nlayer)
+        # self.pos_encoder = PositionalAgentEncoding(self.kp_embedding_dim+self.pos_embedding_dim, self.dropout, concat=ctx['pos_concat'], max_a_len=ctx['max_agent_len'], use_agent_enc=ctx['use_agent_enc'], agent_enc_learn=ctx['agent_enc_learn'])
         self.pos_encoder = PositionalAgentEncoding(self.model_dim, self.dropout, concat=ctx['pos_concat'], max_a_len=ctx['max_agent_len'], use_agent_enc=ctx['use_agent_enc'], agent_enc_learn=ctx['agent_enc_learn'])
 
     def forward(self, data):
@@ -230,7 +232,7 @@ class ContextEncoder(nn.Module):
         if self.ctx['add_kp']:
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         else:
-            tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim - self.kp_embedding_dim)
+            tf_in = self.input_fc(traj_in).view(-1, 1, self.pos_embedding_dim)
         if len(kp_input_list) > 0:
             kp_input_tensor = torch.cat(kp_input_list, dim=-1)
             kp_input_tensor = kp_input_tensor.view(-1, 1, kp_input_tensor.shape[-1])
@@ -276,6 +278,8 @@ class FutureEncoder(nn.Module):
         self.pooling = cfg.get('pooling', 'mean')
         self.agent_enc_shuffle = ctx['agent_enc_shuffle']
         self.vel_heading = ctx['vel_heading']
+        self.kp_embedding_dim = ctx['kp_embedding_dim']
+        self.pos_embedding_dim = ctx['pos_embedding_dim']
         self.input_norm_type = cfg.get('input_norm_type', None)
         self.input_type_to_dims = ctx['input_type_to_dims']
         self.concat_all_inputs = ctx['concat_all_inputs']
@@ -289,18 +293,15 @@ class FutureEncoder(nn.Module):
                 in_dim_kp += self.input_type_to_dims[key]
         if in_dim_kp > 0:
             if ctx['add_kp']:
-                if ctx['n_projection_layer'] == 2:
-                    self.input_fc_kp = nn.ModuleList([nn.Linear(in_dim_kp, self.model_dim),
-                                                      nn.Linear(self.model_dim, self.model_dim)])
-                else:
-                    self.input_fc_kp = nn.Linear(in_dim_kp, self.model_dim)
+                # todo
+                self.input_fc_kp = nn.Sequential(nn.Linear(in_dim_kp, self.model_dim),
+                                                 *[nn.Linear(self.model_dim, self.model_dim)
+                                                   for _ in range(ctx['n_projection_layer']-1)])
                 self.input_fc = nn.Linear(in_dim, self.model_dim)
             else:
-                self.kp_embedding_dim = cfg.get('kp_dim', self.model_dim // 2)
                 self.input_fc_kp = nn.Linear(in_dim_kp, self.kp_embedding_dim)
-                self.input_fc = nn.Linear(in_dim, self.model_dim - self.kp_embedding_dim)
+                self.input_fc = nn.Linear(in_dim, self.pos_embedding_dim)
         else:
-            self.kp_embedding_dim = 0
             self.input_fc_kp = None
             self.input_fc = nn.Linear(in_dim, self.model_dim)
 
@@ -380,7 +381,7 @@ class FutureEncoder(nn.Module):
         if self.ctx['add_kp']:
             tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
         else:
-            tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim - self.kp_embedding_dim)
+            tf_in = self.input_fc(traj_in).view(-1, 1, self.pos_embedding_dim)
         if len(kp_input_list)> 0:
             kp_input_tensor = torch.cat(kp_input_list, dim=-1)
             kp_input_tensor = kp_input_tensor.view(-1, 1, kp_input_tensor.shape[-1])
@@ -631,6 +632,7 @@ class AgentFormer(nn.Module):
             input_type = [input_type]
         fut_input_type = cfg.get('fut_input_type', input_type)
         dec_input_type = cfg.get('dec_input_type', [])
+        pos_embedding_dim, kp_embedding_dim = tuple(map(int, cfg.get('embedding_dim_sizes', '128,128').split(',')))
         self.ctx = {
                 # 'pl_module': pl_module,
             'tf_cfg': cfg.get('tf_cfg', {}),
@@ -661,10 +663,12 @@ class AgentFormer(nn.Module):
             'learn_prior': cfg.get('learn_prior', False),
             'use_map': cfg.get('use_map', False),
             'concat_all_inputs': cfg.get('concat_all_inputs', True),
+            'pos_embedding_dim': pos_embedding_dim,
+            'kp_embedding_dim': kp_embedding_dim,
             'input_type_to_dims': cfg.get('input_type_to_dims', INPUT_TYPE_TO_DIMS),
             'kp_dim': cfg.get('kp_dim', 3),
             'num_kp': cfg.get('num_kp', 24),
-                'n_projection_layer': cfg.get('n_projection_layer', 1),
+            'n_projection_layer': cfg.get('n_projection_layer', 1),
         }
         self.past_frames = self.ctx['past_frames']
         self.future_frames = self.ctx['future_frames']

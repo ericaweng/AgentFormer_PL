@@ -1,5 +1,7 @@
-""" view adjusted egomotion trajectories on 2d BEV jrdb data, adding in rosbag egomotion data
-or: view plain trajectories from text file"""
+"""
+view adjusted egomotion trajectories on 2d BEV jrdb data, optionally adding in egomotion data from any source
+2024-04-11 updated to accomodate kiss-icp tum data
+"""
 
 import pandas as pd
 import glob
@@ -150,6 +152,17 @@ def main(scene, args):
         df = pd.concat([df, ego_ped_df], ignore_index=True)
         df = df.sort_values(by=['frame', 'id']).reset_index(drop=True)
 
+    # save new trajectories
+    if args.save_traj:
+        bev_traj_adjusted_path = f'{args.output_traj_dir}/{scene}.txt'
+
+        if not os.path.exists(os.path.dirname(bev_traj_adjusted_path)):
+            os.makedirs(os.path.dirname(bev_traj_adjusted_path))
+        # print(f"df: {df}")
+        # df = df[df['frame'] % skip == 0]
+        # print(f"df: {df}")
+        df.to_csv(bev_traj_adjusted_path, index=False, header=False, sep=' ')
+
     ####################
     ##### plotting #####
     ####################
@@ -161,17 +174,6 @@ def main(scene, args):
     if args.visualize and not os.path.exists(viz_dir):
         visualize_BEV_trajs(df, df_ego, images_0, images_2, images_4, images_6, images_8,
                             scene, args)
-
-    # save new trajectories
-    if args.save_traj:
-        bev_traj_adjusted_path = f'{args.output_traj_dir}/{scene}.txt'
-
-        if not os.path.exists(os.path.dirname(bev_traj_adjusted_path)):
-            os.makedirs(os.path.dirname(bev_traj_adjusted_path))
-        # print(f"df: {df}")
-        # df = df[df['frame'] % skip == 0]
-        # print(f"df: {df}")
-        df.to_csv(bev_traj_adjusted_path, index=False, header=False, sep=' ')
 
 
 def process(path, egomotion_save_dir):

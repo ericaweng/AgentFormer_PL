@@ -273,11 +273,11 @@ class AgentFormerDataset(Dataset):
         """
         if self.preprocess_data:
             return self.get_item_preprocessed(idx)
-        # if self.sample_list[idx] is not None:
-        #     return self.sample_list[idx]
-        # self.sample_list[idx] = self.get_item_online(idx)
-        # return self.sample_list[idx]
-        return self.get_item_online(idx)
+        if self.sample_list[idx] is not None:
+            return self.sample_list[idx]
+        self.sample_list[idx] = self.get_item_online(idx)
+        return self.sample_list[idx]
+        # return self.get_item_online(idx)
 
     @staticmethod
     def collate(batch):

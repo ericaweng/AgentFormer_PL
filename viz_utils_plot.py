@@ -104,7 +104,6 @@ def _save_catch_all(self, outputs, all_sample_vals, collision_mats, tag='', anim
             # images = output['data']['image_paths']
             kp_history = output['data']['pre_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
             kp_future = output['data']['fut_kp'].detach().cpu().numpy().transpose(1, 2, 0, 3)
-            print(f"{kp_future.shape=}")
             args_dict = {'gt_history': kp_history,
                          'gt_future': kp_future,
                          'positions': np.concatenate([obs_traj, pred_gt_traj])}
