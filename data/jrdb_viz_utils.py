@@ -10,7 +10,7 @@ def visualize_BEV_trajs(df, df_ego, images_0, images_2, images_4, images_6, imag
     # Determine the min and max positions for scaling across all frames
     min_x, max_x = df['x'].min(), df['x'].max()
     min_y, max_y = df['y'].min(), df['y'].max()
-    print("min_x: {}, max_x: {}, min_y: {}, max_y: {}".format(min_x, max_x, min_y, max_y))
+    # print("min_x: {}, max_x: {}, min_y: {}, max_y: {}".format(min_x, max_x, min_y, max_y))
 
     min_x_ego, max_x_ego = df_ego['x'].min(), df_ego['x'].max()
     min_y_ego, max_y_ego = df_ego['y'].min(), df_ego['y'].max()

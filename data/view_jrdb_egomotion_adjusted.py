@@ -7,6 +7,8 @@ import numpy as np
 import os
 import argparse
 import pyquaternion as pyq
+import multiprocessing as mp
+
 
 # from jrdb_split import TRAIN, TEST, WITH_MOVEMENT, NO_MOVEMENT, WITH_MOVEMENT_ADJUSTED
 from jrdb_viz_utils import visualize_BEV_trajs
@@ -108,9 +110,10 @@ def main(scene, args):
         egomotion = np.load(os.path.join(args.egomotion_dir, f'{scene}.npy'))
         ego_positions = egomotion[:, :2]
         # negate y
-        ego_positions[:, 1] = ego_positions[:, 1]
+        # ego_positions[:, 1] = ego_positions[:, 1]
         ego_rotations = egomotion[:, 2]
-        delta_x, delta_y = egomotion[-1, :2]
+        delta_x, delta_y = ego_positions.T
+        # egomotion = pd.read_csv(os.path.join(args.egomotion_dir, f'{scene}.csv'))
 
         # Apply rotation to existing trajectory data
         frame_to_ego_rot_mat = {frame: np.array([
@@ -153,7 +156,9 @@ def main(scene, args):
 
     if args.length is None:
         args.length = len(images_0)
-    if args.visualize:
+
+    viz_dir = f'{args.output_viz_dir}/{scene}.mp4'
+    if args.visualize and not os.path.exists(viz_dir):
         visualize_BEV_trajs(df, df_ego, images_0, images_2, images_4, images_6, images_8,
                             scene, args)
 
@@ -169,20 +174,50 @@ def main(scene, args):
         df.to_csv(bev_traj_adjusted_path, index=False, header=False, sep=' ')
 
 
-def preprocess_tum_egomotion(egomotion_dir):
+def process(path, egomotion_save_dir):
+    scene = path.split('_poses_tum')[0].split('/')[-1]
+
+    if os.path.exists(f'{egomotion_save_dir}/{scene}.npy'):
+        return
+
+    df = pd.read_csv(path, sep=' ', header=None)
+    df.columns = ['frame', 'x', 'y', 'z', 'qx', 'qy', 'qz', 'qw']
+
+    # translate into x, y, yaw using pyquaterion
+    def get_yaw(row):
+        q = pyq.Quaternion(row['qw'], row['qx'], row['qy'], row['qz'])
+        return q.yaw_pitch_roll[0]
+
+    df['heading'] = df.apply(get_yaw, axis=1)
+    df = df[['frame', 'x', 'y', 'heading']]
+
+    # save to csv
+    # df.to_csv(f'{egomotion_save_dir}/{scene}', index=False, header=False, sep=' ')
+
+    # save x,y,heading to numpy
+    np.save(f'{egomotion_save_dir}/{scene}.npy', df[['x', 'y', 'heading']].values)
+
+
+def preprocess_tum_egomotion(args):
     """ preprocesses data in tum format into x, y, yaw format """
-    for path in os.listdir(egomotion_dir):
-        df = pd.read_csv(path, sep=' ')
-        df.columns = ['frame', 'x', 'y', 'z', 'qx', 'qy', 'qz', 'qw']
+    egomotion_save_dir, tum_dir = args.egomotion_dir, args.tum_dir
 
-        # translate into x, y, yaw using pyquaterion
-        def get_yaw(row):
-            q = pyq.Quaternion(row['qw'], row['qx'], row['qy'], row['qz'])
-            return q.to_euler_angles()[2]
+    if not os.path.exists(egomotion_save_dir):
+        os.makedirs(egomotion_save_dir)
 
-        df['heading'] = df.apply(get_yaw, axis=1)
-        df = df[['frame', 'x', 'y', 'heading']]
-        df.to_csv(path, index=False, header=False, sep=' ')
+    all_paths = []
+    for path in os.listdir(tum_dir):
+        if path[:4] != '2024':
+            continue
+        paths = list(glob.glob(f'{tum_dir}/{path}/*_poses_tum.txt'))
+        all_paths.extend([(p, egomotion_save_dir) for p in paths])
+
+    if args.mp:
+        with mp.Pool(mp.cpu_count()) as p:
+            p.starmap(process, all_paths)
+    else:
+        for path in all_paths:
+            process(path, egomotion_save_dir)
 
 
 if __name__ == "__main__":
@@ -195,23 +230,21 @@ if __name__ == "__main__":
     parser.add_argument('--output_traj_dir', '-ot', type=str, default='../AgentFormerSDD/datasets/jrdb_adjusted')
     parser.add_argument('--output_viz_dir', '-ov', type=str, default=f'../viz/jrdb_egomotion_rosbag')
     parser.add_argument('--skip','-s', type=int, default=6)
-    parser.add_argument('--tum', action='store_true',
-                        help='if True, input trajectories are in ')
+    parser.add_argument('--tum_dir', '-td', default=None,
+                        help='path to egomotion data in TUM format (x y z qx qy qz qw) for conversion to (x y yaw).'
+                             'converts to (x y yaw) first before generating egomotion-adjusted visualization')
     parser.add_argument('--length', '-l', type=int, default=None)
     parser.add_argument('--egomotion_dir', '-ed', type=str, default=None,#"jrdb/rosbag_egomotion/")
-                        help='path to egomotion data in (x y yaw) format, or in TUM format (x y z qx qy qz qw) for conversion to (x y yaw).'
-                             'if latter, then specify --tum to convert first to (x y yaw) before generating egomotion-adjusted visualization')
+                        help='path to egomotion data in numpy format (x y yaw) for generating egomotion-adjusted visualization')
 
     args = parser.parse_args()
     __spec__ = None
+    mp.set_start_method('spawn')
 
-    if args.tum:
-        preprocess_tum_egomotion(args.egomotion_dir)
+    if args.tum_dir is not None:
+        preprocess_tum_egomotion(args)
 
     if args.mp:
-        import multiprocessing as mp
-
-        mp.set_start_method('spawn')
         list_of_args = []
         for scene in TRAIN + TEST:#WITH_MOVEMENT_ADJUSTED:
             list_of_args.append((scene, args))
