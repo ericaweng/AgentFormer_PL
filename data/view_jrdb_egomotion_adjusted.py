@@ -95,7 +95,7 @@ def main(scene, args):
 
     # load BEV 2d trajs
     bev_traj_dir = args.input_traj_dir  # '/home/eweng/code/AgentFormerSDD/datasets/jrdb/raw'
-    bev_traj_path = f'{bev_traj_dir}/{scene}.txt'
+    bev_traj_path = f'{bev_traj_dir}/{scene}.csv'
 
     df = pd.read_csv(bev_traj_path, sep=' ', header=None)  # , usecols=[0, 1, 10, 11])
     df.columns = ['frame', 'id', 'x', 'y', 'heading']
@@ -185,19 +185,19 @@ def process(path, egomotion_save_dir):
     df = pd.read_csv(path, sep=' ', header=None)
     df.columns = ['frame', 'x', 'y', 'z', 'qx', 'qy', 'qz', 'qw']
 
-    # translate into x, y, yaw using pyquaterion
-    def get_yaw(row):
-        q = pyq.Quaternion(row['qw'], row['qx'], row['qy'], row['qz'])
-        return q.yaw_pitch_roll[0]
+    df.to_csv(f'{egomotion_save_dir}/{scene}_3d.csv', index=False, header=True, sep=' ')
+    # np.save(f'{egomotion_save_dir}/{scene}_3d.npy', df.values)
 
-    df['heading'] = df.apply(get_yaw, axis=1)
-    df = df[['frame', 'x', 'y', 'heading']]
-
-    # save to csv
-    # df.to_csv(f'{egomotion_save_dir}/{scene}', index=False, header=False, sep=' ')
-
-    # save x,y,heading to numpy
-    np.save(f'{egomotion_save_dir}/{scene}.npy', df[['x', 'y', 'heading']].values)
+    # # translate into x, y, yaw using pyquaterion
+    # def get_yaw(row):
+    #     q = pyq.Quaternion(row['qw'], row['qx'], row['qy'], row['qz'])
+    #     return q.yaw_pitch_roll[0]
+    #
+    # df['heading'] = df.apply(get_yaw, axis=1)
+    # df = df[['frame', 'x', 'y', 'heading']]
+    #
+    # # save x,y,heading to numpy
+    # np.save(f'{egomotion_save_dir}/{scene}.npy', df[['x', 'y', 'heading']].values)
 
 
 def preprocess_tum_egomotion(args):
@@ -219,7 +219,7 @@ def preprocess_tum_egomotion(args):
             p.starmap(process, all_paths)
     else:
         for path in all_paths:
-            process(path, egomotion_save_dir)
+            process(*path)
 
 
 if __name__ == "__main__":
@@ -232,7 +232,7 @@ if __name__ == "__main__":
     parser.add_argument('--output_traj_dir', '-ot', type=str, default='../AgentFormerSDD/datasets/jrdb_adjusted')
     parser.add_argument('--output_viz_dir', '-ov', type=str, default=f'../viz/jrdb_egomotion_rosbag')
     parser.add_argument('--skip','-s', type=int, default=6)
-    parser.add_argument('--tum_dir', '-td', default=None,
+    parser.add_argument('--tum_dir', '-td', default='results',
                         help='path to egomotion data in TUM format (x y z qx qy qz qw) for conversion to (x y yaw).'
                              'converts to (x y yaw) first before generating egomotion-adjusted visualization')
     parser.add_argument('--length', '-l', type=int, default=None)
@@ -245,6 +245,7 @@ if __name__ == "__main__":
 
     if args.tum_dir is not None:
         preprocess_tum_egomotion(args)
+    import ipdb; ipdb.set_trace()
 
     if args.mp:
         list_of_args = []

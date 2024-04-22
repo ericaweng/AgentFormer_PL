@@ -1,7 +1,9 @@
-""" dataloader for jrdb for positions, heading, hst-processed 3d_kp """
+""" dataloader for jrdb for positions, heading, hst-processed 3d_kp
+don't exclude data that has missing positions"""
 
 import torch
 import numpy as np
+import pandas as pd
 from data import ped_interactions
 
 
@@ -35,29 +37,64 @@ class jrdb_preprocess(object):
 
         # label_path = f'{data_root}/odometry_adjusted/{seq_name}.csv'
         path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}_kp.npz'
-        if split == 'train':  # test deva's suggestion
-            label_path = f'{data_root}/{seq_name}.txt'
-        else:
-            assert split in ['val', 'test']
-            label_path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}.csv'
+        # if split == 'train':  # test deva's suggestion
+        label_path = f'{data_root}/{seq_name}.txt'
+        # else:
+        #     assert split in ['val', 'test']
+        #     label_path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}.csv'
 
         data = np.load(path, allow_pickle=True)['arr_0'].item()
         self.all_kp_data = data
 
         self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=float)
 
+        self.include_robot_data = parser.get('include_robot_data', False)
+        if self.include_robot_data:
+            robot_path = f'{data_root}/../jrdb_egomotion_kiss-icp/{seq_name}.npy'
+            robot_data = np.load(robot_path)
+            self.max_dist_from_robot = parser.get('max_dist_from_robot', 1000.0)
+            # remove agents when their distance from robot > max_dist_from_robot
+            # group by timestep (col 0) and then find distance to the robot at the same timestep
+
+            gt_frames = np.unique(self.gt[:, 0])[..., np.newaxis]
+            assert len(gt_frames) == len(robot_data)
+            robot_data_df = pd.DataFrame(np.concatenate([gt_frames, robot_data], axis=-1), columns=['frames', 'x', 'y', 'theta'])
+            gt_df = pd.DataFrame(self.gt, columns=['frame', 'id', 'x', 'y', 'theta'])
+
+            # Merge and calculate the difference
+            merged_df = pd.merge(gt_df, robot_data_df, left_on='frame', right_on='frames', suffixes=('_gt', '_robot'))
+            merged_df['x_diff'] = merged_df['x_gt'] - merged_df['x_robot']
+            merged_df['y_diff'] = merged_df['y_gt'] - merged_df['y_robot']
+
+            # Final DataFrame with the differences
+            vec_agent_to_robot = merged_df[['x_diff', 'y_diff']].values
+
+            # print(f"before {self.gt.shape[0]=} but after removing agents greater than {self.max_dist_from_robot} meters"
+            #       f" from robot, {np.sum(np.linalg.norm(vec_agent_to_robot, axis=1) < self.max_dist_from_robot)} agent-timesteps were removed")
+            self.gt = self.gt[np.linalg.norm(vec_agent_to_robot, axis=1) < self.max_dist_from_robot]
+
+            # # interweave robot_data into the self.gt data, based on the 0th column, with id (column 1) = 1000
+            # don't need to do bc actually robot is already in the data
+            # robot_data = np.concatenate([gt_frames,
+            #                              np.full((robot_data,1), 1000),
+            #                              robot_data], axis=1)
+            # self.gt = np.concatenate([self.gt, robot_data], axis=0)
+            # self.gt = self.gt[self.gt[:, 0].argsort()]
+            # print(f"{self.gt.shape=}")
+            # import ipdb; ipdb.set_trace()
+
         self.kp_mask = np.arange(33)
 
         # check that frame_ids are equally-spaced
-        frames = np.unique(self.gt[:, 0].astype(int))
-        frame_ids_diff = np.diff(frames)
+        gt_frames = np.unique(self.gt[:, 0].astype(int))
+        frame_ids_diff = np.diff(gt_frames)
         assert np.all(frame_ids_diff == frame_ids_diff[
             0]), f"frame_ids_diff ({frame_ids_diff}) must be equal to frame_ids_diff[0] ({frame_ids_diff[0]})"
 
-        fr_start, fr_end = frames.min(), frames.max()
+        fr_start, fr_end = gt_frames.min(), gt_frames.max()
         if 'half_and_half' in parser.get('split_type', 'normal'):
-            train_size = len(frames) * 3 // 4
-            test_size = len(frames) * 1 // 4
+            train_size = len(gt_frames) * 3 // 4
+            test_size = len(gt_frames) * 1 // 4
             if split == 'train':
                 self.num_fr = train_size
                 self.init_frame = fr_start
@@ -65,7 +102,7 @@ class jrdb_preprocess(object):
                 self.num_fr = test_size
                 self.init_frame = fr_start + train_size
         else:
-            self.num_fr = len(frames)
+            self.num_fr = len(gt_frames)
             self.init_frame = fr_start
 
         self.geom_scene_map = None

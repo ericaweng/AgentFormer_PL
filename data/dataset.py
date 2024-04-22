@@ -11,6 +11,7 @@ from .jrdb_kp import jrdb_preprocess
 from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb_kp3 import jrdb_preprocess as jrdb_preprocess_w_action_label
 from .jrdb_kp4 import jrdb_preprocess as jrdb_preprocess_full
+from .jrdb_kp5 import jrdb_preprocess as jrdb_preprocess_like_hst
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
@@ -106,7 +107,7 @@ class AgentFormerDataset(Dataset):
         elif parser.dataset == 'nuscenes_pred':
             process_func = preprocess
         elif parser.dataset == 'jrdb':# and np.any(['kp' in it for it in parser.input_type]):
-            dl_v = parser.get('dataloader_version', 4)
+            dl_v = parser.get('dataloader_version', 5)
             print(f"dl_v: {dl_v}")
             if dl_v == 1:
                 import ipdb; ipdb.set_trace()
@@ -117,6 +118,8 @@ class AgentFormerDataset(Dataset):
                 process_func = jrdb_preprocess_w_action_label
             elif dl_v == 4:
                 process_func = jrdb_preprocess_full
+            elif dl_v == 5:
+                process_func = jrdb_preprocess_like_hst
             else:
                 assert dl_v == 0
                 import ipdb; ipdb.set_trace()
@@ -168,17 +171,15 @@ class AgentFormerDataset(Dataset):
         """ get data sequence windows from raw data blocks txt files"""
         datas = []
 
-        # total_invalid_peds = 0
-        # total_valid_peds = 0
-        # invalid_peds_this_environment = 0
-        # valid_peds_this_environment = 0
-        # last_seq = None
+        # from collections import defaultdict
+        # d = defaultdict(int)
         for idx in list(range(num_total_samples)):
             seq_index, frame = self.get_seq_and_frame(idx)
             seq = self.sequence[seq_index]
             data = seq(frame)
             if data is None:
                 continue
+            # d[data['seq']] += 1
             # if last_seq is not None and data['seq'] != last_seq:
                 # print(f'invalid_peds in {last_seq}: {invalid_peds_this_environment}, '
                 #       f'valid_peds in {last_seq}: {valid_peds_this_environment}')
@@ -226,6 +227,9 @@ class AgentFormerDataset(Dataset):
             datas = datas[::skip]
         print(f"len(data) before frame_skip downsample: {len(datas)}")
         self.sample_list = datas#[::self.data_skip]
+        # print(d)
+        # print('total', sum(d.values()))
+        # import ipdb; ipdb.set_trace()
         print(f"len(data) after frame_skip downsample: {len(self.sample_list)}")
         # print(f'total_invalid_peds: {total_invalid_peds}, total_valid_peds: {total_valid_peds}')
         # print(f'ratio of invalid_peds: {round(total_invalid_peds / (total_invalid_peds + total_valid_peds), 2)}')

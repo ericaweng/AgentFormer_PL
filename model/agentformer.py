@@ -24,6 +24,16 @@ INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2,
                       'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1,
                       'action': len(USE_ACTIONS), 'action_score': len(USE_ACTIONS)}
 
+def generate_ar_mask(sz, agent_num, agent_mask, pre_motion_mask, fut_motion_mask):
+    assert sz % agent_num == 0
+    T = sz // agent_num
+    mask = agent_mask.repeat(T, T)
+    for t in range(T-1):
+        i1 = t * agent_num
+        i2 = (t+1) * agent_num
+        mask[i1:i2, i2:] = float('-inf')
+    return mask
+
 def generate_ar_mask(sz, agent_num, agent_mask):
     assert sz % agent_num == 0
     T = sz // agent_num
@@ -521,7 +531,8 @@ class FutureDecoder(nn.Module):
             tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle, t_offset=self.past_frames-1 if self.pos_offset else 0)
             # tf_in_pos = tf_in
             mem_mask = generate_mask(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
-            tgt_mask = generate_ar_mask(tf_in_pos.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
+            # tgt_mask = generate_ar_mask(tf_in.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
+            tgt_mask = generate_ar_mask(tf_in.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
 
             tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
             out_tmp = tf_out.view(-1, tf_out.shape[-1])
