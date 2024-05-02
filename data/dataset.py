@@ -1,17 +1,16 @@
 import os
-
+from tqdm import tqdm
+import numpy as np
 from torch.utils.data import Dataset
 
 from data.nuscenes_pred_split import get_nuscenes_pred_split
-import numpy as np
-
 from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
 from .jrdb_kp import jrdb_preprocess
 from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb_kp3 import jrdb_preprocess as jrdb_preprocess_w_action_label
 from .jrdb_kp4 import jrdb_preprocess as jrdb_preprocess_full
-from .jrdb_kp5 import jrdb_preprocess as jrdb_preprocess_like_hst
+from .jrdb_kp6 import jrdb_preprocess as jrdb_preprocess_like_hst
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
@@ -33,8 +32,10 @@ class AgentFormerDataset(Dataset):
         self.frame_skip = parser.get('frame_skip', 1)
         if split == 'train':
             self.data_skip = parser.get('data_skip', 1)
-        else:
+        elif parser.get('keep_subsamples', False):
             self.data_skip = 1
+        else:
+            self.data_skip = self.frame_skip
         self.phase = phase
         self.split = split
         self.dataset = parser.dataset
@@ -142,19 +143,26 @@ class AgentFormerDataset(Dataset):
         num_total_samples = 0
         self.num_sample_list = []
         self.sequence = []
+        self.seq_names = []
+        self.d = {}
+        self.dnf = {}
         for seq_name in self.sequence_to_load:
             if self.args.seq_frame is not None:
                 if self.single_seq != seq_name:
                     continue
             print("loading sequence {} ...".format(seq_name))
             preprocessor = process_func(data_root, seq_name, parser, self.split, self.phase)
+            min_window_size = parser.min_past_frames + parser.min_future_frames
 
-            num_seq_samples = (preprocessor.num_fr - (
-                        parser.min_past_frames + parser.min_future_frames - 1) * self.frame_skip) // self.data_skip + 1
+            # num_seq_samples = (preprocessor.num_fr - (min_window_size - 1) * self.frame_skip) // self.data_skip + 1
+            num_seq_samples = int(np.ceil((preprocessor.num_fr - (min_window_size - 1) * self.frame_skip) / self.data_skip))
+            self.d[seq_name] = num_seq_samples
+            self.dnf[seq_name] = preprocessor.num_fr
 
             num_total_samples += num_seq_samples
             self.num_sample_list.append(num_seq_samples)
             self.sequence.append(preprocessor)
+            self.seq_names.append(seq_name)
             if self.trial_ds_size is not None and num_total_samples >= 20 * self.trial_ds_size:
                 break
 
@@ -171,15 +179,17 @@ class AgentFormerDataset(Dataset):
         """ get data sequence windows from raw data blocks txt files"""
         datas = []
 
-        # from collections import defaultdict
-        # d = defaultdict(int)
-        for idx in list(range(num_total_samples)):
+        from collections import defaultdict
+        d = defaultdict(int)
+        daf = defaultdict(list)
+        for idx in tqdm(range(num_total_samples), desc='preprocessing data'):
             seq_index, frame = self.get_seq_and_frame(idx)
             seq = self.sequence[seq_index]
             data = seq(frame)
+            # daf[data['seq']].append(frame-(self.min_past_frames - 1) * self.frame_skip)
+            # d[data['seq']] += 1
             if data is None:
                 continue
-            # d[data['seq']] += 1
             # if last_seq is not None and data['seq'] != last_seq:
                 # print(f'invalid_peds in {last_seq}: {invalid_peds_this_environment}, '
                 #       f'valid_peds in {last_seq}: {valid_peds_this_environment}')
@@ -227,9 +237,25 @@ class AgentFormerDataset(Dataset):
             datas = datas[::skip]
         print(f"len(data) before frame_skip downsample: {len(datas)}")
         self.sample_list = datas#[::self.data_skip]
-        # print(d)
-        # print('total', sum(d.values()))
+
+        print(daf)
+        print(d)
+        print(self.d)
+        print(self.dnf)
+        print('total', sum(self.d.values()))
+
+        # print("differences (af - hst)")
+        # hst sequence counts by scene
+        # {'cubberly-auditorium-2019-04-22_1_test': 201, 'discovery-walk-2019-02-28_0_test': 128, 'discovery-walk-2019-02-28_1_test': 143, 'food-trucks-2019-02-12_0_test': 306, 'gates-ai-lab-2019-04-17_0_test': 229, 'gates-basement-elevators-2019-01-17_0_test': 112, 'gates-foyer-2019-01-17_0_test': 317, 'gates-to-clark-2019-02-28_0_test': 70, 'hewlett-class-2019-01-23_0_test': 143, 'hewlett-class-2019-01-23_1_test': 142, 'huang-2-2019-01-25_1_test': 99, 'huang-intersection-2019-01-22_0_test': 317, 'indoor-coupa-cafe-2019-02-06_0_test': 318, 'lomita-serra-intersection-2019-01-30_0_test': 220, 'meyer-green-2019-03-16_1_test': 186, 'nvidia-aud-2019-01-25_0_test': 230, 'nvidia-aud-2019-04-18_1_test': 85, 'nvidia-aud-2019-04-18_2_test': 84, 'outdoor-coupa-cafe-2019-02-06_0_test': 315, 'quarry-road-2019-02-28_0_test': 72, 'serra-street-2019-01-30_0_test': 265, 'stlc-111-2019-04-19_1_test': 84, 'stlc-111-2019-04-19_2_test': 80, 'tressider-2019-03-16_2_test': 113, 'tressider-2019-04-26_0_test': 229, 'tressider-2019-04-26_1_test': 317, 'tressider-2019-04-26_3_test': 317}
+        # hst sequence counts by scene, minus sequences with 0 should_predict values
+        # {'cubberly-auditorium-2019-04-22_1_test': 187, 'discovery-walk-2019-02-28_0_test': 121, 'discovery-walk-2019-02-28_1_test': 136, 'food-trucks-2019-02-12_0_test': 299, 'gates-ai-lab-2019-04-17_0_test': 222, 'gates-basement-elevators-2019-01-17_0_test': 105, 'gates-foyer-2019-01-17_0_test': 308, 'gates-to-clark-2019-02-28_0_test': 61, 'hewlett-class-2019-01-23_0_test': 136, 'hewlett-class-2019-01-23_1_test': 135, 'huang-2-2019-01-25_1_test': 92, 'huang-intersection-2019-01-22_0_test': 310, 'indoor-coupa-cafe-2019-02-06_0_test': 311, 'lomita-serra-intersection-2019-01-30_0_test': 213, 'meyer-green-2019-03-16_1_test': 179, 'nvidia-aud-2019-01-25_0_test': 223, 'nvidia-aud-2019-04-18_1_test': 78, 'nvidia-aud-2019-04-18_2_test': 77, 'outdoor-coupa-cafe-2019-02-06_0_test': 308, 'quarry-road-2019-02-28_0_test': 65, 'serra-street-2019-01-30_0_test': 258, 'stlc-111-2019-04-19_1_test': 77, 'stlc-111-2019-04-19_2_test': 72, 'tressider-2019-03-16_2_test': 106, 'tressider-2019-04-26_0_test': 222, 'tressider-2019-04-26_1_test': 310, 'tressider-2019-04-26_3_test': 310}
+        # number of sequences with 0 should_predict values: 201
+        # total number of sequences: 4921
+
+        # for k in d:
+        #     print(f'{k}: {d[k] - d2[k+"_test"]}')
         # import ipdb; ipdb.set_trace()
+
         print(f"len(data) after frame_skip downsample: {len(self.sample_list)}")
         # print(f'total_invalid_peds: {total_invalid_peds}, total_valid_peds: {total_valid_peds}')
         # print(f'ratio of invalid_peds: {round(total_invalid_peds / (total_invalid_peds + total_valid_peds), 2)}')
@@ -249,12 +275,13 @@ class AgentFormerDataset(Dataset):
         index_tmp = index
         # find the seq_name (environment) this index corresponds to, and then the frame in that environment
         for seq_index in range(len(self.num_sample_list)):  # 0-indexed  # for each seq_name
-            if index_tmp < self.num_sample_list[seq_index]:
+            if index_tmp < self.num_sample_list[seq_index]:  # if the index is in this environment scene
                 frame_index = (index_tmp * self.data_skip
                                + (self.min_past_frames - 1) * self.frame_skip  # return frame is the last obs frame
                                + self.sequence[seq_index].init_frame)  # from 0-indexed list index to 1-indexed frame index (for mot)
+                assert self.sequence[seq_index].init_frame == 0
                 return seq_index, frame_index
-            else:
+            else: # keep going through scenes
                 index_tmp -= self.num_sample_list[seq_index]
 
         assert False, 'index is %d, out of range' % (index)
@@ -268,13 +295,16 @@ class AgentFormerDataset(Dataset):
         data = seq(frame)
         return data
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, scene=None):
         """Returns a single example from dataset
             Args:
                 idx: Index of scenario
             Returns:
                 output: Necessary values for scenario
         """
+        if scene is not None:
+            seq_idx = self.seq_names.index(scene)
+            return self.sequence[seq_idx](idx)
         if self.preprocess_data:
             return self.get_item_preprocessed(idx)
         if self.sample_list[idx] is not None:

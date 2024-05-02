@@ -1,3 +1,5 @@
+""" run kiss-icp on all files in a directory """
+
 import os
 from multiprocessing import Pool
 

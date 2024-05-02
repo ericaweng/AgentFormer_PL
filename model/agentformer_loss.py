@@ -23,9 +23,8 @@ def compute_z_kld(data, cfg):
 
 def compute_joint_sample_loss(data, cfg):
     diff = data['infer_dec_motion'] - data['fut_motion_orig'].unsqueeze(1)
-    if cfg.get('mask', True):
-        mask = data['fut_mask'].unsqueeze(1).unsqueeze(-1)
-        diff *= mask
+    mask = data['fut_mask'].unsqueeze(1).unsqueeze(-1)
+    diff *= mask
     dist = diff.pow(2).sum(dim=-1).sum(dim=-1)  # (num_peds, num_samples)
     if cfg.get('normalize', True):
         samples = dist.mean(axis=0)
@@ -38,9 +37,8 @@ def compute_joint_sample_loss(data, cfg):
 
 def compute_sample_loss(data, cfg):
     diff = data['infer_dec_motion'] - data['fut_motion_orig'].unsqueeze(1)
-    if cfg.get('mask', True):
-        mask = data['fut_mask'].unsqueeze(1).unsqueeze(-1)
-        diff *= mask
+    mask = data['fut_mask'].unsqueeze(1).unsqueeze(-1)
+    diff *= mask
     dist = diff.pow(2).sum(dim=-1).sum(dim=-1)
     loss_unweighted = dist.min(dim=1)[0]
     if cfg.get('normalize', True):

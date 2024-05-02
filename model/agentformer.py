@@ -24,16 +24,6 @@ INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2,
                       'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1,
                       'action': len(USE_ACTIONS), 'action_score': len(USE_ACTIONS)}
 
-def generate_ar_mask(sz, agent_num, agent_mask, pre_motion_mask, fut_motion_mask):
-    assert sz % agent_num == 0
-    T = sz // agent_num
-    mask = agent_mask.repeat(T, T)
-    for t in range(T-1):
-        i1 = t * agent_num
-        i2 = (t+1) * agent_num
-        mask[i1:i2, i2:] = float('-inf')
-    return mask
-
 def generate_ar_mask(sz, agent_num, agent_mask):
     assert sz % agent_num == 0
     T = sz // agent_num
@@ -45,10 +35,51 @@ def generate_ar_mask(sz, agent_num, agent_mask):
     return mask
 
 
+def generate_ar_mask_missing_ts(sz, agent_num, agent_mask, motion_mask):
+    assert sz % agent_num == 0
+    T = sz // agent_num
+    mask = agent_mask.repeat(T, T)
+    for t in range(T-1):
+        i1 = t * agent_num
+        i2 = (t+1) * agent_num
+        mask[i1:i2, i2:] = float('-inf')
+
+    # mask for agent-timestep validity for agent-timestep-agent-timestep attention
+    mask_ts_validity = torch.outer(motion_mask.transpose(0, 1).flatten(),
+                                   motion_mask.transpose(0, 1).flatten())
+    assert torch.all((mask_ts_validity == 0.0) | (mask_ts_validity == 1.0))
+
+    # merge matrices for invalid timesteps
+    return_mask = torch.full_like(mask_ts_validity, -torch.inf)
+    # mask is 0.0 / -inf but mask_ts_validity is 1.0 / 0.0 mask
+    return_mask[(mask_ts_validity == 1.0) & (mask == 0.0)] = 0.0
+
+    return return_mask
+
+
 def generate_mask(tgt_sz, src_sz, agent_num, agent_mask):
     assert tgt_sz % agent_num == 0 and src_sz % agent_num == 0
     mask = agent_mask.repeat(tgt_sz // agent_num, src_sz // agent_num)
     return mask
+
+
+def generate_mask_missing_ts(tgt_sz, src_sz, agent_num, agent_mask, tgt_motion_mask, src_motion_mask):
+    assert tgt_sz % agent_num == 0 and src_sz % agent_num == 0
+    num_timesteps_tgt = tgt_sz // agent_num
+    num_timesteps_src = src_sz // agent_num
+
+    # mask for agent-agent closeness validity
+    mask = agent_mask.repeat(num_timesteps_tgt, num_timesteps_src)
+
+    # mask for agent-timestep validity for agent-timestep-agent-timestep attention
+    mask_ts_validity = torch.outer(tgt_motion_mask.transpose(0,1).flatten(), src_motion_mask.transpose(0,1).flatten())
+
+    # merge matrices for invalid timesteps
+    return_mask = torch.full_like(mask, -torch.inf)
+    # mask is 0.0 / -inf but mask_ts_validity is 1.0 / 0.0 mask
+    return_mask[(mask_ts_validity == 1.0) & (mask == 0.0)] = 0.0
+
+    return return_mask
 
 
 """ Positional Encoding """
@@ -404,13 +435,17 @@ class FutureEncoder(nn.Module):
         tf_in_pos = self.pos_encoder(tf_in, num_a=data['agent_num'], agent_enc_shuffle=agent_enc_shuffle)
         mem_agent_mask = data['agent_mask'].clone()
         tgt_agent_mask = data['agent_mask'].clone()
-        mem_mask = generate_mask(tf_in.shape[0], data['context_enc'].shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
-        tgt_mask = generate_mask(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask).to(tf_in.device)
 
-        # tgt_mask = generate_mask_missing_ts(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask).to(tf_in.device)
-        # print(f"{mem_mask.shape=}")
-        # print(f"{tgt_mask.shape=}")
-        # print(f"{data['pre_mask'].shape=}")
+        # mem_mask = generate_mask(tf_in.shape[0], data['context_enc'].shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
+        # tgt_mask = generate_mask(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask).to(tf_in.device)
+
+        # print(f"{mem_mask.shape=}")  # (num_agents * future_ts, num_agents * history_ts)
+        # print(f"{tgt_mask.shape=}")  # (num_agents * future_ts, num_agents * future_ts)
+        # print(f"{data['pre_mask'].shape=}")  # (num_agents, history_ts)
+        # print(f"{data['fut_mask'].shape=}")  # (num_agents, history_ts)
+
+        mem_mask = generate_mask_missing_ts(tf_in.shape[0], data['context_enc'].shape[0], data['agent_num'], mem_agent_mask, data['fut_mask'], data['pre_mask']).to(tf_in.device)
+        tgt_mask = generate_mask_missing_ts(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask, data['fut_mask'], data['fut_mask']).to(tf_in.device)
 
         tf_out, _ = self.tf_decoder(tf_in_pos, data['context_enc'], memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'])
         tf_out = tf_out.view(batch_size, -1, self.model_dim)
@@ -530,15 +565,26 @@ class FutureDecoder(nn.Module):
             agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
             tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle, t_offset=self.past_frames-1 if self.pos_offset else 0)
             # tf_in_pos = tf_in
-            mem_mask = generate_mask(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
-            # tgt_mask = generate_ar_mask(tf_in.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
-            tgt_mask = generate_ar_mask(tf_in.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
+            # mem_mask = generate_mask(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
+            mem_mask = generate_mask_missing_ts(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask,
+                                                data['fut_mask'][:,:i+1], data['pre_mask']).to(tf_in.device)
+            # print(f"{mem_mask=}")
 
-            tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'], need_weights=need_weights)
+            # tgt_mask = generate_ar_mask(tf_in.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
+            tgt_mask = generate_ar_mask_missing_ts(tf_in.shape[0], agent_num, tgt_agent_mask, data['fut_mask'][:,:i+1]).to(tf_in.device)
+            # print(f"{tgt_mask=}")
+
+            tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask,
+                                                   num_agent=agent_num, need_weights=need_weights)
             out_tmp = tf_out.view(-1, tf_out.shape[-1])
             if self.out_mlp_dim is not None:
                 out_tmp = self.out_mlp(out_tmp)
             seq_out = self.out_fc(out_tmp).view(tf_out.shape[0], -1, self.forecast_dim)
+
+            if torch.any(torch.isnan(seq_out)):
+                print(f"{seq_out=}")
+                import ipdb; ipdb.set_trace()
+
             if self.pred_type == 'scene_norm' and self.sn_out_type in {'vel', 'norm'}:
                 norm_motion = seq_out.view(-1, agent_num * sample_num, seq_out.shape[-1])
                 if self.sn_out_type == 'vel':

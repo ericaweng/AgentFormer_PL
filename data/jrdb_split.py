@@ -155,6 +155,7 @@ def get_jrdb_split_full():
         'meyer-green-2019-03-16_0',
         'nvidia-aud-2019-04-18_0',
         'packard-poster-session-2019-03-20_0',
+        'packard-poster-session-2019-03-20_1',
         'packard-poster-session-2019-03-20_2',
         'stlc-111-2019-04-19_0',
         'svl-meeting-gates-2-2019-04-08_0',
@@ -163,7 +164,7 @@ def get_jrdb_split_full():
         'tressider-2019-03-16_1',
         'tressider-2019-04-26_2'
     ]
-    # 28
+    # number of scenes: 27
 
     TEST = [
         'cubberly-auditorium-2019-04-22_1',
@@ -194,7 +195,7 @@ def get_jrdb_split_full():
         'tressider-2019-04-26_1',
         'tressider-2019-04-26_3'
     ]
-    # 27
+    # number of scenes: 27
     return TRAIN, TEST, TEST
 
 

@@ -105,7 +105,8 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
             f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
 
     # make plots grid
-    fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
+    fig = plt.figure(figsize=(12 * num_plots_width, 8 * num_plots_height))
+    # fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
     axes = []
     for i, po in enumerate(list_of_plotting_objs):
         if po == AnimObjPose3d:
@@ -116,12 +117,6 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
             assert po == AnimObjPose2d or po == AnimObjBEVTraj2d
             ax = fig.add_subplot(num_plots_height, num_plots_width, i + 1)
         axes.append(ax)
-
-    # fig, axes = plt.subplots(num_plots_height, num_plots_width)
-    # if isinstance(axes, np.ndarray):
-    #     axes = axes.flatten()
-    # else:
-    #     axes = [axes]
 
     fig.subplots_adjust(hspace=0.25)
     if title is not None:
@@ -135,7 +130,7 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
                 if len(bounds2d) > 0:
                     assert val.shape[-1] == bounds2d[-1].shape[-1], \
                         f"all trajectories must have same number of dimensions ({val.shape[-1]} != {bounds2d[-1].shape[-1]})"
-                bounds2d.append(np.array(val).reshape(-1, val.shape[-1]))
+                bounds2d.append(val[np.all(~np.isnan(val), -1)].reshape(-1, val.shape[-1]))
     bounds2d = np.concatenate(bounds2d)
     bounds2d = [*(np.min(bounds2d, axis=0) - 0.2), *(np.max(bounds2d, axis=0) + 0.2)]
     assert len(bounds2d) in [4, ], f"bounds2d must be of length 4 , not {len(bounds2d)}"
@@ -186,6 +181,7 @@ class AnimObjPose2d:
             gt_future = gt_future * 1 + positions[obs_len:, :, :].transpose(1, 0, 2)[:,None]
 
         stuff = np.concatenate([gt_history, gt_future], axis=2).reshape(-1, 2)
+        stuff = stuff[np.all(~np.isnan(stuff), -1)]
 
         if bounds is None:
             ax_set_up(ax, stuff)
@@ -227,6 +223,7 @@ class AnimObjPose3d:
             gt_future = gt_future * 1 + positions[:, :, obs_len:]
 
         stuff = np.concatenate([gt_history, gt_future], axis=2).reshape(-1, 3)
+        stuff = stuff[np.all(~np.isnan(stuff), -1)]
         ax_set_up(ax, stuff, bounds)
 
         def update(frame_idx):

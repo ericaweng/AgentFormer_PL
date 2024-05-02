@@ -10,11 +10,8 @@ data_root_jrdb               : datasets/jrdb_adjusted_kiss-icp_lower_velodyne
 
 past_frames                  : 7
 future_frames                : 12
-min_past_frames              : 7
-min_future_frames            : 12  # 5111
-# test data should contain 25555 sequences before filtering out if keep subsamples is true else should be 5122 sequences
-# but am getting 5543... why?
-# if min_future_frames == 1, then get 5516
+min_past_frames              : 7  # jic
+min_future_frames            : 12 #2 # jic
 
 traj_scale                   : 1
 motion_dim                   : 2
@@ -32,7 +29,7 @@ dataloader_version: 5
 split_type: full
 preprocess_data: true
 include_robot_data: true
-max_dist_to_robot: 1000.0
+max_dist_to_robot: 7 #1000.0
 keep_subsamples: false
 #mask: true  # for calculating loss
 #exclude_kpless_data: true

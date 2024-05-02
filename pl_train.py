@@ -183,8 +183,31 @@ def main(args):
         # check that the two dataloaders are the same
         from check_dataloader import process_data_in_parallel
         process_data_in_parallel(dl_train0, dl_train2, args.num_workers)
-
     elif 'viz' in args.mode:
+        from viz_utils_plot import _save_viz_gt
+        to_save_data = []
+        test_ds = dm.get_dataset('test')
+        scene_frames = {
+                ('huang-intersection-2019-01-22_0', 1218),
+                ('tressider-2019-04-26_1', 1000),
+                ('serra-street-2019-01-30_0', 589),
+                ('gates-ai-lab-2019-04-17_0', 395),
+                ('discovery-walk-2019-02-28_0', 512),
+                ('discovery-walk-2019-02-28_0', 512),
+                ('tressider-2019-04-26_0', 31),
+        }
+        for scene_name, frame_i in scene_frames:
+            data = test_ds.get_scene(scene_name, frame_i)
+            to_save_data.append({'gt_motion': np.stack(data['fut_motion'], 1),
+            'obs_motion': np.stack(data[f'pre_motion'], 1),
+            'frame': data['frame'],
+            'seq': data['seq'],
+            'data': {'heading_avg': data['heading_avg'], 'heading': data['heading']}
+            })
+        anim_save_dir = '../viz/jrdb_af_gt'
+        _save_viz_gt(to_save_data, args, 'val', anim_save_dir)
+
+    elif 'viz_gt' in args.mode:
         print("visualizing ground truth")
         from viz_utils_plot import _save_viz_gt
 
@@ -254,6 +277,17 @@ if __name__ == '__main__':
     parser.add_argument('--interaction_category', '-ic', action='store_true')#default='all', help='which interaction category to test on')
     parser.add_argument('--seq_frame', '-sqf', default=None)
     parser.add_argument('--tag', '-tg', default=None)
+    parser.add_argument('--test_certain_frames_only', '-tf', action='store_true', default=False)
+    FRAMES = {
+              ('huang-intersection-2019-01-22_0', 1218),
+              ('tressider-2019-04-26_1', 1000),
+              ('serra-street-2019-01-30_0', 589),
+              ('gates-ai-lab-2019-04-17_0', 395),
+              ('discovery-walk-2019-02-28_0', 512),
+              ('discovery-walk-2019-02-28_0', 512),
+              ('tressider-2019-04-26_0', 31),
+             }
+    parser.add_argument('--frames', '-ff', default=FRAMES)
 
     args = parser.parse_args()
 

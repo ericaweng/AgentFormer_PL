@@ -1,8 +1,4 @@
-"""
-dataloader for jrdb for positions, heading, hst-processed 3d_kp
-change mask from 0/1 to 0/-inf
-add config param to restrict data to include only agent-timesteps a certain dist away from robot
-"""
+""" dataloader for jrdb for positions, heading, hst-processed 3d_kp """
 
 import torch
 import numpy as np
@@ -38,13 +34,8 @@ class jrdb_preprocess(object):
         split_type = parser.get('split_type', 'full')
         assert split_type in ['full', 'egomotion', 'no_egomotion']  # only use hst odometry-adjusted data for this preprocessor
 
-        # label_path = f'{data_root}/odometry_adjusted/{seq_name}.csv'
-        path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}_kp.npz'
-        # if split == 'train':  # test deva's suggestion
         label_path = f'{data_root}/{seq_name}.txt'
-        # else:
-        #     assert split in ['val', 'test']
-        #     label_path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}.csv'
+        path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}_kp.npz'
 
         data = np.load(path, allow_pickle=True)['arr_0'].item()
         self.all_kp_data = data
@@ -76,28 +67,18 @@ class jrdb_preprocess(object):
             #       f" from robot, {np.sum(np.linalg.norm(vec_agent_to_robot, axis=1) < self.max_dist_from_robot)} agent-timesteps were removed")
             self.gt = self.gt[np.linalg.norm(vec_agent_to_robot, axis=1) < self.max_dist_from_robot]
 
-            # # interweave robot_data into the self.gt data, based on the 0th column, with id (column 1) = 1000
-            # don't need to do bc actually robot is already in the data
-            # robot_data = np.concatenate([gt_frames,
-            #                              np.full((robot_data,1), 1000),
-            #                              robot_data], axis=1)
-            # self.gt = np.concatenate([self.gt, robot_data], axis=0)
-            # self.gt = self.gt[self.gt[:, 0].argsort()]
-            # print(f"{self.gt.shape=}")
-            # import ipdb; ipdb.set_trace()
-
         self.kp_mask = np.arange(33)
 
         # check that frame_ids are equally-spaced
-        gt_frames = np.unique(self.gt[:, 0].astype(int))
-        frame_ids_diff = np.diff(gt_frames)
+        frames = np.unique(self.gt[:, 0].astype(int))
+        frame_ids_diff = np.diff(frames)
         assert np.all(frame_ids_diff == frame_ids_diff[
             0]), f"frame_ids_diff ({frame_ids_diff}) must be equal to frame_ids_diff[0] ({frame_ids_diff[0]})"
 
-        fr_start, fr_end = gt_frames.min(), gt_frames.max()
+        fr_start, fr_end = frames.min(), frames.max()
         if 'half_and_half' in parser.get('split_type', 'normal'):
-            train_size = len(gt_frames) * 3 // 4
-            test_size = len(gt_frames) * 1 // 4
+            train_size = len(frames) * 3 // 4
+            test_size = len(frames) * 1 // 4
             if split == 'train':
                 self.num_fr = train_size
                 self.init_frame = fr_start
@@ -105,7 +86,7 @@ class jrdb_preprocess(object):
                 self.num_fr = test_size
                 self.init_frame = fr_start + train_size
         else:
-            self.num_fr = len(gt_frames)
+            self.num_fr = len(frames)
             self.init_frame = fr_start
 
         self.geom_scene_map = None
@@ -151,18 +132,6 @@ class jrdb_preprocess(object):
             DataList.append(self.get_data(frame_id))
         return DataList
 
-    def return_all_valid(self, pre_data, fut_data):
-        ''' only return is_valid=True if a ped has pos + 2d kp information
-        only for which both pose and position annotation exist'''
-        cur_ped_id = self.GetID(pre_data[0]['pos'])  # ped_ids this frame
-
-        valid_id = []
-        for idx in cur_ped_id:
-            if np.any([idx in frame['pos'][:,1] for frame in pre_data[:min(self.past_frames, len(pre_data))]]) \
-                    and np.any([idx in frame['pos'][:,1] for frame in fut_data[:min(self.future_frames, len(fut_data))]]):
-                valid_id.append(idx)
-        return valid_id
-
     def get_valid_id_pos_and_kp(self, pre_data, fut_data):
         ''' only return is_valid=True if a ped has pos + 2d kp information
         only for which both pose and position annotation exist'''
@@ -199,8 +168,7 @@ class jrdb_preprocess(object):
     def get_heading(self, cur_data, valid_id):
         heading = np.zeros((len(valid_id)))
         for i, idx in enumerate(valid_id):
-            head = cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()
-            # heading[i] = head[self.heading_ind]
+            heading[i] = cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()[self.heading_ind]
         return heading  # don't need transformed theta given data preprocessed w odometry
 
     def get_heading_avg(self, all_data, valid_id):
@@ -232,22 +200,22 @@ class jrdb_preprocess(object):
                 # edit frame index for pre data, which is ordered backwards
                 if is_pre:
                     frame_i = num_frames - 1 - frame_i
-                if (ped_id in single_frame['pos'][:,1]
-                        and (not self.zero_kpless_data
-                        or self.zero_kpless_data and single_frame['kp'] is not None and ped_id in single_frame['kp'])):
+                if not self.zero_kpless_data\
+                        or self.zero_kpless_data and single_frame['kp'] is not None and ped_id in single_frame['kp']:
                     found_data = pos_history[pos_history[:, 1] == ped_id].squeeze()[
                                  [self.xind, self.zind]] / self.past_traj_scale
                     assert len(found_data) != 0
                     box_3d[frame_i] = torch.from_numpy(found_data).float()
                     mask_i[frame_i] = 1.0
                 else:
-                    box_3d[frame_i] = torch.full((1, 2), torch.nan)  #
-                    mask_i[frame_i] = 0.0
+                    import ipdb; ipdb.set_trace()
+                    box_3d[frame_i] = torch.zeros((1, 2))
+                    mask_i[frame_i] = 0
                 # if joints info exists
                 if single_frame['kp'] is not None and ped_id in single_frame['kp']:
                     kp_3d[frame_i] = torch.from_numpy(single_frame['kp'][ped_id]).float()
                 else:
-                    kp_3d[frame_i] = torch.nan
+                    kp_3d[frame_i] = 0
             motion.append(box_3d)
             mask.append(mask_i)
             # replace nan with 0
@@ -280,14 +248,11 @@ class jrdb_preprocess(object):
         pre_data = self.get_pre_data(frame)
         fut_data = self.get_fut_data(frame)
 
-        all_pre_data = np.concatenate([pd['pos'][:, 1] for pd in pre_data])
-        valid_id = np.unique(all_pre_data)
-        # valid_id = self.return_all_valid(pre_data, fut_data)
-        # valid_id = self.get_valid_id_pos_and_kp(pre_data, fut_data)
-        if len(valid_id) == 0:  # len(pre_data[0]) == 0 or len(fut_data[0]) == 0 or
+        valid_id = self.get_valid_id_pos_and_kp(pre_data, fut_data)
+        if len(pre_data[0]) == 0 or len(fut_data[0]) == 0 or len(valid_id) == 0:
             return None
 
-        heading = self.get_heading(all_pre_data, valid_id)
+        heading = self.get_heading(pre_data[0], valid_id)
         heading_avg = self.get_heading_avg(pre_data, valid_id)
         pred_mask = None
 

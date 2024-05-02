@@ -159,6 +159,10 @@ class AgentFormerTrainer(pl.LightningModule):
             return self._step(batch, 'val')
 
     def test_step(self, batch, batch_idx):
+        if self.args.test_certain_frames_only and (batch['seq'], batch['frame']) not in self.args.frames:
+            print(f"{(batch['seq'], batch['frame'])=}")
+            return
+
         with torch.no_grad():
             return_dict = self._step(batch, 'test')
             if return_dict is None:
@@ -257,9 +261,11 @@ class AgentFormerTrainer(pl.LightningModule):
 
         # log metrics to tensorboard
         if not is_test_mode:
-            for metric_name, value in results_dict.items():
+            # for metric_name, value in results_dict.items():
+            for metric_name in ['ADE_marginal_agent', 'FDE_marginal_agent', 'ADE_joint', 'FDE_joint', 'FDE_marginal_2s_agent', 'CR_mean']:
+                value = results_dict[metric_name]
                 self.log(f'{mode}/{metric_name}', value, sync_dist=True, on_epoch=True, prog_bar=True, logger=True)
-            self.log(f'{mode}/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
+            # self.log(f'{mode}/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
             self.log(f'{mode}/lr', self.trainer.optimizers[0].param_groups[0]['lr'], sync_dist=True, logger=True)
 
         # save outputs for later visualization
@@ -294,10 +300,12 @@ class AgentFormerTrainer(pl.LightningModule):
                 self.logger.experiment.add_video(f'{mode}/traj_{instance_i}', video_tensor[idx:idx+1], self.global_step, fps=6)
 
     def training_epoch_end(self, outputs):
+        print(f"len(outputs): {len(outputs)}")
         self.outputs = self._compute_and_log_metrics(outputs, 'train')
         self.model.step_annealer()
 
     def validation_epoch_end(self, outputs):
+        print(f"len(outputs): {len(outputs)}")
         if len(outputs) > 0:
             self.outputs = self._compute_and_log_metrics(outputs, 'val')
 

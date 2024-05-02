@@ -172,7 +172,7 @@ def _save_catch_all(self, outputs, all_sample_vals, collision_mats, tag='', anim
     return all_figs
 
 
-def _save_viz_gt(outputs, args, tag):
+def _save_viz_gt(outputs, args, tag, anim_save_dir='../viz/jrdb_traj_scenes'):
     """save the ground truth trajectories animations"""
     seq_to_plot_args = []
     for frame_i, output in enumerate(outputs):
@@ -182,7 +182,7 @@ def _save_viz_gt(outputs, args, tag):
         pred_gt_traj = output['gt_motion']
         heading = output['data']['heading']
 
-        anim_save_fn = f'../viz/jrdb_traj_scenes/{tag}/{seq}/frame_{frame:06d}.mp4'
+        anim_save_fn = f'{anim_save_dir}/{tag}/{seq}/frame_{frame:06d}.mp4'
         mkdir_if_missing(anim_save_fn)
         title = f"GT seq: {seq} frame: {frame}"
         args_dict = {'obs_traj': obs_traj,
