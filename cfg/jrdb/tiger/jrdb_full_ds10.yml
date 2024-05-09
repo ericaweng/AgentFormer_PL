@@ -33,7 +33,7 @@ dataloader_version: 4
 split_type: full
 #zero_kpless_data: true  # zero out kpless data during train and val
 input_type: ['scene_norm', 'vel', 'heading']
-ckpt_monitor: 'val/ADE_marginal'
+ckpt_monitor: 'val/ADE_marginal_agent'
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 max_train_agent: 32

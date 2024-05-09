@@ -15,7 +15,7 @@ from model.running_norm import RunningNorm
 from data.jrdb_kp3 import USE_ACTIONS
 
 
-INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2,
+INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2, 'heading_all': 2, 'heading_avg': 2,
                       'kp_norm': 99, # 34,
                       'kp_norm_3dhst': 99,
                       'kp_vel': 99, #34,
@@ -176,11 +176,14 @@ class ContextEncoder(nn.Module):
         self.input_type_to_dims = ctx['input_type_to_dims']
         self.num_kp = ctx['num_kp']
         self.kp_dim = ctx['kp_dim']
+        self.use_learned_nan = ctx['use_learned_nan']
+        if self.use_learned_nan:
+            self.register_parameter('nan_embedding', nn.Parameter(torch.randn(self.pos_embedding_dim) * 0.1))
 
         in_dim = 0
         in_dim_kp = 0
         for key in self.input_type:
-            if key in ['scene_norm', 'vel', 'heading'] or self.concat_all_inputs:
+            if key in ['scene_norm', 'vel', 'heading', 'heading_all', 'heading_avg'] or self.concat_all_inputs:
                 in_dim += self.input_type_to_dims[key]
             else:
                 in_dim_kp += self.input_type_to_dims[key]
@@ -245,6 +248,8 @@ class ContextEncoder(nn.Module):
                 kp_input_list.append(data['pre_cam_intrinsics'])
             elif key == 'cam_extrinsics':
                 kp_input_list.append(data['pre_cam_extrinsics'])
+            elif key == 'heading_all':
+                traj_in_list.append(data['pre_heading'])
             elif key == 'heading':
                 hv = data['heading_vec'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)
@@ -267,13 +272,34 @@ class ContextEncoder(nn.Module):
             traj_in_list = [*traj_in_list, *kp_input_list]
             kp_input_list = []
         traj_in = torch.cat(traj_in_list, dim=-1)
+
+        batch_size = traj_in.shape[0]  # number of timesteps
+        num_agents, _ = traj_in.shape[1:]
+
         traj_in = traj_in.view(-1, traj_in.shape[-1])
         if self.input_norm is not None:
             traj_in = self.input_norm(traj_in)
+
+        # input embedding
+        tf_in_unshaped = self.input_fc(traj_in).view((batch_size, data['agent_num'], -1))
+
+        # mask out unavailable agent-timestep position
+        reshaped_mask = data['pre_mask'].transpose(0, 1).unsqueeze(-1)
+        tf_in_masked = tf_in_unshaped * reshaped_mask
+        if self.use_learned_nan:
+            # copy nan_embedding, of size = (32,) to the size of tf_in_masked.shape[0]
+            embedding_repeated = (1 - reshaped_mask) * torch.tile(self.nan_embedding,
+                                                                  (batch_size, data['agent_num'], 1))
+            assert torch.sum(
+                torch.isclose(embedding_repeated, torch.zeros_like(embedding_repeated)) != (tf_in_masked != 0)) < 5, \
+                "where embeddings_repeated is 0, tf_in_masked should be not 0." \
+                "the places where embedding_repeated is 0 should be where tf_in_masked is not 0. 5 grace positions"
+            tf_in_masked = embedding_repeated + tf_in_masked
+
         if self.ctx['add_kp']:
-            tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
+            tf_in = tf_in_masked.view(-1, 1, self.model_dim)
         else:
-            tf_in = self.input_fc(traj_in).view(-1, 1, self.pos_embedding_dim)
+            tf_in = tf_in_masked.reshape(-1, 1, self.pos_embedding_dim)
         if len(kp_input_list) > 0:
             kp_input_tensor = torch.cat(kp_input_list, dim=-1)
             kp_input_tensor = kp_input_tensor.view(-1, 1, kp_input_tensor.shape[-1])
@@ -324,11 +350,14 @@ class FutureEncoder(nn.Module):
         self.input_norm_type = cfg.get('input_norm_type', None)
         self.input_type_to_dims = ctx['input_type_to_dims']
         self.concat_all_inputs = ctx['concat_all_inputs']
+        self.use_learned_nan = ctx['use_learned_nan']
+        if self.use_learned_nan:
+            self.register_parameter('nan_embedding', nn.Parameter(torch.randn(self.pos_embedding_dim) * 0.1))
 
         in_dim = 0
         in_dim_kp = 0
         for key in self.input_type:
-            if key in ['scene_norm', 'vel', 'heading'] or self.concat_all_inputs:
+            if key in ['scene_norm', 'vel', 'heading', 'heading_all', 'heading_avg'] or self.concat_all_inputs:
                 in_dim += self.input_type_to_dims[key]
             else:
                 in_dim_kp += self.input_type_to_dims[key]
@@ -396,6 +425,8 @@ class FutureEncoder(nn.Module):
                 kp_input_list.append(data['fut_cam_intrinsics'])
             elif key == 'cam_extrinsics':
                 kp_input_list.append(data['fut_cam_extrinsics'])
+            elif key == 'heading_all':
+                traj_in_list.append(data['fut_heading'])
             elif key == 'heading':
                 hv = data['heading_vec'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)
@@ -415,14 +446,31 @@ class FutureEncoder(nn.Module):
             traj_in_list = [*traj_in_list, *kp_input_list]
             kp_input_list = []
         traj_in = torch.cat(traj_in_list, dim=-1)
-        batch_size = traj_in.shape[0]
+
+        batch_size = traj_in.shape[0]  # number of timesteps
+        num_agents, _ = traj_in.shape[1:]
+
         traj_in = traj_in.view(-1, traj_in.shape[-1])
         if self.input_norm is not None:
             traj_in = self.input_norm(traj_in)
+
+        # input embedding
+        tf_in_unshaped = self.input_fc(traj_in).view((batch_size, data['agent_num'], -1))
+
+        # mask out unavailable agent-timestep position
+        reshaped_mask = data['fut_mask'].transpose(0, 1).unsqueeze(-1)
+        tf_in_masked = tf_in_unshaped * reshaped_mask
+        if self.use_learned_nan:
+            # copy nan_embedding, of size = (32,) to the size of tf_in_masked.shape[0]
+            embedding_repeated = (1 - reshaped_mask) * torch.tile(self.nan_embedding, (batch_size, data['agent_num'], 1))
+            assert torch.all(torch.isclose(embedding_repeated, torch.zeros_like(embedding_repeated)) == (tf_in_masked!=0)), \
+                "where embeddings_repeated is 0, tf_in_masked should be not 0"
+            tf_in_masked = embedding_repeated + tf_in_masked
+
         if self.ctx['add_kp']:
-            tf_in = self.input_fc(traj_in).view(-1, 1, self.model_dim)
+            tf_in = tf_in_masked.view(-1, 1, self.model_dim)
         else:
-            tf_in = self.input_fc(traj_in).view(-1, 1, self.pos_embedding_dim)
+            tf_in = tf_in_masked.reshape(-1, 1, self.pos_embedding_dim)
         if len(kp_input_list)> 0:
             kp_input_tensor = torch.cat(kp_input_list, dim=-1)
             kp_input_tensor = kp_input_tensor.view(-1, 1, kp_input_tensor.shape[-1])
@@ -431,21 +479,17 @@ class FutureEncoder(nn.Module):
                 tf_in += kp_embedding
             else:
                 tf_in = torch.cat([tf_in, kp_embedding], dim=-1)
+
         agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
         tf_in_pos = self.pos_encoder(tf_in, num_a=data['agent_num'], agent_enc_shuffle=agent_enc_shuffle)
         mem_agent_mask = data['agent_mask'].clone()
         tgt_agent_mask = data['agent_mask'].clone()
 
-        # mem_mask = generate_mask(tf_in.shape[0], data['context_enc'].shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
-        # tgt_mask = generate_mask(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask).to(tf_in.device)
+        mem_mask = generate_mask(tf_in.shape[0], data['context_enc'].shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
+        tgt_mask = generate_mask(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask).to(tf_in.device)
 
-        # print(f"{mem_mask.shape=}")  # (num_agents * future_ts, num_agents * history_ts)
-        # print(f"{tgt_mask.shape=}")  # (num_agents * future_ts, num_agents * future_ts)
-        # print(f"{data['pre_mask'].shape=}")  # (num_agents, history_ts)
-        # print(f"{data['fut_mask'].shape=}")  # (num_agents, history_ts)
-
-        mem_mask = generate_mask_missing_ts(tf_in.shape[0], data['context_enc'].shape[0], data['agent_num'], mem_agent_mask, data['fut_mask'], data['pre_mask']).to(tf_in.device)
-        tgt_mask = generate_mask_missing_ts(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask, data['fut_mask'], data['fut_mask']).to(tf_in.device)
+        # mem_mask = generate_mask_missing_ts(tf_in.shape[0], data['context_enc'].shape[0], data['agent_num'], mem_agent_mask, data['fut_mask'], data['pre_mask']).to(tf_in.device)
+        # tgt_mask = generate_mask_missing_ts(tf_in.shape[0], tf_in.shape[0], data['agent_num'], tgt_agent_mask, data['fut_mask'], data['fut_mask']).to(tf_in.device)
 
         tf_out, _ = self.tf_decoder(tf_in_pos, data['context_enc'], memory_mask=mem_mask, tgt_mask=tgt_mask, num_agent=data['agent_num'])
         tf_out = tf_out.view(batch_size, -1, self.model_dim)
@@ -565,13 +609,13 @@ class FutureDecoder(nn.Module):
             agent_enc_shuffle = data['agent_enc_shuffle'] if self.agent_enc_shuffle else None
             tf_in_pos = self.pos_encoder(tf_in, num_a=agent_num, agent_enc_shuffle=agent_enc_shuffle, t_offset=self.past_frames-1 if self.pos_offset else 0)
             # tf_in_pos = tf_in
-            # mem_mask = generate_mask(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
-            mem_mask = generate_mask_missing_ts(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask,
-                                                data['fut_mask'][:,:i+1], data['pre_mask']).to(tf_in.device)
+            mem_mask = generate_mask(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask).to(tf_in.device)
+            # mem_mask = generate_mask_missing_ts(tf_in.shape[0], context.shape[0], data['agent_num'], mem_agent_mask,
+            #                                     data['fut_mask'][:,:i+1], data['pre_mask']).to(tf_in.device)
             # print(f"{mem_mask=}")
 
-            # tgt_mask = generate_ar_mask(tf_in.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
-            tgt_mask = generate_ar_mask_missing_ts(tf_in.shape[0], agent_num, tgt_agent_mask, data['fut_mask'][:,:i+1]).to(tf_in.device)
+            tgt_mask = generate_ar_mask(tf_in.shape[0], agent_num, tgt_agent_mask).to(tf_in.device)
+            # tgt_mask = generate_ar_mask_missing_ts(tf_in.shape[0], agent_num, tgt_agent_mask, data['fut_mask'][:,:i+1]).to(tf_in.device)
             # print(f"{tgt_mask=}")
 
             tf_out, attn_weights = self.tf_decoder(tf_in_pos, context, memory_mask=mem_mask, tgt_mask=tgt_mask,
@@ -726,6 +770,7 @@ class AgentFormer(nn.Module):
             'kp_dim': cfg.get('kp_dim', 3),
             'num_kp': cfg.get('num_kp', 24),
             'n_projection_layer': cfg.get('n_projection_layer', 1),
+            'use_learned_nan': cfg.get('use_learned_nan', False),
         }
         self.past_frames = self.ctx['past_frames']
         self.future_frames = self.ctx['future_frames']
@@ -772,10 +817,14 @@ class AgentFormer(nn.Module):
 
     def set_data(self, data):
         device = self.device
+        pre_keys = [k for k in data.keys() if k.split('_')[0] in ['pre', 'fut', 'heading'] and 'data' not in k]
         if self.training and len(data['pre_motion']) > self.max_train_agent:
             in_data = {}
-            ind = np.random.choice(len(data['pre_motion']), self.max_train_agent).tolist()
-            for key in [k for k in data.keys() if k.split('_')[0] in ['pre', 'fut', 'heading'] and 'data' not in k]:
+            ind = np.random.choice(len(data['pre_motion']), self.max_train_agent, replace=False).tolist()
+
+            for key in pre_keys:
+                if data.get(key) is None:
+                    continue
                 in_data[key] = [data[key][i] for i in ind if key in data and data[key] is not None]
         else:
             in_data = data
@@ -785,18 +834,20 @@ class AgentFormer(nn.Module):
         self.data['batch_size'] = len(in_data['pre_motion'])
         self.data['agent_num'] = len(in_data['pre_motion'])
 
-        for key in [k for k in data.keys() if k.split('_')[0] in ['pre', 'fut'] and 'data' not in k]:
+        for key in [k for k in in_data.keys() if k.split('_')[0] in ['pre', 'fut'] and 'data' not in k]:
             if isinstance(in_data[key][0], np.ndarray):
                 in_data[key] = [torch.tensor(a).to(device) for a in in_data[key]]
             self.data[key] = torch.stack(in_data[key], dim=0).to(device).transpose(0, 1).contiguous()  # swap batch and time dim
 
+        for key in [k for k in in_data.keys() if 'pre' not in k and 'fut' not in k and 'heading' in k]:
+            if in_data[key] is not None:
+                if isinstance(in_data[key], np.ndarray):
+                    in_data[key] = [torch.tensor(a).to(device) for a in in_data[key]]
+                self.data[key] = torch.stack(in_data[key], dim=0).to(device)
+
         self.data['pre_motion'] = torch.stack(in_data['pre_motion'], dim=0).to(device).transpose(0, 1).contiguous()  # swap batch and time dim
         self.data['fut_motion'] = torch.stack(in_data['fut_motion'], dim=0).to(device).transpose(0, 1).contiguous()
 
-        # if 'pre_kp' in in_data:
-        #     # flip the z, bc the people are in image coords in which the z (vertical)-axis points downward wrt world coordinate frame
-        #     self.data['pre_kp'][...,1] *= -1
-        #     self.data['fut_kp'][...,1] *= -1
         self.data['fut_motion_orig'] = torch.stack(in_data['fut_motion'], dim=0).to(device)   # future motion without transpose
         self.data['fut_mask'] = torch.stack(in_data['fut_motion_mask'], dim=0).to(device)
         self.data['pre_mask'] = torch.stack(in_data['pre_motion_mask'], dim=0).to(device)
@@ -806,10 +857,16 @@ class AgentFormer(nn.Module):
         else:
             self.data['scene_orig'] = self.data['pre_motion'][-1].mean(dim=0)  # use the mean of the last obs step as the scene origin
         if 'heading' in in_data and in_data['heading'] is not None:
-            self.data['heading'] = torch.tensor(np.array(in_data['heading'])).float().to(device)
+            self.data['heading'] = torch.stack(in_data['heading']).float().to(device)
         if 'heading_avg' in in_data and in_data['heading_avg'] is not None:
-            self.data['heading_avg'] = torch.tensor(np.array(in_data['heading_avg'])).float().to(device)
+            if isinstance(in_data['heading_avg'][0], torch.Tensor):  # option where heading avg is the east way to get heading for sequences with missing timestps positions
+                self.data['heading_avg'] = torch.tensor(in_data['heading_avg']).float().to(device)
+            else:
+                self.data['heading_avg'] = torch.tensor(np.array(in_data['heading_avg'])).float().to(device)
 
+        #########################
+        ### DATA AUGMENTATION ###
+        #########################
         # rotate the scene randomly during training to prevent scene-specific overfitting
         if self.rand_rot_scene and self.training:
             if 'cam_id' in self.input_type:  # only rotate in increments of 2/5*np.pi because there are 5 cameras
@@ -828,7 +885,12 @@ class AgentFormer(nn.Module):
                 self.data[key], self.data[f'{key}_scene_norm'] = rotation_2d_torch(self.data[key], theta, self.data['scene_orig'])
             if 'heading' in in_data and in_data['heading'] is not None:
                 self.data['heading'] += theta
+            if 'heading_avg' in in_data and in_data['heading_avg'] is not None:
                 self.data['heading_avg'] += theta
+            if 'pre_heading' in in_data and in_data['pre_heading'] is not None:
+                self.data['pre_heading'] += theta
+            if 'fut_heading' in in_data and in_data['fut_heading'] is not None:
+                self.data['fut_heading'] += theta
             # TODO: add functionality for poses
         else:
             theta = torch.zeros(1).to(device)
@@ -836,6 +898,7 @@ class AgentFormer(nn.Module):
                 self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   #  subtract last obs, meaned over agents
         self.data['train_theta'] = theta  # save for plotting
 
+        # Pose normalization
         if 'kp_norm' in self.input_type and 'kp_norm' in self.input_type:
             for key in ['pre_kp', 'fut_kp']:
                 # 0 = hip joint is subtracted from each ped's joints to normalize
@@ -851,11 +914,18 @@ class AgentFormer(nn.Module):
         # (we are currently using scene_norm, which normes each ped by a single mean scene point)
         # self.data['pre_motion_norm'] = self.data['pre_motion'][:-1] - self.data['cur_motion']   # subtract last obs pos
         # self.data['fut_motion_norm'] = self.data['fut_motion'] - self.data['cur_motion']
+
+        # use heading
+        if 'pre_heading' in in_data and 'pre_heading' is not None:
+            for key in ['pre_heading', 'fut_heading']:
+                self.data[key] = torch.stack([torch.cos(self.data[key]), torch.sin(self.data[key])], dim=-1)
         if 'heading' in in_data and in_data['heading'] is not None:
             assert len(self.data['heading'].shape) == 1  # if not already sin / cos'ed
             self.data['heading_vec'] = torch.stack([torch.cos(self.data['heading']), torch.sin(self.data['heading'])], dim=-1)
-            if 'heading_avg' in self.data:
-                self.data['heading_avg'] = torch.stack([torch.cos(self.data['heading_avg']), torch.sin(self.data['heading_avg'])], dim=-1)
+
+        assert 'heading_avg' in in_data
+        if 'heading_avg' in in_data and in_data['heading_avg'] is not None:
+            self.data['heading_avg'] = torch.stack([torch.cos(self.data['heading_avg']), torch.sin(self.data['heading_avg'])], dim=-1)
 
         # agent maps
         if self.use_map:

@@ -278,16 +278,36 @@ if __name__ == '__main__':
     parser.add_argument('--seq_frame', '-sqf', default=None)
     parser.add_argument('--tag', '-tg', default=None)
     parser.add_argument('--test_certain_frames_only', '-tf', action='store_true', default=False)
-    FRAMES = {
-              ('huang-intersection-2019-01-22_0', 1218),
-              ('tressider-2019-04-26_1', 1000),
-              ('serra-street-2019-01-30_0', 589),
-              ('gates-ai-lab-2019-04-17_0', 395),
-              ('discovery-walk-2019-02-28_0', 512),
-              ('discovery-walk-2019-02-28_0', 512),
-              ('tressider-2019-04-26_0', 31),
-             }
-    parser.add_argument('--frames', '-ff', default=FRAMES)
+    scene_frames = {
+            ('cubberly-auditorium-2019-04-22_1', 35),
+            ('discovery-walk-2019-02-28_0', 35),
+            ('discovery-walk-2019-02-28_1', 35),
+            ('food-trucks-2019-02-12_0', 35),
+            ('gates-ai-lab-2019-04-17_0', 35),
+            ('gates-basement-elevators-2019-01-17_0', 35),
+            ('gates-foyer-2019-01-17_0', 35),
+            ('gates-to-clark-2019-02-28_0', 35),
+            ('hewlett-class-2019-01-23_0', 35),
+            ('hewlett-class-2019-01-23_1', 35),
+            ('huang-2-2019-01-25_1', 35),
+            ('huang-intersection-2019-01-22_0', 35),
+            ('indoor-coupa-cafe-2019-02-06_0', 35),
+            ('lomita-serra-intersection-2019-01-30_0', 35),
+            ('meyer-green-2019-03-16_1', 35),
+            ('nvidia-aud-2019-01-25_0', 35),
+            ('nvidia-aud-2019-04-18_1', 35),
+            ('nvidia-aud-2019-04-18_2', 35),
+            ('outdoor-coupa-cafe-2019-02-06_0', 35),
+            ('quarry-road-2019-02-28_0', 35),
+            ('serra-street-2019-01-30_0', 35),
+            ('stlc-111-2019-04-19_1', 35),
+            ('stlc-111-2019-04-19_2', 35),
+            ('tressider-2019-03-16_2', 35),
+            ('tressider-2019-04-26_0', 35),
+            ('tressider-2019-04-26_1', 35),
+            ('tressider-2019-04-26_3', 35),
+    }
+    parser.add_argument('--frames', '-ff', default=scene_frames)
 
     args = parser.parse_args()
 

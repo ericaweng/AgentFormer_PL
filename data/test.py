@@ -2,7 +2,10 @@
 
 # number of sequences:
 
-
+# train AF 7/12/7/1
+# total num samples 26948  # keep scenes where agents don't have complete histories / futures
+# val don't keep subsamples
+#
 
 # 1. check how much worse scenes / frames with movement vs. without
 # 2. visualize with poses vs. without

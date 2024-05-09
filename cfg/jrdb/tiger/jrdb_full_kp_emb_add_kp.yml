@@ -31,7 +31,7 @@ preprocess_data: true
 #exclude_kpless_data: true
 #zero_kpless_data: true  # zero out kpless data during train and val
 input_type: ['scene_norm', 'vel', 'heading', 'kp_norm', 'kp_vel']
-ckpt_monitor: 'val/ADE_marginal'
+ckpt_monitor: 'val/ADE_marginal_agent'
 pred_type: 'scene_norm'
 sn_out_type: 'norm'
 concat_all_inputs: false  # if true, then concatenate all inputs as feature. else, kp features go in separate encoder as pos, vel, heading

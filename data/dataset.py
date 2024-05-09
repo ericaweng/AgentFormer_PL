@@ -10,7 +10,7 @@ from .jrdb_kp import jrdb_preprocess
 from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb_kp3 import jrdb_preprocess as jrdb_preprocess_w_action_label
 from .jrdb_kp4 import jrdb_preprocess as jrdb_preprocess_full
-from .jrdb_kp6 import jrdb_preprocess as jrdb_preprocess_like_hst
+from .jrdb_kp5 import jrdb_preprocess as jrdb_preprocess_like_hst
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
@@ -169,25 +169,35 @@ class AgentFormerDataset(Dataset):
         print(f'total num samples: {num_total_samples}')
         self.num_total_samples = num_total_samples
 
-        self.preprocess_data = True if trial_ds_size is not None else parser.get('preprocess_data', False)
-        if self.preprocess_data:
+        self.preprocess_data = True if trial_ds_size is not None else parser.get('preprocess_data', False)  # or args.test_certain_frames_only
+        if args.test_certain_frames_only:
+            self.get_certain_frames(args.frames)
+        elif self.preprocess_data:
             self.get_preprocessed_data(num_total_samples, frames_list, start_frame)
         else:
             self.sample_list = [None for _ in range(num_total_samples)]
+
+    def get_certain_frames(self, frames):
+        datas = []
+        for seq_name, frame in frames:
+            seq_index = self.seq_names.index(seq_name)
+            data = self.sequence[seq_index](frame)
+            if data is None:
+                continue
+            datas.append(data)
+        self.sample_list = datas
+        self.num_total_samples = len(datas)
 
     def get_preprocessed_data(self, num_total_samples, frames_list, start_frame):
         """ get data sequence windows from raw data blocks txt files"""
         datas = []
 
         from collections import defaultdict
-        d = defaultdict(int)
-        daf = defaultdict(list)
+        seq_to_frame_ids = defaultdict(list)
         for idx in tqdm(range(num_total_samples), desc='preprocessing data'):
             seq_index, frame = self.get_seq_and_frame(idx)
             seq = self.sequence[seq_index]
             data = seq(frame)
-            # daf[data['seq']].append(frame-(self.min_past_frames - 1) * self.frame_skip)
-            # d[data['seq']] += 1
             if data is None:
                 continue
             # if last_seq is not None and data['seq'] != last_seq:
@@ -229,20 +239,26 @@ class AgentFormerDataset(Dataset):
             if self.trial_ds_size is not None and len(datas) == self.trial_ds_size and not self.randomize_trial_data:
                 print(f"test mode: limiting to ds of size {self.trial_ds_size}")
                 break
+            seq_to_frame_ids[self.seq_names[seq_index]].append(frame)
+
         if self.randomize_trial_data:
             print(f"taking elements from different parts of the dataset for diverse data")
             # np.shuffle(datas)
             # datas = datas[:self.trial_ds_size]
             skip = len(datas) // self.trial_ds_size
             datas = datas[::skip]
-        print(f"len(data) before frame_skip downsample: {len(datas)}")
+        # print(f"len(data) before frame_skip downsample: {len(datas)}")
         self.sample_list = datas#[::self.data_skip]
 
-        print(daf)
-        print(d)
-        print(self.d)
-        print(self.dnf)
-        print('total', sum(self.d.values()))
+        print(f"num samples {self.d=}")
+        print(f" {self.d=}")
+        print(f"num total frames {self.dnf=}")
+        print(f"which frame ids (samples) per scene are being used {seq_to_frame_ids=}")
+        print('total num samples', sum(self.d.values()))
+        # save all this to ../viz/af_data_stats.npy
+        # import numpy as np
+        # np.save('../viz/af_data_stats.npy', {'d': self.d, 'dnf': self.dnf, 'seq_to_frame_ids': seq_to_frame_ids})
+        import ipdb; ipdb.set_trace()
 
         # print("differences (af - hst)")
         # hst sequence counts by scene
@@ -256,10 +272,9 @@ class AgentFormerDataset(Dataset):
         #     print(f'{k}: {d[k] - d2[k+"_test"]}')
         # import ipdb; ipdb.set_trace()
 
-        print(f"len(data) after frame_skip downsample: {len(self.sample_list)}")
+        # print(f"len(data) after frame_skip downsample: {len(self.sample_list)}")
         # print(f'total_invalid_peds: {total_invalid_peds}, total_valid_peds: {total_valid_peds}')
         # print(f'ratio of invalid_peds: {round(total_invalid_peds / (total_invalid_peds + total_valid_peds), 2)}')
-
         print(f'using {len(self.sample_list)} num samples')
 
         print("------------------------------ done --------------------------------\n")

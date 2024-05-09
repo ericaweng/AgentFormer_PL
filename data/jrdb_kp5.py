@@ -1,7 +1,7 @@
 """
 dataloader for jrdb for positions, heading, hst-processed 3d_kp
-change mask from 0/1 to 0/-inf
 add config param to restrict data to include only agent-timesteps a certain dist away from robot
+allow missing positions, heading, kp data to be recorded as 0, with mask 0
 """
 
 import torch
@@ -151,79 +151,15 @@ class jrdb_preprocess(object):
             DataList.append(self.get_data(frame_id))
         return DataList
 
-    def return_all_valid(self, pre_data, fut_data):
-        ''' only return is_valid=True if a ped has pos + 2d kp information
-        only for which both pose and position annotation exist'''
-        cur_ped_id = self.GetID(pre_data[0]['pos'])  # ped_ids this frame
-
-        valid_id = []
-        for idx in cur_ped_id:
-            if np.any([idx in frame['pos'][:,1] for frame in pre_data[:min(self.past_frames, len(pre_data))]]) \
-                    and np.any([idx in frame['pos'][:,1] for frame in fut_data[:min(self.future_frames, len(fut_data))]]):
-                valid_id.append(idx)
-        return valid_id
-
-    def get_valid_id_pos_and_kp(self, pre_data, fut_data):
-        ''' only return is_valid=True if a ped has pos + 2d kp information
-        only for which both pose and position annotation exist'''
-        cur_ped_id = self.GetID(pre_data[0]['pos'])  # ped_ids this frame
-
-        valid_id = []
-        for idx in cur_ped_id:
-            is_invalid = False
-            for frame in pre_data[:self.min_past_frames]:
-                if isinstance(frame['pos'], list) or idx not in frame['pos'][:,1] or self.exclude_kpless_data and (
-                        idx not in frame['kp'] or np.all(frame['kp'][idx]==0) or np.all(np.isnan(frame['kp'][idx]))):
-                    is_invalid = True
-                    break
-            if is_invalid:
-                continue
-            for frame in fut_data[:self.min_future_frames]:
-                if isinstance(frame['pos'], list) or idx not in frame['pos'][:,1] or self.exclude_kpless_data and idx not in frame['kp']:
-                    is_invalid = True
-                    break
-            if is_invalid:
-                continue
-            if len(self.include_cats) > 0:
-                history_positions = np.array([p['pos'][p['pos'][:, 1] == idx][0][2:4] for p in pre_data])
-                future_positions = np.array([p['pos'][p['pos'][:, 1] == idx][0][2:4] for p in fut_data])
-                pos = np.concatenate([history_positions, future_positions], axis=0)
-                if ped_interactions.is_moving_to_static(pos)[0] \
-                    or ped_interactions.is_static_to_moving(pos)[0] \
-                    or ped_interactions.is_non_linear(pos)[0]:
-                        continue
-            valid_id.append(idx)
-
-        return valid_id
-
-    def get_heading(self, cur_data, valid_id):
-        heading = np.zeros((len(valid_id)))
-        for i, idx in enumerate(valid_id):
-            head = cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()
-            # heading[i] = head[self.heading_ind]
-        return heading  # don't need transformed theta given data preprocessed w odometry
-
-    def get_heading_avg(self, all_data, valid_id):
-        heading = np.zeros((len(valid_id)))
-        for i, idx in enumerate(valid_id):
-            headings_this_ped = []
-            for ts in range(len(all_data)):
-                h = all_data[ts]['pos'][all_data[ts]['pos'][:, 1] == idx].squeeze()
-                if len(h) == 0:
-                    continue
-                h = h[self.heading_ind]
-                headings_this_ped.append((np.cos(h), np.sin(h)))
-            heading_avg = np.stack(headings_this_ped).mean(0)
-            heading[i] = np.arctan2(heading_avg[1], heading_avg[0])
-        return heading  # don't need transformed theta given data preprocessed w odometry
-
     def format_data(self, data, num_frames, valid_id, is_pre=False):
         motion = []
         mask = []
+        headings = []
         kp_motion = []
         for ped_id in valid_id:
             mask_i = torch.zeros(num_frames)
             box_3d = torch.zeros([num_frames, 2])
+            heading = torch.zeros([num_frames])
             kp_3d = torch.zeros([num_frames, len(self.kp_mask), 3])
             for f_i, frame_i in enumerate(range(num_frames)):
                 single_frame = data[frame_i]
@@ -239,22 +175,25 @@ class jrdb_preprocess(object):
                                  [self.xind, self.zind]] / self.past_traj_scale
                     assert len(found_data) != 0
                     box_3d[frame_i] = torch.from_numpy(found_data).float()
+                    heading[frame_i] = torch.from_numpy(np.array(single_frame['pos'][single_frame['pos'][:, 1] == ped_id].squeeze()[self.heading_ind]))
                     mask_i[frame_i] = 1.0
                 else:
-                    box_3d[frame_i] = torch.full((1, 2), torch.nan)  #
+                    box_3d[frame_i] = torch.full((1, 2), 0)#torch.nan)  #
+                    heading[frame_i] = 0
                     mask_i[frame_i] = 0.0
                 # if joints info exists
                 if single_frame['kp'] is not None and ped_id in single_frame['kp']:
                     kp_3d[frame_i] = torch.from_numpy(single_frame['kp'][ped_id]).float()
                 else:
-                    kp_3d[frame_i] = torch.nan
+                    kp_3d[frame_i] = 0#torch.nan
             motion.append(box_3d)
             mask.append(mask_i)
+            headings.append(heading)
             # replace nan with 0
             kp_3d[kp_3d != kp_3d] = 0
             kp_motion.append(kp_3d)
 
-        return motion, kp_motion, mask
+        return motion, kp_motion, headings, mask
 
     def get_formatted_pre_data(self, data, valid_id):
         return self.format_data(data, self.past_frames, valid_id, is_pre=True)
@@ -280,21 +219,16 @@ class jrdb_preprocess(object):
         pre_data = self.get_pre_data(frame)
         fut_data = self.get_fut_data(frame)
 
-        all_pre_data = np.concatenate([pd['pos'][:, 1] for pd in pre_data])
-        valid_id = np.unique(all_pre_data)
-        # valid_id = self.return_all_valid(pre_data, fut_data)
-        # valid_id = self.get_valid_id_pos_and_kp(pre_data, fut_data)
-        if len(valid_id) == 0:  # len(pre_data[0]) == 0 or len(fut_data[0]) == 0 or
+        valid_id = np.unique(np.concatenate([pd['pos'][:, 1] for pd in pre_data]))
+        if len(valid_id) == 0:
             return None
 
-        heading = self.get_heading(all_pre_data, valid_id)
-        heading_avg = self.get_heading_avg(pre_data, valid_id)
-        pred_mask = None
+        pre_motion, pre_motion_kp, pre_heading, pre_motion_mask = self.get_formatted_pre_data(pre_data, valid_id)
+        fut_motion, fut_motion_kp, fut_heading, fut_motion_mask = self.get_formatted_fut_data(fut_data, valid_id)
+        # assert none are nan
 
-        pre_motion, pre_motion_kp, pre_motion_mask = self.get_formatted_pre_data(pre_data, valid_id)
-        fut_motion, fut_motion_kp, fut_motion_mask = self.get_formatted_fut_data(fut_data, valid_id)
-        # , pre_motion_kp_mask
-        # , fut_motion_kp_mask
+        heading_avg = [torch.mean(h) for h in pre_heading]
+        assert heading_avg is not None
 
         data = {
                 # These fields have a pre and fut, and are organized by ped. (num_peds, num_timesteps, **)
@@ -306,10 +240,12 @@ class jrdb_preprocess(object):
                 'fut_motion_mask': fut_motion_mask,
                 'fut_kp': fut_motion_kp,
                 # 'fut_kp_mask': fut_motion_kp_mask,
-                'heading': heading,  # only the heading for the last obs timestep
+                'pre_heading': pre_heading,  # all available past headings
+                'fut_heading': fut_heading,  # all available future headings
+                'heading': None, #all_headings,  # all available past headings
                 'heading_avg': heading_avg,  # the avg heading for all timesteps
                 'traj_scale': self.traj_scale,
-                'pred_mask': pred_mask,
+                'pred_mask': None,
                 'scene_map': self.geom_scene_map,
                 'seq': self.seq_name,
                 'frame_scale': 1,

@@ -105,8 +105,7 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
             f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
 
     # make plots grid
-    fig = plt.figure(figsize=(12 * num_plots_width, 8 * num_plots_height))
-    # fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
+    fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
     axes = []
     for i, po in enumerate(list_of_plotting_objs):
         if po == AnimObjPose3d:
@@ -117,6 +116,12 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
             assert po == AnimObjPose2d or po == AnimObjBEVTraj2d
             ax = fig.add_subplot(num_plots_height, num_plots_width, i + 1)
         axes.append(ax)
+
+    # fig, axes = plt.subplots(num_plots_height, num_plots_width)
+    # if isinstance(axes, np.ndarray):
+    #     axes = axes.flatten()
+    # else:
+    #     axes = [axes]
 
     fig.subplots_adjust(hspace=0.25)
     if title is not None:
@@ -130,6 +135,7 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
                 if len(bounds2d) > 0:
                     assert val.shape[-1] == bounds2d[-1].shape[-1], \
                         f"all trajectories must have same number of dimensions ({val.shape[-1]} != {bounds2d[-1].shape[-1]})"
+                # bounds2d.append(np.array(val).reshape(-1, val.shape[-1]))
                 bounds2d.append(val[np.all(~np.isnan(val), -1)].reshape(-1, val.shape[-1]))
     bounds2d = np.concatenate(bounds2d)
     bounds2d = [*(np.min(bounds2d, axis=0) - 0.2), *(np.max(bounds2d, axis=0) + 0.2)]
@@ -181,7 +187,6 @@ class AnimObjPose2d:
             gt_future = gt_future * 1 + positions[obs_len:, :, :].transpose(1, 0, 2)[:,None]
 
         stuff = np.concatenate([gt_history, gt_future], axis=2).reshape(-1, 2)
-        stuff = stuff[np.all(~np.isnan(stuff), -1)]
 
         if bounds is None:
             ax_set_up(ax, stuff)
@@ -223,7 +228,6 @@ class AnimObjPose3d:
             gt_future = gt_future * 1 + positions[:, :, obs_len:]
 
         stuff = np.concatenate([gt_history, gt_future], axis=2).reshape(-1, 3)
-        stuff = stuff[np.all(~np.isnan(stuff), -1)]
         ax_set_up(ax, stuff, bounds)
 
         def update(frame_idx):
@@ -350,6 +354,8 @@ class AnimObjBEVTraj2d:
                 all_traj = np.concatenate([all_traj, gt_traj.reshape(-1, 2)])
             if pred_traj is not None:
                 all_traj = np.concatenate([all_traj, *[p.reshape(-1, 2) for ptf in pred_traj for p in ptf]])
+
+            all_traj = all_traj[np.all(~np.isnan(all_traj), 1)]
             x_low, x_high = np.min(all_traj[:, 0]) - ped_radius, np.max(all_traj[:, 0]) + ped_radius
             y_low, y_high = np.min(all_traj[:, 1]) - ped_radius, np.max(all_traj[:, 1]) + ped_radius
         else:  # set bounds as specified
@@ -409,14 +415,23 @@ class AnimObjBEVTraj2d:
 
             # plot ground-truth obs and pred
             if obs_traj is not None:
-                circles_gt.append(ax.add_artist(plt.Circle(obs_traj[0, ped_i], ped_radius, fill=True, color=color_real, zorder=0)))
+                is_non_nan_ts_ped_i = ~np.isnan(obs_traj[:, ped_i]).any(-1)
+                obs_pos = obs_traj[is_non_nan_ts_ped_i, ped_i]
+                if obs_pos.shape[0] == 0:
+                    is_non_nan_ts_ped_i = ~np.isnan(gt_traj[:, ped_i]).any(-1)
+                    obs_pos = gt_traj[is_non_nan_ts_ped_i, ped_i][0]
+                else:
+                    obs_pos = obs_pos[0]
+                circles_gt.append(ax.add_artist(plt.Circle(obs_pos, ped_radius, fill=True, color=color_real, zorder=0)))
                 line_obs_gt = mlines.Line2D(*obs_traj[0:1].T, color=color_real, marker=None, linestyle='-', linewidth=5,
                                             alpha=obs_alpha, zorder=0)
                 lines_obs_gt.append(ax.add_artist(line_obs_gt))
 
                 # Plot body heading direction
                 if last_heading is not None:
-                    last_obs_circles.append(ax.add_artist(plt.Circle(obs_traj[-1, ped_i], ped_radius, fill=True,
+                    is_non_nan_ts_ped_i = ~np.isnan(obs_traj[:, ped_i]).any(-1)
+                    obs_pos = obs_traj[is_non_nan_ts_ped_i, ped_i][0]
+                    last_obs_circles.append(ax.add_artist(plt.Circle(obs_pos, ped_radius, fill=True,
                                                                      alpha=0.3, color=color_real, zorder=10,
                                                                      visible=False)))
                     last_heading_arrows.append(ax.arrow(*obs_traj[-1, ped_i], *last_heading[ped_i], head_width=0.05,
@@ -433,17 +448,20 @@ class AnimObjBEVTraj2d:
 
             if gt_traj is not None:
                 if obs_traj is None:
-                    circles_gt.append(ax.add_artist(plt.Circle(gt_traj[0, ped_i], ped_radius, fill=True, color=color_real, zorder=0)))
+                    is_non_nan_ts_ped_i = ~np.isnan(gt_traj[:, ped_i]).any(-1)
+                    gt_pos = gt_traj[is_non_nan_ts_ped_i, ped_i][0]
+                    circles_gt.append(ax.add_artist(plt.Circle(gt_pos, ped_radius, fill=True, color=color_real, zorder=0)))
                 line_pred_gt = mlines.Line2D(*gt_traj[0:1].T, color=color_real, marker=None, linestyle='-', linewidth=5,
                                              alpha=pred_alpha, zorder=0, visible=False)
                 lines_pred_gt.append(ax.add_artist(line_pred_gt))
 
             if pred_traj is not None:  # plot fake pred trajs
-                circle_fake = plt.Circle(pred_traj[0, ped_i], ped_radius, fill=True,
+                is_non_nan_ts_ped_i = ~np.isnan(pred_traj[:, ped_i]).any(-1)
+                pred_pos = pred_traj[is_non_nan_ts_ped_i, ped_i][0]
+                circle_fake = plt.Circle(pred_pos, ped_radius, fill=True,
                                          color=color_fake,
                                          alpha=obs_alpha, visible=False, zorder=1)
                 circles_fake.append(ax.add_artist(circle_fake))
-
                 line_pred_fake = mlines.Line2D(*pred_traj[0:1].T, color=color_fake,
                                                linestyle='--',
                                                alpha=obs_alpha, zorder=2, linewidth=5,
@@ -526,8 +544,19 @@ class AnimObjBEVTraj2d:
             # move the real and pred (fake) agent
             if frame_i < obs_len:
                 for ped_i, (circle_gt, line_obs_gt) in enumerate(zip(circles_gt, lines_obs_gt)):
-                    circle_gt.center = obs_traj[frame_i, ped_i]
-                    line_obs_gt.set_data(*obs_traj[0:frame_i + 1, ped_i].T)
+                    pos_gt = obs_traj[frame_i, ped_i]
+                    if np.isnan(pos_gt).any():
+                        circle_gt.set_visible(False)
+                    else:
+                        circle_gt.set_visible(True)
+                        circle_gt.center = obs_traj[frame_i, ped_i]
+
+                    # get only the obs positions that are not nan, and up until current animation timestep
+                    obs_traj_until_now = obs_traj[0:frame_i + 1, ped_i]
+                    not_nan_obs_idxs = ~np.isnan(obs_traj_until_now).any(-1)
+                    obs_traj_not_nan = obs_traj_until_now[not_nan_obs_idxs]
+                    line_obs_gt.set_data(*obs_traj_not_nan.T)
+
                     if show_ped_pos and len(ped_pos_texts_obs) > 0:
                         ped_pos_text = f"{circle_gt.center[0]:0.1f}, {circle_gt.center[1]:0.1f}"
                         ped_pos_texts_obs[ped_i].set_text(ped_pos_text)
@@ -578,11 +607,32 @@ class AnimObjBEVTraj2d:
                 if gt_traj is not None:
                     # assert len(circles_gt) == len(lines_pred_gt) == len(ped_texts), f'{len(circles_gt)}, {len(lines_pred_gt)}, {len(ped_texts)} should all be equal'
                     for ped_i, (circle_gt, line_pred_gt) in enumerate(zip(circles_gt, lines_pred_gt)):
-                        circle_gt.center = gt_traj[frame_i - obs_len, ped_i]
-                        if obs_traj is not None:
-                            last_obs_pred_gt = np.concatenate([obs_traj[-1:, ped_i], gt_traj[0:frame_i + 1 - obs_len, ped_i]])
+                        pos_gt = gt_traj[frame_i - obs_len, ped_i]
+                        if np.isnan(pos_gt).any():
+                            circle_gt.set_visible(False)
                         else:
-                            last_obs_pred_gt = gt_traj[0:frame_i + 1 - obs_len, ped_i]
+                            circle_gt.set_visible(True)
+                            circle_gt.center = pos_gt
+                        if obs_traj is not None:
+                            is_non_nan_ts_ped_i = ~np.isnan(obs_traj[:, ped_i]).any(-1)
+                            last_obs = obs_traj[is_non_nan_ts_ped_i, ped_i]
+                            if len(last_obs) == 0:
+                                is_non_nan_ts_ped_i = (gt_traj[:, ped_i]!=0).any(-1)
+                                last_obs = gt_traj[is_non_nan_ts_ped_i, ped_i][-1:]
+                            else:
+                                last_obs = last_obs[-1:]
+
+                            # get only the gt positions that are not nan, and up until current animation timestep
+                            gt_traj_until_now = gt_traj[:frame_i + 1 - obs_len, ped_i]
+                            not_nan_gt_idxs = (gt_traj_until_now!=0).any(-1)
+                            not_nan_gts = gt_traj_until_now[not_nan_gt_idxs]
+                            last_obs_pred_gt = np.concatenate([last_obs, not_nan_gts])
+                        else:
+                            # get only the gt positions that are not nan, and up until current animation timestep
+                            gt_traj_until_now = gt_traj[:frame_i + 1 - obs_len, ped_i]
+                            not_nan_gt_idxs = (gt_traj_until_now!=0).any(-1)
+                            last_obs_pred_gt = gt_traj_until_now[not_nan_gt_idxs]
+
                         line_pred_gt.set_data(*last_obs_pred_gt.T)
                         # move the pedestrian texts (ped number and relation)
                         if len(ped_texts) > 0:
@@ -593,9 +643,23 @@ class AnimObjBEVTraj2d:
                     for ped_i, (circle_fake, line_pred_fake) in enumerate(zip(circles_fake, lines_pred_fake)):
                         circle_fake.center = pred_traj[frame_i - obs_len, ped_i]
                         if obs_traj is not None:
-                            last_obs_pred_fake = np.concatenate([obs_traj[-1:, ped_i], pred_traj[0:frame_i + 1 - obs_len, ped_i]])
+                            is_non_nan_ts_ped_i = ~np.isnan(obs_traj[:, ped_i]).any(-1)
+                            last_obs = obs_traj[is_non_nan_ts_ped_i, ped_i]
+                            if len(last_obs) == 0:
+                                is_non_nan_ts_ped_i = ~np.isnan(pred_traj[:, ped_i]).any(-1)
+                                last_obs = pred_traj[is_non_nan_ts_ped_i, ped_i][-1:]
+                            else:
+                                last_obs = last_obs[-1:]
+                            # get only the pred positions that are not nan, and up until current animation timestep
+                            pred_traj_until_now = pred_traj[:frame_i + 1 - obs_len, ped_i]
+                            not_nan_pred_idxs = ~np.isnan(pred_traj_until_now).any(-1)
+                            not_nan_preds = pred_traj_until_now[not_nan_pred_idxs]
+                            last_obs_pred_fake = np.concatenate([last_obs, not_nan_preds])
                         else:
-                            last_obs_pred_fake = pred_traj[0:frame_i + 1 - obs_len, ped_i]
+                            # get only the pred positions that are not nan, and up until current animation timestep
+                            pred_traj_until_now = pred_traj[:frame_i + 1 - obs_len, ped_i]
+                            not_nan_gt_idxs = ~np.isnan(pred_traj_until_now).any(-1)
+                            last_obs_pred_fake = pred_traj_until_now[not_nan_gt_idxs]
                         line_pred_fake.set_data(*last_obs_pred_fake.T)
                         if show_ped_pos and len(ped_pos_texts) > 0:
                             ped_pos_text = f"{circle_fake.center[0]:0.1f}, {circle_fake.center[1]:0.1f}"
