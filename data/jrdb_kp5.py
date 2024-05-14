@@ -36,7 +36,7 @@ class jrdb_preprocess(object):
 
         # trajectory positions information
         split_type = parser.get('split_type', 'full')
-        assert split_type in ['full', 'egomotion', 'no_egomotion']  # only use hst odometry-adjusted data for this preprocessor
+        assert split_type in ['full', 'hst_full', 'egomotion', 'no_egomotion']  # only use hst odometry-adjusted data for this preprocessor
 
         # label_path = f'{data_root}/odometry_adjusted/{seq_name}.csv'
         path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}_kp.npz'
@@ -50,41 +50,6 @@ class jrdb_preprocess(object):
         self.all_kp_data = data
 
         self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=float)
-
-        self.include_robot_data = parser.get('include_robot_data', False)
-        if self.include_robot_data:
-            robot_path = f'{data_root}/../jrdb_egomotion_kiss-icp/{seq_name}.npy'
-            robot_data = np.load(robot_path)
-            self.max_dist_from_robot = parser.get('max_dist_from_robot', 1000.0)
-            # remove agents when their distance from robot > max_dist_from_robot
-            # group by timestep (col 0) and then find distance to the robot at the same timestep
-
-            gt_frames = np.unique(self.gt[:, 0])[..., np.newaxis]
-            assert len(gt_frames) == len(robot_data)
-            robot_data_df = pd.DataFrame(np.concatenate([gt_frames, robot_data], axis=-1), columns=['frames', 'x', 'y', 'theta'])
-            gt_df = pd.DataFrame(self.gt, columns=['frame', 'id', 'x', 'y', 'theta'])
-
-            # Merge and calculate the difference
-            merged_df = pd.merge(gt_df, robot_data_df, left_on='frame', right_on='frames', suffixes=('_gt', '_robot'))
-            merged_df['x_diff'] = merged_df['x_gt'] - merged_df['x_robot']
-            merged_df['y_diff'] = merged_df['y_gt'] - merged_df['y_robot']
-
-            # Final DataFrame with the differences
-            vec_agent_to_robot = merged_df[['x_diff', 'y_diff']].values
-
-            # print(f"before {self.gt.shape[0]=} but after removing agents greater than {self.max_dist_from_robot} meters"
-            #       f" from robot, {np.sum(np.linalg.norm(vec_agent_to_robot, axis=1) < self.max_dist_from_robot)} agent-timesteps were removed")
-            self.gt = self.gt[np.linalg.norm(vec_agent_to_robot, axis=1) < self.max_dist_from_robot]
-
-            # # interweave robot_data into the self.gt data, based on the 0th column, with id (column 1) = 1000
-            # don't need to do bc actually robot is already in the data
-            # robot_data = np.concatenate([gt_frames,
-            #                              np.full((robot_data,1), 1000),
-            #                              robot_data], axis=1)
-            # self.gt = np.concatenate([self.gt, robot_data], axis=0)
-            # self.gt = self.gt[self.gt[:, 0].argsort()]
-            # print(f"{self.gt.shape=}")
-            # import ipdb; ipdb.set_trace()
 
         self.kp_mask = np.arange(33)
 
@@ -211,6 +176,35 @@ class jrdb_preprocess(object):
                 mask[idx] = 1
         return mask
 
+    def get_valid_ids(self, ids, pre_data, fut_data):
+        # combine pre_data and fut_data and stack
+        all_data = np.concatenate([d['pos'] for d in pre_data + fut_data])
+        robot_data = all_data[all_data[:, 1] == 1000]
+        # remove id column
+        robot_data = robot_data[:, [0,2,3,4]]
+
+        min_dist_from_robot = self.parser.get('min_dist_from_robot', 1000.0)
+        # remove agents when their min distance from robot > min_dist_from_robot
+        # group by timestep (col 0) and then find distance to the robot at the same timestep
+
+        gt_frames = np.unique(all_data[:, 0])[..., np.newaxis]
+        assert len(gt_frames) == len(robot_data)
+        robot_data_df = pd.DataFrame(robot_data, columns=['frames', 'x', 'y', 'theta'])
+        gt_df = pd.DataFrame(all_data, columns=['frame', 'id', 'x', 'y', 'theta'])
+
+        # Merge and calculate the difference
+        merged_df = pd.merge(gt_df, robot_data_df, left_on='frame', right_on='frames', suffixes=('_gt', '_robot'))
+        merged_df['x_diff'] = merged_df['x_gt'] - merged_df['x_robot']
+        merged_df['y_diff'] = merged_df['y_gt'] - merged_df['y_robot']
+
+        # group by timestep; find min dist to robot across timesteps; if min dist < min_dist_from_robot, keep agent; o/w remove agent and all associated timesteps for that agent.
+        merged_df['dist_to_robot'] = np.linalg.norm(merged_df[['x_diff', 'y_diff']].values, axis=1)
+        condition_by_ped = merged_df.groupby('id')['dist_to_robot'].min() < min_dist_from_robot
+
+        filtered_ids = [ped_id for ped_id in ids if ped_id in condition_by_ped[condition_by_ped].index]
+
+        return filtered_ids
+
     def __call__(self, frame):
 
         assert frame - self.init_frame >= 0 and frame - self.init_frame <= self.TotalFrame() - 1, 'frame is %d, total is %d' % (
@@ -219,7 +213,10 @@ class jrdb_preprocess(object):
         pre_data = self.get_pre_data(frame)
         fut_data = self.get_fut_data(frame)
 
-        valid_id = np.unique(np.concatenate([pd['pos'][:, 1] for pd in pre_data]))
+        all_ids = np.unique(np.concatenate([pd['pos'][:, 1] for pd in pre_data]))
+        # assert len(valid_id) > 0
+        # return None
+        valid_id = self.get_valid_ids(all_ids, pre_data, fut_data)
         if len(valid_id) == 0:
             return None
 

@@ -75,6 +75,8 @@ class AgentFormerDataset(Dataset):
                 seq_train, seq_val, seq_test = get_jrdb_split_egomotion()
             elif split_type == 'full':
                 seq_train, seq_val, seq_test = get_jrdb_split_full()
+            elif split_type == 'hst_full':
+                seq_train, seq_val, seq_test = get_jrdb_hst_split()
             elif split_type == 'half_and_half':
                 seq_train, seq_val, seq_test = get_jackrabbot_split_half_and_half()
             elif split_type == 'half_and_half_tiny':
@@ -194,6 +196,7 @@ class AgentFormerDataset(Dataset):
 
         from collections import defaultdict
         seq_to_frame_ids = defaultdict(list)
+        seq_to_num_agents = defaultdict(list)
         for idx in tqdm(range(num_total_samples), desc='preprocessing data'):
             seq_index, frame = self.get_seq_and_frame(idx)
             seq = self.sequence[seq_index]
@@ -240,6 +243,7 @@ class AgentFormerDataset(Dataset):
                 print(f"test mode: limiting to ds of size {self.trial_ds_size}")
                 break
             seq_to_frame_ids[self.seq_names[seq_index]].append(frame)
+            seq_to_num_agents[self.seq_names[seq_index]].append(num_agents)
 
         if self.randomize_trial_data:
             print(f"taking elements from different parts of the dataset for diverse data")
@@ -251,14 +255,19 @@ class AgentFormerDataset(Dataset):
         self.sample_list = datas#[::self.data_skip]
 
         print(f"num samples {self.d=}")
-        print(f" {self.d=}")
+        print('total num samples', sum(self.d.values()))
         print(f"num total frames {self.dnf=}")
         print(f"which frame ids (samples) per scene are being used {seq_to_frame_ids=}")
-        print('total num samples', sum(self.d.values()))
+        print(f"total seqs: {sum([len(v) for k,v in seq_to_frame_ids.items()])}")  # 5354
+        num_seq_per_scene = {k: len(v) for k, v in seq_to_frame_ids.items()}
+        print(f"{num_seq_per_scene=}")
+        num_agents_per_scene = {k: sum(v) for k, v in seq_to_num_agents.items()}
+        print(f"{num_agents_per_scene=}")
+        # import ipdb; ipdb.set_trace()
+
         # save all this to ../viz/af_data_stats.npy
         # import numpy as np
         # np.save('../viz/af_data_stats.npy', {'d': self.d, 'dnf': self.dnf, 'seq_to_frame_ids': seq_to_frame_ids})
-        import ipdb; ipdb.set_trace()
 
         # print("differences (af - hst)")
         # hst sequence counts by scene

@@ -130,9 +130,7 @@ def main(args):
             logger.experiment.save('trainer.py')
             logger.experiment.save('viz_utils_plot.py')
             if 'jrdb' in cfg.dataset:
-                logger.experiment.save('data/jrdb.py')
-                logger.experiment.save('data/jrdb_kp.py')
-                logger.experiment.save('data/jrdb_kp2.py')
+                logger.experiment.save('data/jrdb_kp5.py')
                 logger.experiment.save('data/jrdb_split.py')
         else:
             logger = TensorBoardLogger(args.logs_root, name=cfg.id)

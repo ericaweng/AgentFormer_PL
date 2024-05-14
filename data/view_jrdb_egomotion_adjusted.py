@@ -143,14 +143,15 @@ def main(scene, args):
         df['heading'] = df['heading'] + df['frame'].map(rot_map)
 
     # add egomotion in as an additional pedestrian to the df
-    EGO_ID = 1000
-    if EGO_ID not in df['id'].unique():
-        ego_ped_df = pd.DataFrame(
-                {'frame': np.arange(len(images_0)), 'id': EGO_ID, 'x': ego_positions[:, 0],
-                 'y': ego_positions[:, 1],
-                 'heading': ego_rotations})
-        df = pd.concat([df, ego_ped_df], ignore_index=True)
-        df = df.sort_values(by=['frame', 'id']).reset_index(drop=True)
+    if args.include_robot_as_ped:
+        EGO_ID = 1000
+        if EGO_ID not in df['id'].unique():
+            ego_ped_df = pd.DataFrame(
+                    {'frame': np.arange(len(images_0)), 'id': EGO_ID, 'x': ego_positions[:, 0],
+                     'y': ego_positions[:, 1],
+                     'heading': ego_rotations})
+            df = pd.concat([df, ego_ped_df], ignore_index=True)
+            df = df.sort_values(by=['frame', 'id']).reset_index(drop=True)
 
     # save new trajectories
     if args.save_traj:
@@ -238,6 +239,7 @@ if __name__ == "__main__":
     parser.add_argument('--length', '-l', type=int, default=None)
     parser.add_argument('--egomotion_dir', '-ed', type=str, default=None,#"jrdb/rosbag_egomotion/")
                         help='path to egomotion data in numpy format (x y yaw) for generating egomotion-adjusted visualization')
+    parser.add_argument('--include_robot_as_ped', '-ir', action='store_true')
 
     args = parser.parse_args()
     __spec__ = None

@@ -132,6 +132,24 @@ def get_file_handle(path, mode='rt'):
   file_handle = open(path, mode)
   return file_handle
 
+
+def get_robot_kiss_icp(input_path, scene):
+  """Returns robot features from raw data."""
+  odom_data_file = get_file_handle(
+      os.path.join(input_path, scene + '_3d.csv'))
+  df = pd.read_csv(odom_data_file, sep=' ')
+
+  robot = collections.defaultdict(list)
+
+  for row in df.values:
+    ts = row[0]
+    robot[ts] = {
+        'p': np.array([row[1], row[2], row[3]]),
+        'q': np.array([row[7], row[4], row[5], row[6]])
+    }
+
+  return robot
+
 def get_robot(input_path, scene):
   """Returns robot features from raw data."""
   odom_data_file = get_file_handle(
@@ -258,7 +276,7 @@ def jrdb_preprocess_train(args):
   """Preprocesses the raw train split of JRDB."""
   input_path, output_path = args.input_path, args.output_path
   FROM_DETECTIONS = True
-  AGENT_KEYPOINTS = True
+  AGENT_KEYPOINTS = args.save_keypoints#True
 
   subsample = 1
 
@@ -266,6 +284,9 @@ def jrdb_preprocess_train(args):
       os.path.join(input_path, 'train')
   )
   for scene in tqdm.tqdm(scenes):
+    # if scene != 'gates-to-clark-2019-02-28_1':#clark-center-intersection-2019-02-28_0':
+    #     continue
+
     if not FROM_DETECTIONS:
       agents_dict = get_agents_dict(
           os.path.join(input_path, 'train'), scene
@@ -280,8 +301,11 @@ def jrdb_preprocess_train(args):
         agents_dict, max_distance_to_robot=1000
     )
 
-    robot_odom = get_robot(
-        os.path.join(input_path, 'processed', 'odometry', 'train'), scene
+    # robot_odom = get_robot(
+    #     os.path.join(input_path, 'processed', 'odometry', 'train'), scene
+    # )
+    robot_odom = get_robot_kiss_icp(
+        os.path.join('datasets/jrdb_egomotion_kiss-icp_3d'), scene
     )
 
     agents_df = pd.DataFrame.from_dict(
@@ -339,8 +363,7 @@ def jrdb_preprocess_train(args):
       agents_in_odometry_df0 = agents_to_odometry_frame(
           agents_df, robot_df.iloc[::subsample].reset_index(drop=True)
       )
-      print(f"{agents_in_odometry_df0=}")
-      # plot_pedestrian_trajectories(agents_in_odometry_df, scene, 'after_odo', end=1000, skip=10)
+      # plot_pedestrian_trajectories(agents_in_odometry_df0, scene, 'after_odo', end=1000, skip=10)
       # save agents_in_odometry_df to txt
     else:
       agents_in_odometry_df0 = agents_df.rename_axis(['timestep', 'id'])
@@ -375,7 +398,7 @@ def jrdb_preprocess_train(args):
 def main():
     parser = argparse.ArgumentParser(description='JRDB2022 Dataset Preprocessing')
     parser.add_argument('--input_path', '-ip', default='datasets/jrdb', help='Path to jrdb2022 dataset.')
-    parser.add_argument('--output_path', '-op', default='datasets/jrdb_adjusted/odometry_adjusted', help='Path to output folder.')
+    parser.add_argument('--output_path', '-op', default='datasets/jrdb_adjusted/odometry_adjusted', help='Path to output folder.')  #  datasets/jrdb_adjusted_kiss-icp_lower_velodyne
     parser.add_argument('--no_odometry','-no', dest='adjust_w_odometry', action='store_false')
     parser.add_argument('--save_keypoints', '-sk', action='store_true', default=False,
                         help='Whether to save keypoints.')

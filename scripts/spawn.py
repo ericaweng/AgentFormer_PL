@@ -32,18 +32,16 @@ def get_cmds(args):
             cfgs.extend([str(file).split('.yml')[0].split('/')[-1]
                          for file in chain(Path('cfg').rglob(f'{gs}/*.yml'), (Path('cfg').rglob(f'*{gs}*.yml')))])
 
-    for seed in [0,2,3]:
-        for cfg in cfgs:
-            cmd_i += 1
-            if cmd_i <= args.start_from:
-                continue
-            if len(cmds) >= args.max_cmds:
-                break
-            cmd = f"python pl_train.py {cfg} -s {seed} -wb jrdb_tiny -tg 'seed={seed}'"
-            cmds.append(cmd)
-
-
-
+    for cfg in cfgs:
+        cmd_i += 1
+        if cmd_i <= args.start_from:
+            continue
+        if len(cmds) >= args.max_cmds:
+            break
+        cmd = f"python pl_train.py {cfg} -wb jrdb_hist -dr"
+        if 'hst_split' in cfg:
+            cmd += ' -tg "not controlled"'
+        cmds.append(cmd)
 
     print("launching all cmds until cmd_i:", cmd_i)
     assert len(cmds) <= args.max_cmds, f"{len(cmds)} !< {args.max_cmds}"

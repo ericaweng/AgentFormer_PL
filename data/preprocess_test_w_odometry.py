@@ -76,8 +76,7 @@ def get_agents_features_df_with_box(
 def jrdb_preprocess_test(args):
     input_path, output_path = args.input_path, args.output_path
     """Preprocesses the raw test split of JRDB."""
-    AGENT_KEYPOINTS = True
-
+    AGENT_KEYPOINTS = args.save_keypoints
 
     scenes = list_test_scenes(os.path.join(input_path, 'test'))
     subsample = 1
@@ -89,8 +88,11 @@ def jrdb_preprocess_test(args):
                 max_distance_to_robot=1000
         )
 
-        robot_odom = get_robot(
-                os.path.join(input_path, 'processed', 'odometry', 'test'), scene
+        # robot_odom = get_robot(
+        #         os.path.join(input_path, 'processed', 'odometry', 'test'), scene
+        # )
+        robot_odom = get_robot_kiss_icp(
+                os.path.join('datasets/jrdb_egomotion_kiss-icp_3d'), scene
         )
 
         if AGENT_KEYPOINTS:
