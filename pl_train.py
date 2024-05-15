@@ -15,6 +15,7 @@ from data.datamodule import AgentFormerDataModule
 from utils.config import Config
 from trainer import AgentFormerTrainer
 from callbacks import ModelCheckpointCustom
+from viz_utils_plot import SCENE_FRAMES_TO_PLOT
 
 
 def main(args):
@@ -172,37 +173,33 @@ def main(args):
     elif 'test' in args.mode or 'val' in args.mode:
         trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=None,)
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
-    elif 'check_dl' in args.mode:
-        cfg.dataloader_version = 0
-        dl_train0 = dm.get_dataloader('train')
-        cfg.dataloader_version = 2
-        dl_train2 = dm.get_dataloader('train')
-
-        # check that the two dataloaders are the same
-        from check_dataloader import process_data_in_parallel
-        process_data_in_parallel(dl_train0, dl_train2, args.num_workers)
     elif 'viz' in args.mode:
         from viz_utils_plot import _save_viz_gt
-        to_save_data = []
-        test_ds = dm.get_dataset('test')
-        scene_frames = {
-                ('huang-intersection-2019-01-22_0', 1218),
-                ('tressider-2019-04-26_1', 1000),
-                ('serra-street-2019-01-30_0', 589),
-                ('gates-ai-lab-2019-04-17_0', 395),
-                ('discovery-walk-2019-02-28_0', 512),
-                ('discovery-walk-2019-02-28_0', 512),
-                ('tressider-2019-04-26_0', 31),
+        args.test_certain_frames_only = True
+        args.frames = {
+                ('clark-center-2019-02-28_0', 40),
+                ('clark-center-intersection-2019-02-28_0', 40),
         }
-        for scene_name, frame_i in scene_frames:
-            data = test_ds.get_scene(scene_name, frame_i)
-            to_save_data.append({'gt_motion': np.stack(data['fut_motion'], 1),
-            'obs_motion': np.stack(data[f'pre_motion'], 1),
-            'frame': data['frame'],
-            'seq': data['seq'],
-            'data': {'heading_avg': data['heading_avg'], 'heading': data['heading']}
+        dm = AgentFormerDataModule(cfg, args)
+        test_ds = dm.get_dataset('train')
+
+        to_save_data = []
+        for in_data in test_ds:
+            model.model.set_data(in_data)
+            data = model.model()
+            to_save_data.append({'gt_motion': data['fut_motion'],
+                                 'obs_motion': data['pre_motion'],
+                                 'frame': in_data['frame'],
+                                 'seq': in_data['seq'],
+                                 'data': data,
             })
-        anim_save_dir = '../viz/jrdb_af_gt'
+            # to_save_data.append({'gt_motion': np.stack(in_data['fut_motion'], 1),
+            #                      'obs_motion': np.stack(in_data[f'pre_motion'], 1),
+            #                      'frame': in_data['frame'],
+            #                      'seq': in_data['seq'],
+            #                      'data': in_data,
+            # })
+        anim_save_dir = '../viz/jrdb_af_gt_test_keypoint_viz_and_rotate'
         _save_viz_gt(to_save_data, args, 'val', anim_save_dir)
 
     elif 'viz_gt' in args.mode:
@@ -276,36 +273,7 @@ if __name__ == '__main__':
     parser.add_argument('--seq_frame', '-sqf', default=None)
     parser.add_argument('--tag', '-tg', default=None)
     parser.add_argument('--test_certain_frames_only', '-tf', action='store_true', default=False)
-    scene_frames = {
-            ('cubberly-auditorium-2019-04-22_1', 35),
-            ('discovery-walk-2019-02-28_0', 35),
-            ('discovery-walk-2019-02-28_1', 35),
-            ('food-trucks-2019-02-12_0', 35),
-            ('gates-ai-lab-2019-04-17_0', 35),
-            ('gates-basement-elevators-2019-01-17_0', 35),
-            ('gates-foyer-2019-01-17_0', 35),
-            ('gates-to-clark-2019-02-28_0', 35),
-            ('hewlett-class-2019-01-23_0', 35),
-            ('hewlett-class-2019-01-23_1', 35),
-            ('huang-2-2019-01-25_1', 35),
-            ('huang-intersection-2019-01-22_0', 35),
-            ('indoor-coupa-cafe-2019-02-06_0', 35),
-            ('lomita-serra-intersection-2019-01-30_0', 35),
-            ('meyer-green-2019-03-16_1', 35),
-            ('nvidia-aud-2019-01-25_0', 35),
-            ('nvidia-aud-2019-04-18_1', 35),
-            ('nvidia-aud-2019-04-18_2', 35),
-            ('outdoor-coupa-cafe-2019-02-06_0', 35),
-            ('quarry-road-2019-02-28_0', 35),
-            ('serra-street-2019-01-30_0', 35),
-            ('stlc-111-2019-04-19_1', 35),
-            ('stlc-111-2019-04-19_2', 35),
-            ('tressider-2019-03-16_2', 35),
-            ('tressider-2019-04-26_0', 35),
-            ('tressider-2019-04-26_1', 35),
-            ('tressider-2019-04-26_3', 35),
-    }
-    parser.add_argument('--frames', '-ff', default=scene_frames)
+    parser.add_argument('--frames', '-ff', default=SCENE_FRAMES_TO_PLOT)
 
     args = parser.parse_args()
 

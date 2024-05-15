@@ -4,7 +4,7 @@ seed                         : 0
 dataset                      : jrdb
 frame_skip                   : 5
 data_skip                    : 5
-data_root_jrdb               : datasets/jrdb_adjusted_kiss-icp_lower_velodyne
+data_root_jrdb               : datasets/jrdb_adjusted_kiss-icp_lower_velodyne_mdr-15
 
 # ------------------- Feature Extractor -------------------------
 
@@ -30,7 +30,7 @@ split_type: full #sanity #full
 preprocess_data: true
 include_robot_data: true
 use_learned_nan: true  # o/w, use 0 for values where position is unavailable
-max_dist_to_robot: 1000.0
+min_dist_to_robot: 7  #1000.0
 keep_subsamples: false
 #mask: true  # for calculating loss
 #exclude_kpless_data: true

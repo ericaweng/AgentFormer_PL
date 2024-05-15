@@ -3,6 +3,7 @@
 import tqdm
 
 from preprocess_w_odometry import *
+from pyquaternion import Quaternion
 
 AGENT_KEYPOINTS = True
 FROM_DETECTIONS = True
@@ -159,11 +160,21 @@ def jrdb_preprocess_test(args):
         agents_in_odometry_df['x'] = agents_in_odometry_df['p'].apply(lambda x: round(x[0],6))
         agents_in_odometry_df['y'] = agents_in_odometry_df['p'].apply(lambda x: round(x[1],6))
 
+        # save agents_in_odometry_df to txt
         if args.save_trajectories:
-            # assert not os.path.exists(f'{output_path}/{scene}.csv'), f"{output_path}/{scene}.csv already exists"
-            agents_in_odometry_df[['timestep', 'id2', 'x', 'y', 'yaw']].to_csv(f'{output_path}/{scene}.txt', sep=' ', header=False, index=False)
-            print(f"saved trajectories to {output_path=}")
+            agents_in_odometry_df[['timestep', 'id2', 'x', 'y', 'yaw']].to_csv(f'{output_path}/{scene}.txt', sep=' ',
+                                                                               header=False, index=False)
 
+        if args.save_robot:
+            robot_df['x'] = robot_df['p'].apply(lambda x: round(x[0], 6))
+            robot_df['y'] = robot_df['p'].apply(lambda x: round(x[1], 6))
+            robot_df['yaw'] = robot_df['q'].apply(lambda x: Quaternion(x).yaw_pitch_roll[0])
+            if not os.path.exists(f'{output_path}/robot_poses'):
+                os.makedirs(f'{output_path}/robot_poses')
+            robot_df[['x', 'y', 'yaw']].to_csv(f'{output_path}/robot_poses/{scene}_robot.txt', sep=' ', header=False,
+                                               index=False)
+
+        # Transforming the dataframe into the nested dictionary
         if args.save_keypoints:
             nested_dict = {}
             for index, row in agents_in_odometry_df.iterrows():
@@ -175,8 +186,9 @@ def jrdb_preprocess_test(args):
                     nested_dict[timestep] = {}
                 nested_dict[timestep][agent_id] = keypoints
 
-            assert not os.path.exists(f'{output_path}/{scene}_kp.npz'), f"{output_path}/{scene}_kp.npz already exists"
-            np.savez(f'{output_path}/{scene}_kp.npz', nested_dict)
+            if not os.path.exists(f'{output_path}/agent_keypoints'):
+                os.makedirs(f'{output_path}/agent_keypoints')
+            np.savez(f'{output_path}/agent_keypoints/{scene}_kp.npz', nested_dict)
             print(f"saved to {output_path=}")
 
 
@@ -199,6 +211,9 @@ def main():
                         help='Name of tracking method to use.')
     parser.add_argument('--tracking_confidence_threshold', type=float, default=0.0,
                         help='Confidence threshold for tracked agent instance to be included in the processed dataset.')
+    parser.add_argument('--save_robot', '-sr', action='store_true', default=False,
+                        help='Whether to save robot poses.')
+
 
     args = parser.parse_args()
 

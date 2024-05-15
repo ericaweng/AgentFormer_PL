@@ -39,17 +39,15 @@ class jrdb_preprocess(object):
         assert split_type in ['full', 'hst_full', 'egomotion', 'no_egomotion']  # only use hst odometry-adjusted data for this preprocessor
 
         # label_path = f'{data_root}/odometry_adjusted/{seq_name}.csv'
-        path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}_kp.npz'
         # if split == 'train':  # test deva's suggestion
-        label_path = f'{data_root}/{seq_name}.txt'
+        trajectories_path = f'{data_root}/{seq_name}.txt'
         # else:
         #     assert split in ['val', 'test']
-        #     label_path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}.csv'
+        #     trajectories_path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}.csv'
 
-        data = np.load(path, allow_pickle=True)['arr_0'].item()
-        self.all_kp_data = data
-
-        self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=float)
+        self.gt = np.genfromtxt(trajectories_path, delimiter=' ', dtype=float)
+        self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)['arr_0'].item()
+        self.robot_data = np.genfromtxt(f'{data_root}/robot_poses/{seq_name}_robot.txt', delimiter=' ', dtype=float)
 
         self.kp_mask = np.arange(33)
 
@@ -59,6 +57,11 @@ class jrdb_preprocess(object):
         assert np.all(frame_ids_diff == frame_ids_diff[
             0]), f"frame_ids_diff ({frame_ids_diff}) must be equal to frame_ids_diff[0] ({frame_ids_diff[0]})"
 
+        # join frames array to robot data
+        assert len(gt_frames) == len(self.robot_data), 'gt_frames and robot_data must have the same length'
+        self.robot_data = np.concatenate([gt_frames[:,np.newaxis], self.robot_data], axis=1)
+
+        # specify data split split
         fr_start, fr_end = gt_frames.min(), gt_frames.max()
         if 'half_and_half' in parser.get('split_type', 'normal'):
             train_size = len(gt_frames) * 3 // 4
@@ -179,21 +182,16 @@ class jrdb_preprocess(object):
     def get_valid_ids(self, ids, pre_data, fut_data):
         # combine pre_data and fut_data and stack
         all_data = np.concatenate([d['pos'] for d in pre_data + fut_data])
-        robot_data = all_data[all_data[:, 1] == 1000]
-        # remove id column
-        robot_data = robot_data[:, [0,2,3,4]]
 
-        min_dist_from_robot = self.parser.get('min_dist_from_robot', 1000.0)
+        min_dist_from_robot = self.parser.get('min_dist_to_robot', 1000.0)
         # remove agents when their min distance from robot > min_dist_from_robot
         # group by timestep (col 0) and then find distance to the robot at the same timestep
 
-        gt_frames = np.unique(all_data[:, 0])[..., np.newaxis]
-        assert len(gt_frames) == len(robot_data)
-        robot_data_df = pd.DataFrame(robot_data, columns=['frames', 'x', 'y', 'theta'])
+        robot_data_df = pd.DataFrame(self.robot_data, columns=['frames', 'x', 'y', 'theta'])
         gt_df = pd.DataFrame(all_data, columns=['frame', 'id', 'x', 'y', 'theta'])
 
         # Merge and calculate the difference
-        merged_df = pd.merge(gt_df, robot_data_df, left_on='frame', right_on='frames', suffixes=('_gt', '_robot'))
+        merged_df = pd.merge(gt_df, robot_data_df, left_on='frame', right_on='frames', suffixes=('_gt', '_robot'), how='inner')
         merged_df['x_diff'] = merged_df['x_gt'] - merged_df['x_robot']
         merged_df['y_diff'] = merged_df['y_gt'] - merged_df['y_robot']
 
@@ -207,8 +205,8 @@ class jrdb_preprocess(object):
 
     def __call__(self, frame):
 
-        assert frame - self.init_frame >= 0 and frame - self.init_frame <= self.TotalFrame() - 1, 'frame is %d, total is %d' % (
-        frame, self.TotalFrame())
+        assert frame - self.init_frame >= 0 and frame - self.init_frame <= self.TotalFrame() - 1, (
+                'frame is %d, total is %d' % (frame, self.TotalFrame()))
 
         pre_data = self.get_pre_data(frame)
         fut_data = self.get_fut_data(frame)

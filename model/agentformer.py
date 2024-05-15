@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 # torch.set_printoptions(precision=4, linewidth=90, sci_mode=False, threshold=8, edgeitems=5)
 from collections import defaultdict
+from pyquaternion import Quaternion
 
 from .common.mlp import MLP
 from .agentformer_loss import loss_func
@@ -818,6 +819,8 @@ class AgentFormer(nn.Module):
     def set_data(self, data):
         device = self.device
         pre_keys = [k for k in data.keys() if k.split('_')[0] in ['pre', 'fut', 'heading'] and 'data' not in k]
+
+        # downsample sequences randomly if too many agents
         if self.training and len(data['pre_motion']) > self.max_train_agent:
             in_data = {}
             ind = np.random.choice(len(data['pre_motion']), self.max_train_agent, replace=False).tolist()
@@ -829,11 +832,13 @@ class AgentFormer(nn.Module):
         else:
             in_data = data
 
+        # set meta params for this sequences
         self.data = defaultdict(lambda: None)
         self.data['cfg'] = self.cfg
         self.data['batch_size'] = len(in_data['pre_motion'])
         self.data['agent_num'] = len(in_data['pre_motion'])
 
+        # stack data into torch.Tensors
         for key in [k for k in in_data.keys() if k.split('_')[0] in ['pre', 'fut'] and 'data' not in k]:
             if isinstance(in_data[key][0], np.ndarray):
                 in_data[key] = [torch.tensor(a).to(device) for a in in_data[key]]
@@ -864,9 +869,9 @@ class AgentFormer(nn.Module):
             else:
                 self.data['heading_avg'] = torch.tensor(np.array(in_data['heading_avg'])).float().to(device)
 
-        #########################
-        ### DATA AUGMENTATION ###
-        #########################
+        ################################################
+        ##### DATA AUGMENTATION AND NORMALIZATION ######
+        ################################################
         # rotate the scene randomly during training to prevent scene-specific overfitting
         if self.rand_rot_scene and self.training:
             if 'cam_id' in self.input_type:  # only rotate in increments of 2/5*np.pi because there are 5 cameras
@@ -891,19 +896,38 @@ class AgentFormer(nn.Module):
                 self.data['pre_heading'] += theta
             if 'fut_heading' in in_data and in_data['fut_heading'] is not None:
                 self.data['fut_heading'] += theta
-            # TODO: add functionality for poses
+            # TODO: rotate keypoints if available
+            if ('pre_kp' in in_data and in_data['pre_kp'] is not None
+                    and 'fut_kp' in in_data and in_data['fut_kp'] is not None):
+                for key in ['pre_kp', 'fut_kp']:
+                    rot_mat = torch.tensor([[torch.cos(theta),-torch.sin(theta), 0],
+                                            [torch.sin(theta), torch.cos(theta), 0],
+                                            [0, 0, 1]]).to(self.data['pre_kp'].device)
+                    self.data[key] = self.data[key] @ rot_mat.T
+                    # import ipdb; ipdb.set_trace()
+                    # rot_keypoints = []
+                    # for keypoint in self.data[key].reshape(-1, self.kp_dim):
+                    #     if torch.isnan(keypoint).any():
+                    #         rot_keypoints.append(keypoint)
+                    #     else:
+                    #         random_rotation = Quaternion(axis=[0, 0, 1], radians=theta)
+                    #         rotated_keypoint = random_rotation.rotate(keypoint)
+                    #         rot_keypoints.append(rotated_keypoint)
+                    # self.data[key] = torch.tensor(rot_keypoints).reshape(self.data[key].shape)
+
         else:
             theta = torch.zeros(1).to(device)
             for key in ['pre_motion', 'fut_motion', 'fut_motion_orig']:
                 self.data[f'{key}_scene_norm'] = self.data[key] - self.data['scene_orig']   #  subtract last obs, meaned over agents
         self.data['train_theta'] = theta  # save for plotting
 
-        # Pose normalization
+        # Pose normalization (currently n/a)
         if 'kp_norm' in self.input_type and 'kp_norm' in self.input_type:
             for key in ['pre_kp', 'fut_kp']:
                 # 0 = hip joint is subtracted from each ped's joints to normalize
                 self.data[f'{key}_norm'] = self.data[key]# - self.data[key][:,:,:1]  # already normalized in data processing tho
 
+        # motion and keypoint velocity features
         self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
         self.data['fut_vel'] = self.data['fut_motion'] - torch.cat([self.data['pre_motion'][[-1]], self.data['fut_motion'][:-1, :]])
         if np.any(['kp_vel' in self.input_type]):
@@ -911,7 +935,7 @@ class AgentFormer(nn.Module):
             self.data['fut_kp_vel'] = self.data['fut_kp'] - torch.cat([self.data['pre_kp'][[-1]], self.data['fut_kp'][:-1, :]])
         self.data['cur_motion'] = self.data['pre_motion'][[-1]]
         # another norm prediction option for norming each ped independently of one another
-        # (we are currently using scene_norm, which normes each ped by a single mean scene point)
+        # (we are currently using scene_norm, which norms each ped by a single mean scene point)
         # self.data['pre_motion_norm'] = self.data['pre_motion'][:-1] - self.data['cur_motion']   # subtract last obs pos
         # self.data['fut_motion_norm'] = self.data['fut_motion'] - self.data['cur_motion']
 

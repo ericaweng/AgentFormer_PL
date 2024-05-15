@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.gridspec as gridspec
 
 
 COCO_CONNECTIVITIES = [[1, 2], [0, 4], [3, 4], [8, 10], [5, 7], [10, 13], [14, 16], [4, 5], [7, 12],
@@ -18,6 +19,11 @@ BLAZEPOSE_CONNECTIVITIES = [(1, 2), (1, 5), (2, 3), (3, 7), (5, 6), (6, 7), (7, 
                             (18, 20), (20, 22), (11, 23), (12, 24), (23, 24), (23, 25), (24, 26), (25, 27), (27, 29),
                             (29, 31), (26, 28), (28, 30), (30, 32)]
 
+def is_nan_or_0(array):
+    if len(array.shape) == 1:
+        return np.isnan(array).bool().all(-1) or np.isclose(array, 0, 1e-3, 1e-3).all(-1)
+    return np.isnan(array).bool().all(-1) | np.isclose(array, 0, 1e-3, 1e-3).all(-1)
+
 def fig_to_array(fig):
     fig.canvas.draw()
     fig_image = np.array(fig.canvas.renderer._renderer)
@@ -25,8 +31,11 @@ def fig_to_array(fig):
     return fig_image
 
 
-def ax_set_up(ax, stuff=None, bounds=None):
+def ax_set_up(ax, stuff=None, bounds=None, invert_yaxis=False):
     """ stuff is (N_examples, 2 or 3) """
+    if invert_yaxis:
+        ax.invert_yaxis()  # to match the 2d bev trajectory plot better
+
     if bounds is None:
         assert stuff is not None
         center = (stuff.min(axis=0) + stuff.max(axis=0)) / 2
@@ -81,7 +90,7 @@ def get_grid_size_from_num_grids(n):
 
 
 def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plotting_objs=None,
-                   plot_size=None, obs_len=None, pred_len=None):
+                   plot_size=None, obs_len=None, pred_len=None, save_test_frame=False):
     """
     AO: the animation object to use. different AOs plot different things, and take different arguments.
         also, AO can be a list of different Animatin objects to use.
@@ -97,31 +106,39 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
     if pred_len is None:
         pred_len = list_of_arg_dicts[-1]['gt_traj'].shape[0]
 
+    extra_for_3dkp = 3 if np.any([po == AnimObjPose3d for po in list_of_plotting_objs]) else 0
     if plot_size is None:
-        num_plots_height, num_plots_width = get_grid_size_from_num_grids(len(list_of_arg_dicts))
+        num_plots_height, num_plots_width = get_grid_size_from_num_grids(len(list_of_arg_dicts) + extra_for_3dkp)
     else:
         num_plots_height, num_plots_width = plot_size
         assert num_plots_width * num_plots_height >= len(list_of_arg_dicts), \
             f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
 
-    # make plots grid
-    fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
+    # fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
+    # gs = gridspec.GridSpec(num_plots_height, num_plots_width, figure=fig)
+
+    # Create a figure with specified size to better fit the subplots
+    fig = plt.figure(figsize=(12, 6))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[2, 1])  # Adjust the ratio to give more space to the 3D plot if necessary
+
+    # 3D subplot taking up the first two-thirds of the figure
+    ax1 = fig.add_subplot(gs[0, 0], projection='3d')
+
     axes = []
     for i, po in enumerate(list_of_plotting_objs):
         if po == AnimObjPose3d:
-            ax = fig.add_subplot(num_plots_height, num_plots_width, i + 1, projection='3d')
-            # set viewing angle
+            ax = fig.add_subplot(gs[0, 0], projection='3d')
+            # ax = fig.add_subplot(gs[:1, :2], projection='3d')
             ax.view_init(elev=20, azim=40)
         else:
             assert po == AnimObjPose2d or po == AnimObjBEVTraj2d
-            ax = fig.add_subplot(num_plots_height, num_plots_width, i + 1)
-        axes.append(ax)
+            # total_i = i + extra_for_3dkp
+            # height_i = total_i // num_plots_width
+            # width_i = total_i % num_plots_width
+            # ax = fig.add_subplot(gs[height_i, width_i])
+            ax = fig.add_subplot(gs[0,1])
 
-    # fig, axes = plt.subplots(num_plots_height, num_plots_width)
-    # if isinstance(axes, np.ndarray):
-    #     axes = axes.flatten()
-    # else:
-    #     axes = [axes]
+        axes.append(ax)
 
     fig.subplots_adjust(hspace=0.25)
     if title is not None:
@@ -136,7 +153,7 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
                     assert val.shape[-1] == bounds2d[-1].shape[-1], \
                         f"all trajectories must have same number of dimensions ({val.shape[-1]} != {bounds2d[-1].shape[-1]})"
                 # bounds2d.append(np.array(val).reshape(-1, val.shape[-1]))
-                bounds2d.append(val[np.all(~np.isnan(val), -1)].reshape(-1, val.shape[-1]))
+                bounds2d.append(val[~is_nan_or_0(val)].reshape(-1, val.shape[-1]))
     bounds2d = np.concatenate(bounds2d)
     bounds2d = [*(np.min(bounds2d, axis=0) - 0.2), *(np.max(bounds2d, axis=0) + 0.2)]
     assert len(bounds2d) in [4, ], f"bounds2d must be of length 4 , not {len(bounds2d)}"
@@ -156,7 +173,11 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
         nonlocal animation_frames, fig
         for ag in anim_objects:
             ag.update(frame_i)
-        animation_frames.append(fig_to_array(fig))
+        array_fig = fig_to_array(fig)
+        # save test_frame
+        if frame_i==0 and save_test_frame:
+            plt.imsave(f"{save_fn.split('.')[0]}_test_frame.png", array_fig)
+        animation_frames.append(array_fig)
 
     anim = animation.FuncAnimation(fig, mass_update, frames=obs_len + pred_len, interval=500)
 
@@ -216,6 +237,8 @@ class AnimObjPose3d:
     def plot_traj_anim(self, gt_history, gt_future, positions, ax=None, bounds=None):
         """
         Create a 3D video of the pose.
+        gt_history: shape (num_peds, num_kp=33, obs_len, 3)
+        positions: shape (num_peds, obs_len, 3)
         """
         obs_len = gt_history.shape[2]
 
@@ -228,7 +251,8 @@ class AnimObjPose3d:
             gt_future = gt_future * 1 + positions[:, :, obs_len:]
 
         stuff = np.concatenate([gt_history, gt_future], axis=2).reshape(-1, 3)
-        ax_set_up(ax, stuff, bounds)
+
+        ax_set_up(ax, stuff, bounds, True)
 
         def update(frame_idx):
             """
@@ -236,7 +260,7 @@ class AnimObjPose3d:
             """
             nonlocal obs_len
             ax.cla()  # Clear the axis to draw a new pose
-            ax_set_up(ax, stuff, bounds)
+            ax_set_up(ax, stuff, bounds, True)
             if frame_idx < obs_len:
                 draw_pose_3d_single_frame(gt_history, ax, True, frame_idx=frame_idx)
             else:
@@ -355,7 +379,7 @@ class AnimObjBEVTraj2d:
             if pred_traj is not None:
                 all_traj = np.concatenate([all_traj, *[p.reshape(-1, 2) for ptf in pred_traj for p in ptf]])
 
-            all_traj = all_traj[np.all(~np.isnan(all_traj), 1)]
+            all_traj = all_traj[~is_nan_or_0(all_traj)]
             x_low, x_high = np.min(all_traj[:, 0]) - ped_radius, np.max(all_traj[:, 0]) + ped_radius
             y_low, y_high = np.min(all_traj[:, 1]) - ped_radius, np.max(all_traj[:, 1]) + ped_radius
         else:  # set bounds as specified
@@ -415,10 +439,10 @@ class AnimObjBEVTraj2d:
 
             # plot ground-truth obs and pred
             if obs_traj is not None:
-                is_non_nan_ts_ped_i = ~np.isnan(obs_traj[:, ped_i]).any(-1)
+                is_non_nan_ts_ped_i = ~is_nan_or_0(obs_traj[:, ped_i])
                 obs_pos = obs_traj[is_non_nan_ts_ped_i, ped_i]
                 if obs_pos.shape[0] == 0:
-                    is_non_nan_ts_ped_i = ~np.isnan(gt_traj[:, ped_i]).any(-1)
+                    is_non_nan_ts_ped_i = ~is_nan_or_0(gt_traj[:, ped_i])
                     obs_pos = gt_traj[is_non_nan_ts_ped_i, ped_i][0]
                 else:
                     obs_pos = obs_pos[0]
@@ -429,7 +453,7 @@ class AnimObjBEVTraj2d:
 
                 # Plot body heading direction
                 if last_heading is not None:
-                    is_non_nan_ts_ped_i = ~np.isnan(obs_traj[:, ped_i]).any(-1)
+                    is_non_nan_ts_ped_i = ~is_nan_or_0(obs_traj[:, ped_i])
                     obs_pos = obs_traj[is_non_nan_ts_ped_i, ped_i][0]
                     last_obs_circles.append(ax.add_artist(plt.Circle(obs_pos, ped_radius, fill=True,
                                                                      alpha=0.3, color=color_real, zorder=10,
@@ -448,7 +472,7 @@ class AnimObjBEVTraj2d:
 
             if gt_traj is not None:
                 if obs_traj is None:
-                    is_non_nan_ts_ped_i = ~np.isnan(gt_traj[:, ped_i]).any(-1)
+                    is_non_nan_ts_ped_i = ~is_nan_or_0(gt_traj[:, ped_i])
                     gt_pos = gt_traj[is_non_nan_ts_ped_i, ped_i][0]
                     circles_gt.append(ax.add_artist(plt.Circle(gt_pos, ped_radius, fill=True, color=color_real, zorder=0)))
                 line_pred_gt = mlines.Line2D(*gt_traj[0:1].T, color=color_real, marker=None, linestyle='-', linewidth=5,
@@ -456,7 +480,7 @@ class AnimObjBEVTraj2d:
                 lines_pred_gt.append(ax.add_artist(line_pred_gt))
 
             if pred_traj is not None:  # plot fake pred trajs
-                is_non_nan_ts_ped_i = ~np.isnan(pred_traj[:, ped_i]).any(-1)
+                is_non_nan_ts_ped_i = ~is_nan_or_0(pred_traj[:, ped_i])
                 pred_pos = pred_traj[is_non_nan_ts_ped_i, ped_i][0]
                 circle_fake = plt.Circle(pred_pos, ped_radius, fill=True,
                                          color=color_fake,
@@ -545,7 +569,7 @@ class AnimObjBEVTraj2d:
             if frame_i < obs_len:
                 for ped_i, (circle_gt, line_obs_gt) in enumerate(zip(circles_gt, lines_obs_gt)):
                     pos_gt = obs_traj[frame_i, ped_i]
-                    if np.isnan(pos_gt).any():
+                    if is_nan_or_0(pos_gt):
                         circle_gt.set_visible(False)
                     else:
                         circle_gt.set_visible(True)
@@ -553,7 +577,7 @@ class AnimObjBEVTraj2d:
 
                     # get only the obs positions that are not nan, and up until current animation timestep
                     obs_traj_until_now = obs_traj[0:frame_i + 1, ped_i]
-                    not_nan_obs_idxs = ~np.isnan(obs_traj_until_now).any(-1)
+                    not_nan_obs_idxs = ~is_nan_or_0(obs_traj_until_now)
                     obs_traj_not_nan = obs_traj_until_now[not_nan_obs_idxs]
                     line_obs_gt.set_data(*obs_traj_not_nan.T)
 
@@ -608,13 +632,13 @@ class AnimObjBEVTraj2d:
                     # assert len(circles_gt) == len(lines_pred_gt) == len(ped_texts), f'{len(circles_gt)}, {len(lines_pred_gt)}, {len(ped_texts)} should all be equal'
                     for ped_i, (circle_gt, line_pred_gt) in enumerate(zip(circles_gt, lines_pred_gt)):
                         pos_gt = gt_traj[frame_i - obs_len, ped_i]
-                        if np.isnan(pos_gt).any():
+                        if is_nan_or_0(pos_gt):
                             circle_gt.set_visible(False)
                         else:
                             circle_gt.set_visible(True)
                             circle_gt.center = pos_gt
                         if obs_traj is not None:
-                            is_non_nan_ts_ped_i = ~np.isnan(obs_traj[:, ped_i]).any(-1)
+                            is_non_nan_ts_ped_i = ~is_nan_or_0(obs_traj[:, ped_i])
                             last_obs = obs_traj[is_non_nan_ts_ped_i, ped_i]
                             if len(last_obs) == 0:
                                 is_non_nan_ts_ped_i = (gt_traj[:, ped_i]!=0).any(-1)
@@ -643,22 +667,22 @@ class AnimObjBEVTraj2d:
                     for ped_i, (circle_fake, line_pred_fake) in enumerate(zip(circles_fake, lines_pred_fake)):
                         circle_fake.center = pred_traj[frame_i - obs_len, ped_i]
                         if obs_traj is not None:
-                            is_non_nan_ts_ped_i = ~np.isnan(obs_traj[:, ped_i]).any(-1)
+                            is_non_nan_ts_ped_i = ~is_nan_or_0(obs_traj[:, ped_i])
                             last_obs = obs_traj[is_non_nan_ts_ped_i, ped_i]
                             if len(last_obs) == 0:
-                                is_non_nan_ts_ped_i = ~np.isnan(pred_traj[:, ped_i]).any(-1)
+                                is_non_nan_ts_ped_i = ~is_nan_or_0(pred_traj[:, ped_i])
                                 last_obs = pred_traj[is_non_nan_ts_ped_i, ped_i][-1:]
                             else:
                                 last_obs = last_obs[-1:]
                             # get only the pred positions that are not nan, and up until current animation timestep
                             pred_traj_until_now = pred_traj[:frame_i + 1 - obs_len, ped_i]
-                            not_nan_pred_idxs = ~np.isnan(pred_traj_until_now).any(-1)
+                            not_nan_pred_idxs = ~is_nan_or_0(pred_traj_until_now)
                             not_nan_preds = pred_traj_until_now[not_nan_pred_idxs]
                             last_obs_pred_fake = np.concatenate([last_obs, not_nan_preds])
                         else:
                             # get only the pred positions that are not nan, and up until current animation timestep
                             pred_traj_until_now = pred_traj[:frame_i + 1 - obs_len, ped_i]
-                            not_nan_gt_idxs = ~np.isnan(pred_traj_until_now).any(-1)
+                            not_nan_gt_idxs = ~is_nan_or_0(pred_traj_until_now)
                             last_obs_pred_fake = pred_traj_until_now[not_nan_gt_idxs]
                         line_pred_fake.set_data(*last_obs_pred_fake.T)
                         if show_ped_pos and len(ped_pos_texts) > 0:

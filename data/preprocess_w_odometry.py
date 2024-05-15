@@ -364,7 +364,6 @@ def jrdb_preprocess_train(args):
           agents_df, robot_df.iloc[::subsample].reset_index(drop=True)
       )
       # plot_pedestrian_trajectories(agents_in_odometry_df0, scene, 'after_odo', end=1000, skip=10)
-      # save agents_in_odometry_df to txt
     else:
       agents_in_odometry_df0 = agents_df.rename_axis(['timestep', 'id'])
 
@@ -376,8 +375,17 @@ def jrdb_preprocess_train(args):
     agents_in_odometry_df['x'] = agents_in_odometry_df['p'].apply(lambda x: round(x[0],6))
     agents_in_odometry_df['y'] = agents_in_odometry_df['p'].apply(lambda x: round(x[1],6))
 
+    # save agents_in_odometry_df to txt
     if args.save_trajectories:
       agents_in_odometry_df[['timestep', 'id2', 'x', 'y', 'yaw']].to_csv(f'{output_path}/{scene}.txt', sep=' ', header=False, index=False)
+
+    if args.save_robot:
+      robot_df['x'] = robot_df['p'].apply(lambda x: round(x[0],6))
+      robot_df['y'] = robot_df['p'].apply(lambda x: round(x[1],6))
+      robot_df['yaw'] = robot_df['q'].apply(lambda x: Quaternion(x).yaw_pitch_roll[0])
+      if not os.path.exists(f'{output_path}/robot_poses'):
+        os.makedirs(f'{output_path}/robot_poses')
+      robot_df[['x', 'y', 'yaw']].to_csv(f'{output_path}/robot_poses/{scene}_robot.txt', sep=' ', header=False, index=False)
 
     # Transforming the dataframe into the nested dictionary
     if args.save_keypoints:
@@ -391,7 +399,9 @@ def jrdb_preprocess_train(args):
           nested_dict[timestep] = {}
         nested_dict[timestep][agent_id] = keypoints
 
-      np.savez(f'{output_path}/{scene}_kp.npz', nested_dict)
+      if not os.path.exists(f'{output_path}/agent_keypoints'):
+        os.makedirs(f'{output_path}/agent_keypoints')
+      np.savez(f'{output_path}/agent_keypoints/{scene}_kp.npz', nested_dict)
       print(f"saved to {output_path=}")
 
 
@@ -409,6 +419,8 @@ def main():
                         help='Maximum distance of agent to the robot to be included in the processed dataset.')
     parser.add_argument('--max_pc_distance_to_robot', type=float, default=10.,
                         help='Maximum distance of pointcloud point to the robot to be included in the processed dataset.')
+    parser.add_argument('--save_robot', '-sr', action='store_true', default=False,
+                        help='Whether to save robot poses.')
 
     args = parser.parse_args()
 
