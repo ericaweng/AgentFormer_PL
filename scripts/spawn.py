@@ -30,7 +30,9 @@ def get_cmds(args):
         assert args.glob_str is not None, "must specify --cfgs or --glob_str"
         for gs in args.glob_str:
             cfgs.extend([str(file).split('.yml')[0].split('/')[-1]
-                         for file in chain(Path('cfg').rglob(f'{gs}/*.yml'), (Path('cfg').rglob(f'*{gs}*.yml')))])
+                         for file in chain(Path('cfg').rglob(f'*{gs}*/*.yml'), (Path('cfg').rglob(f'*{gs}*.yml')))])
+    cfgs = set(cfgs)
+    print(f"{cfgs=}")
 
     for cfg in cfgs:
         cmd_i += 1
@@ -38,7 +40,7 @@ def get_cmds(args):
             continue
         if len(cmds) >= args.max_cmds:
             break
-        cmd = f"python pl_train.py {cfg} -wb jrdb_hist -dr"
+        cmd = f"python pl_train.py {cfg} -wb jrdb_hist"
         if 'hst_split' in cfg:
             cmd += ' -tg "not controlled"'
         cmds.append(cmd)
@@ -64,8 +66,7 @@ def get_cmds_old(args):
         cfgs = []
         assert args.glob_str is not None, "must specify --cfgs or --glob_str"
         for gs in args.glob_str:
-            cfgs.extend([str(file).split('.yml')[0].split('/')[-1]
-                         for file in Path('cfg').rglob(f'*{gs}*.yml')])
+            cfgs.extend([str(file).split('.yml')[0].split('/')[-1] for file in Path('cfg').rglob(f'*{gs}*.yml')])
 
     for cfg in cfgs:
         # check if model exists

@@ -3,16 +3,15 @@
 seed                         : 0
 dataset                      : jrdb
 frame_skip                   : 5
-data_skip                    : 10
-#data_root_jrdb               : datasets/jrdb_adjusted_kiss-icp_lower_velodyne_old_mdr-1000_w_robot_data_as_id-1000
-data_root_jrdb               : datasets/jrdb_adjusted_kiss-icp_lower_velodyne_mdr-15
+data_skip                    : 1
+data_root_jrdb               : datasets/jrdb_adjusted_kiss-icp_lower_velodyne_mdr-1000_ss3d_mot
 
 # ------------------- Feature Extractor -------------------------
 
 past_frames                  : 7
 future_frames                : 12
 min_past_frames              : 7  # jic
-min_future_frames            : 1 #2 # jic
+min_future_frames            : 12 # #2 # jic
 
 traj_scale                   : 1
 motion_dim                   : 2
@@ -26,17 +25,19 @@ tf_model_dim: 256
 tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
-dataloader_version: 5
-split_type: full # hst_full #sanity #full
-#preprocess_data: true
-include_robot_data: true
-use_learned_nan: true  # o/w, use 0 for values where position is unavailable
-min_dist_to_robot: 1000 #7
-keep_subsamples: false
+dataloader_version: 6
+split_type: half_and_half
+#exclude_kpless_data: true
+preprocess_data: true
+#include_robot_data: true
+#mask_nan_after_embedding: false  # whether to mask out nans after input embedding, or before
+#use_learned_nan: false  # o/w, use 0 for values where position is unavailable. only can be true if mask_nan_after_embedding is true
+#min_dist_to_robot: 7
+keep_subsamples: false  # during eval
 #mask: true  # for calculating loss
 #exclude_kpless_data: true
 #zero_kpless_data: true  # zero out kpless data during train and val
-input_type: ['scene_norm', 'vel', 'heading_all', 'kp_norm', 'kp_vel']
+input_type: ['scene_norm', 'vel', 'heading', 'heading_avg']
 ckpt_monitor: 'val/ADE_marginal_agent'
 pred_type: 'scene_norm'
 sn_out_type: 'norm'

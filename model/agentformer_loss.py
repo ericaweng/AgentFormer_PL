@@ -7,7 +7,7 @@ def compute_motion_mse(data, cfg):
     diff *= mask.unsqueeze(2)
     loss_unweighted = diff.pow(2).sum() 
     if cfg.get('normalize', True):
-        loss_unweighted /= diff.shape[0]
+        loss_unweighted /= diff.shape[0]  # divide by num peds
     loss = loss_unweighted * cfg['weight']
     return loss, loss_unweighted
 

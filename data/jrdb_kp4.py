@@ -31,20 +31,24 @@ class jrdb_preprocess(object):
 
         # trajectory positions information
         split_type = parser.get('split_type', 'full')
-        assert split_type in ['full', 'egomotion', 'no_egomotion']  # only use hst odometry-adjusted data for this preprocessor
+        # assert split_type in ['full', 'egomotion', 'no_egomotion']  # only use hst odometry-adjusted data for this preprocessor
 
         # label_path = f'{data_root}/odometry_adjusted/{seq_name}.csv'
-        path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}_kp.npz'
-        if split == 'train':  # test deva's suggestion
-            label_path = f'{data_root}/{seq_name}.txt'
-        else:
-            assert split in ['val', 'test']
-            label_path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}.csv'
+        # path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}_kp.npz'
+        # if split == 'train':  # test deva's suggestion
+        #     label_path = f'{data_root}/{seq_name}.txt'
+        # else:
+        #     assert split in ['val', 'test']
+        #     label_path = f'{data_root}/../jrdb_adjusted/odometry_adjusted/{seq_name}.csv'
 
-        data = np.load(path, allow_pickle=True)['arr_0'].item()
-        self.all_kp_data = data
-
-        self.gt = np.genfromtxt(label_path, delimiter=' ', dtype=float)
+        trajectories_path = f'{data_root}/{seq_name}.txt'
+        self.gt = np.genfromtxt(trajectories_path, delimiter=' ', dtype=float)
+        self.kp_source = parser.get('kp_source', 'blazepose')
+        if self.kp_source == 'blazepose':
+            self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)['arr_0'].item()
+        elif self.kp_source == 'hmr2':
+            self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)['arr_0'].item()
+        self.robot_data = np.genfromtxt(f'{data_root}/robot_poses/{seq_name}_robot.txt', delimiter=' ', dtype=float)
 
         self.kp_mask = np.arange(33)
 
@@ -126,7 +130,7 @@ class jrdb_preprocess(object):
                     break
             if is_invalid:
                 continue
-            for frame in fut_data[:self.min_future_frames]:
+            for frame_i, frame in enumerate(fut_data[:self.min_future_frames]):
                 if isinstance(frame['pos'], list) or idx not in frame['pos'][:,1] or self.exclude_kpless_data and idx not in frame['kp']:
                     is_invalid = True
                     break
@@ -145,13 +149,14 @@ class jrdb_preprocess(object):
         return valid_id
 
     def get_heading(self, cur_data, valid_id):
-        heading = np.zeros((len(valid_id)))
+        headings = []
         for i, idx in enumerate(valid_id):
-            heading[i] = cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()[self.heading_ind]
-        return heading  # don't need transformed theta given data preprocessed w odometry
+            headings.append(cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()[self.heading_ind])
+        assert len(headings) == len(valid_id)
+        return headings
 
     def get_heading_avg(self, all_data, valid_id):
-        heading = np.zeros((len(valid_id)))
+        avg_headings = []
         for i, idx in enumerate(valid_id):
             headings_this_ped = []
             for ts in range(len(all_data)):
@@ -161,8 +166,8 @@ class jrdb_preprocess(object):
                 h = h[self.heading_ind]
                 headings_this_ped.append((np.cos(h), np.sin(h)))
             heading_avg = np.stack(headings_this_ped).mean(0)
-            heading[i] = np.arctan2(heading_avg[1], heading_avg[0])
-        return heading  # don't need transformed theta given data preprocessed w odometry
+            avg_headings.append(np.arctan2(heading_avg[1], heading_avg[0]))
+        return avg_headings
 
     def format_data(self, data, num_frames, valid_id, is_pre=False):
         motion = []

@@ -4,10 +4,11 @@ from scipy.spatial.distance import pdist, squareform, cdist
 from functools import partial
 
 
-def compute_ADE_joint(pred_arr, gt_arr, return_sample_vals=False, return_ped_vals=False, return_argmin=False, **kwargs):
+def compute_ADE_joint(pred_arr, gt_arr, pred_mask=None, return_sample_vals=False, return_ped_vals=False, return_argmin=False, **kwargs):
     """
     pred_arr: (num_peds, samples, frames, 2)
     gt_arr: (num_peds, frames, 2)
+    pred_mask: (num_peds, frames)  1 if valid, 0 if not
     return_sample_vals: if true, returns an array, where each element reperesents the avg pedestrian ADE for each sample
     return_argmin: if true, returns the index of sample that has min Joint ADE
     """
@@ -15,9 +16,14 @@ def compute_ADE_joint(pred_arr, gt_arr, return_sample_vals=False, return_ped_val
     gt_arr = np.array(gt_arr)
     diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
     dist = np.linalg.norm(diff, axis=-1)  # num_peds x samples x frames
-    ade_per_ped_sample = dist.mean(axis=-1)  # num_peds x samples
-    ade_per_sample = ade_per_ped_sample.mean(axis=0)  # samples
-    ade = ade_per_sample.min(axis=0)  # (1, )
+    if pred_mask is not None:
+        dist = dist * pred_mask[:, None]
+        num_valid_ped_timesteps = pred_mask.sum(-1)  # num_peds x samples
+        ade_per_ped_sample = dist.sum(axis=-1) / num_valid_ped_timesteps
+    else:
+        ade_per_ped_sample = dist.mean(axis=-1)  # num_peds x samples  (mean over timesteps)
+    ade_per_sample = ade_per_ped_sample.mean(axis=0)  # samples  (mean over peds)
+    ade = ade_per_sample.min(axis=0)  # (1, )  (min over samples)
     return_vals = [ade]
     if return_sample_vals:  # for each sample: the avg ped ADE
         return_vals.append(ade_per_sample)
@@ -34,7 +40,7 @@ def compute_ADE_joint(pred_arr, gt_arr, return_sample_vals=False, return_ped_val
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
-def compute_FDE_joint(pred_arr, gt_arr, return_sample_vals=False, return_ped_vals=False, return_argmin=False, **kwargs):
+def compute_FDE_joint(pred_arr, gt_arr, pred_mask=None, return_sample_vals=False, return_ped_vals=False, return_argmin=False, **kwargs):
     """
     pred_arr: (num_peds, samples, frames, 2)
     gt_arr: (num_peds, frames, 2)
@@ -45,7 +51,12 @@ def compute_FDE_joint(pred_arr, gt_arr, return_sample_vals=False, return_ped_val
     gt_arr = np.array(gt_arr)
     diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
     dist = np.linalg.norm(diff, axis=-1)  # num_peds x samples x frames
-    fde_per_sample = dist[..., -1].mean(axis=0)  # samples
+    if pred_mask is not None:
+        dist = dist * pred_mask[:, None]
+        num_valid_ped_timesteps = pred_mask[..., -1].sum()
+        fde_per_sample = dist[..., -1].sum(axis=0) / num_valid_ped_timesteps
+    else:
+        fde_per_sample = dist[..., -1].mean(axis=0)  # samples
     fde = fde_per_sample.min(axis=0)  # (1, )
     return_vals = [fde]
     if return_sample_vals:  # for each sample: the avg ped ADE (n_samples,)
@@ -64,23 +75,25 @@ def compute_FDE_joint(pred_arr, gt_arr, return_sample_vals=False, return_ped_val
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
-def compute_ADE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_ped_vals=False,
+def compute_ADE_marginal(pred_arr, gt_arr, pred_mask=None, return_sample_vals=False, return_ped_vals=False,
                          return_argmin=False, **kwargs):
     """
     about 4 times faster than orgiinal AgentFormer computation due to numpy vectorization
     pred_arr: (num_peds, samples, frames, 2)
     gt_arr: (num_peds, frames, 2)
     """
-    # assert pred_arr.shape[1] == 5, pred_arr.shape
-    # assert pred_arr.shape[2] == 12, pred_arr.shape
-    # assert pred_arr.shape[3] == 2, pred_arr.shape
     pred_arr = np.array(pred_arr)
     gt_arr = np.array(gt_arr)
     diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
     dist = np.linalg.norm(diff, axis=-1)  # num_peds x samples x frames
-    ades_per_sample = dist.mean(axis=-1)  # num_peds x samples
-    made_per_ped = ades_per_sample.min(axis=-1)  # num_peds
-    avg_made = made_per_ped.mean(axis=-1)  # (1,)
+    if pred_mask is not None:
+        dist = dist * pred_mask[:,None]
+        num_valid_ped_timesteps = pred_mask.sum(-1)  # (num_peds, )
+        ades_per_sample = dist.sum(axis=-1) / num_valid_ped_timesteps
+    else:
+        ades_per_sample = dist.mean(axis=-1)  # num_peds x samples
+    made_per_ped = ades_per_sample.min(axis=-1)  # num_peds (min over samples)
+    avg_made = made_per_ped.mean(axis=-1)  # (1,)  (mean over peds)
     return_vals = [avg_made]
     if return_sample_vals:  # for each sample: the avg ped ADE
         return_vals.append(ades_per_sample.mean(axis=0))
@@ -97,16 +110,23 @@ def compute_ADE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_ped_
     return return_vals[0] if len(return_vals) == 1 else return_vals
 
 
-def compute_FDE_marginal(pred_arr, gt_arr, return_sample_vals=False, return_ped_vals=False,
+def compute_FDE_marginal(pred_arr, gt_arr, pred_mask=None, return_sample_vals=False, return_ped_vals=False,
                          return_argmin=False, **kwargs):
     """about 4 times faster due to numpy vectorization"""
     pred_arr = np.array(pred_arr)
     gt_arr = np.array(gt_arr)
     diff = pred_arr - np.expand_dims(gt_arr, axis=1)  # num_peds x samples x frames x 2
     dist = np.linalg.norm(diff, axis=-1)  # num_peds x samples x frames
-    fdes_per_sample = dist[..., -1]  # num_peds x samples
+    fdes_per_sample = dist[..., -1]  # num_peds x samples  (take the last timestep)
+    if pred_mask is not None:
+        fdes_per_sample = fdes_per_sample * pred_mask[:, None, -1]
     mfde_per_ped = fdes_per_sample.min(axis=-1)  # num_peds
-    avg_mfde = mfde_per_ped.mean(axis=-1)  # (1,)
+    if pred_mask is not None:
+        num_valid_ped_timesteps = np.sum(pred_mask[..., -1], axis=0)  #  get the number of valid last timesteps
+        avg_mfde = mfde_per_ped.sum(axis=-1) / num_valid_ped_timesteps  # (1,)
+    else:
+        avg_mfde = mfde_per_ped.mean(axis=-1)  # (1,)
+    # avg_mfde = mfde_per_ped.mean(axis=-1)  # (1,)  mean over peds
     return_vals = [avg_mfde]
     if return_sample_vals:  # for each sample: the avg ped ADE (n_samples,)
         return_vals.append(fdes_per_sample.mean(axis=0))
@@ -230,6 +250,7 @@ def _check_collision_per_sample(sample_idx, sample, gt_arr, ped_radius=0.1):
 
 def compute_CR(pred_arr,
                gt_arr,
+               pred_mask=None,
                aggregation='max',
                return_sample_vals=False,
                return_collision_mat=False,
@@ -350,24 +371,80 @@ stats_func = {
 
 
 def main():
-    """debug new, fast collision fn... edge case where agent is in same position between two timesteps
-    was wrong this whole time"""
-    cr = 0.1
-    pred_arr = np.zeros((2, 12, 2))
-    pred_arr[1] = np.ones((1, 12, 2))
-    pred_arr[1, -1] = 0.15 * np.ones(2)
-    # _, cols_old, col_mats_old = get_collisions_mat_old(None, pred_arr, cr)
-    cols, col_mats = check_collision_per_sample_no_gt(pred_arr, cr)
-    # print("col_mats_old:", col_mats_old)
-    print("col_mats:", col_mats)
-    # print("cols_old:\n", cols_old)
-    print("cols:\n", cols)
-    from viz_utils import plot_traj_anim
-    save_fn_old = 'viz/old.mp4'
-    save_fn = 'viz/new.mp4'
-    plot_traj_anim(save_fn=save_fn_old, pred_traj_fake=pred_arr.swapaxes(0,1), collision_mats=col_mats_old, ped_radius=cr)
-    plot_traj_anim(save_fn=save_fn, pred_traj_fake=pred_arr.swapaxes(0,1), collision_mats=col_mats, ped_radius=cr)
-    # assert np.all(cols) == np.all(cols_old)
+    ts = 3
+    num_samples = 2
+    num_peds = 2
+    mask = np.zeros((num_peds, ts))
+    mask[:, [0,-1]] = 1
+    rand1 = np.random.randn(num_peds, num_samples, ts, 2)
+    print(f"{rand1=}")
+    rand2 = np.zeros((num_peds, ts, 2))
+    # print(f"{rand2=}")
+    # (mask * rand1)
+    print(f"{np.linalg.norm(mask[:, :, None] * rand1,axis=-1)=}")
+    print(f"{mask=}")
+    print('=========================================')
+    print('============= ADE MARGINAL ==============')
+    print('=========================================')
+    fde, sample_vals, ped_vals, argmin = compute_ADE_marginal(rand1, rand2, mask,
+                                                              return_sample_vals=True, return_ped_vals=True, return_argmin=True)
+    print(f"{fde=}")
+    print(f"{sample_vals=}")
+    print(f"{ped_vals=}")
+    print(f"{argmin=}")
+    print()
+    print('=========================================')
+    print('============= FDE MARGINAL ==============')
+    print('=========================================')
+    fde, sample_vals, ped_vals, argmin = compute_FDE_marginal(rand1, rand2, mask,
+                                                              return_sample_vals=True, return_ped_vals=True,
+                                                              return_argmin=True)
+    print(f"{fde=}")
+    print(f"{sample_vals=}")
+    print(f"{ped_vals=}")
+    print(f"{argmin=}")
+    print()
+    print('=========================================')
+    print('============= ADE JOINT ==============')
+    print('=========================================')
+    fde, sample_vals, ped_vals, argmin = compute_ADE_joint(rand1, rand2, mask,
+                                                              return_sample_vals=True, return_ped_vals=True,
+                                                              return_argmin=True)
+    print(f"{fde=}")
+    print(f"{sample_vals=}")
+    print(f"{ped_vals=}")
+    print(f"{argmin=}")
+    print()
+    print('=========================================')
+    print('============= FDE JOINT ==============')
+    print('=========================================')
+    fde, sample_vals, ped_vals, argmin = compute_FDE_joint(rand1, rand2, mask,
+                                                              return_sample_vals=True, return_ped_vals=True,
+                                                              return_argmin=True)
+    print(f"{fde=}")
+    print(f"{sample_vals=}")
+    print(f"{ped_vals=}")
+    print(f"{argmin=}")
+    print()
+
+    # """debug new, fast collision fn... edge case where agent is in same position between two timesteps
+    # was wrong this whole time"""
+    # cr = 0.1
+    # pred_arr = np.zeros((2, 12, 2))
+    # pred_arr[1] = np.ones((1, 12, 2))
+    # pred_arr[1, -1] = 0.15 * np.ones(2)
+    # # _, cols_old, col_mats_old = get_collisions_mat_old(None, pred_arr, cr)
+    # cols, col_mats = check_collision_per_sample_no_gt(pred_arr, cr)
+    # # print("col_mats_old:", col_mats_old)
+    # print("col_mats:", col_mats)
+    # # print("cols_old:\n", cols_old)
+    # print("cols:\n", cols)
+    # from viz_utils import plot_traj_anim
+    # save_fn_old = 'viz/old.mp4'
+    # save_fn = 'viz/new.mp4'
+    # plot_traj_anim(save_fn=save_fn_old, pred_traj_fake=pred_arr.swapaxes(0,1), collision_mats=col_mats_old, ped_radius=cr)
+    # plot_traj_anim(save_fn=save_fn, pred_traj_fake=pred_arr.swapaxes(0,1), collision_mats=col_mats, ped_radius=cr)
+    # # assert np.all(cols) == np.all(cols_old)
 
 
 if __name__ == "__main__":

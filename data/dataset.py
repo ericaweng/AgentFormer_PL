@@ -11,6 +11,7 @@ from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb_kp3 import jrdb_preprocess as jrdb_preprocess_w_action_label
 from .jrdb_kp4 import jrdb_preprocess as jrdb_preprocess_full
 from .jrdb_kp5 import jrdb_preprocess as jrdb_preprocess_like_hst
+from .jrdb_kp6 import jrdb_preprocess as jrdb_preprocess_w_learned_action_label
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
 from .stanford_drone_split import get_stanford_drone_split
@@ -28,6 +29,8 @@ class AgentFormerDataset(Dataset):
             self.single_seq = self.args.seq_frame.split(" ")[0]
             self.single_frame = int(self.args.seq_frame.split(" ")[1])
         self.past_frames = parser.past_frames
+        self.exclude_kpless_data = parser.get('exclude_kpless_data', False)
+        self.data_root_jrdb = parser.data_root_jrdb
         self.min_past_frames = parser.min_past_frames
         self.frame_skip = parser.get('frame_skip', 1)
         if split == 'train':
@@ -68,12 +71,12 @@ class AgentFormerDataset(Dataset):
             seq_train, seq_val, seq_test = get_stanford_drone_split()
         elif parser.dataset == 'jrdb':
             data_root = parser.data_root_jrdb
-            split_type = parser.get('split_type', 'full')
+            self.split_type = split_type = parser.get('split_type', 'full')
             if split_type == 'no_egomotion':
                 seq_train, seq_val, seq_test = get_jrdb_split_no_egomotion()
             elif split_type == 'egomotion':
                 seq_train, seq_val, seq_test = get_jrdb_split_egomotion()
-            elif split_type == 'full':
+            elif split_type == 'jrdb_full':
                 seq_train, seq_val, seq_test = get_jrdb_split_full()
             elif split_type == 'hst_full':
                 seq_train, seq_val, seq_test = get_jrdb_hst_split()
@@ -81,13 +84,11 @@ class AgentFormerDataset(Dataset):
                 seq_train, seq_val, seq_test = get_jackrabbot_split_half_and_half()
             elif split_type == 'half_and_half_tiny':
                 seq_train, seq_val, seq_test = get_jackrabbot_split_half_and_half_tiny()
-            elif split_type == 'easy':
-                seq_train, seq_val, seq_test = get_jackrabbot_split_easy()
             elif split_type == 'sanity':
                 seq_train, seq_val, seq_test = get_jackrabbot_split_sanity()
             else:
-                assert split_type == 'normal'
-                seq_train, seq_val, seq_test = get_jackrabbot_split()
+                assert split_type == 'training_only'
+                seq_train, seq_val, seq_test = get_jrdb_training_split_erica()
             self.init_frame = 0
         elif parser.dataset == 'pedx':
             data_root = parser.data_root_pedx
@@ -110,10 +111,9 @@ class AgentFormerDataset(Dataset):
         elif parser.dataset == 'nuscenes_pred':
             process_func = preprocess
         elif parser.dataset == 'jrdb':# and np.any(['kp' in it for it in parser.input_type]):
-            dl_v = parser.get('dataloader_version', 5)
+            dl_v = parser.get('dataloader_version', 6)
             print(f"dl_v: {dl_v}")
             if dl_v == 1:
-                import ipdb; ipdb.set_trace()
                 process_func = jrdb_preprocess
             elif dl_v == 2:
                 process_func = jrdb_preprocess_new
@@ -123,6 +123,8 @@ class AgentFormerDataset(Dataset):
                 process_func = jrdb_preprocess_full
             elif dl_v == 5:
                 process_func = jrdb_preprocess_like_hst
+            elif dl_v == 6:
+                process_func = jrdb_preprocess_w_learned_action_label
             else:
                 assert dl_v == 0
                 import ipdb; ipdb.set_trace()
@@ -182,7 +184,11 @@ class AgentFormerDataset(Dataset):
     def get_certain_frames(self, frames):
         datas = []
         for seq_name, frame in frames:
-            seq_index = self.seq_names.index(seq_name)
+            try:
+                seq_index = self.seq_names.index(seq_name)
+            except ValueError:
+                print(f"seq_name {seq_name} not found in {self.seq_names}")
+                continue
             data = self.sequence[seq_index](frame)
             if data is None:
                 continue
@@ -197,6 +203,7 @@ class AgentFormerDataset(Dataset):
         from collections import defaultdict
         seq_to_frame_ids = defaultdict(list)
         seq_to_num_agents = defaultdict(list)
+        seq_to_frame_to_agent_ids = defaultdict(dict)
         for idx in tqdm(range(num_total_samples), desc='preprocessing data'):
             seq_index, frame = self.get_seq_and_frame(idx)
             seq = self.sequence[seq_index]
@@ -244,6 +251,7 @@ class AgentFormerDataset(Dataset):
                 break
             seq_to_frame_ids[self.seq_names[seq_index]].append(frame)
             seq_to_num_agents[self.seq_names[seq_index]].append(num_agents)
+            seq_to_frame_to_agent_ids[self.seq_names[seq_index]][frame] = sorted(data['valid_id'])
 
         if self.randomize_trial_data:
             print(f"taking elements from different parts of the dataset for diverse data")
@@ -254,21 +262,49 @@ class AgentFormerDataset(Dataset):
         # print(f"len(data) before frame_skip downsample: {len(datas)}")
         self.sample_list = datas#[::self.data_skip]
 
-        print(f"num samples {self.d=}")
-        print('total num samples', sum(self.d.values()))
+        print(f"num sequences per scene {self.d=}")
+        # print(f"which frame ids (samples) per scene are being used {seq_to_frame_ids=}")
+        # save frame ids:
+        import pickle
+        split2 = 'test' if self.split == 'val' else self.split
+        ts_or_kp = 'kp' if self.exclude_kpless_data else 'ts'
+        mdr = 1000 if '1000' in self.data_root_jrdb else 15
+
+        print('total num sequences', sum(self.d.values()))
         print(f"num total frames {self.dnf=}")
-        print(f"which frame ids (samples) per scene are being used {seq_to_frame_ids=}")
-        print(f"total seqs: {sum([len(v) for k,v in seq_to_frame_ids.items()])}")  # 5354
-        num_seq_per_scene = {k: len(v) for k, v in seq_to_frame_ids.items()}
-        print(f"{num_seq_per_scene=}")
-        num_agents_per_scene = {k: sum(v) for k, v in seq_to_num_agents.items()}
-        print(f"{num_agents_per_scene=}")
-        # import ipdb; ipdb.set_trace()
+        print(f"total num sequences being used: {sum([len(v) for k,v in seq_to_frame_ids.items()])}")  # 5354
+        # num_seq_per_scene = {k: len(v) for k, v in seq_to_frame_ids.items()}
+        # print(f"{num_seq_per_scene=}")
+        # agent_ids_save_path = f'../human-scene-transformer/human_scene_transformer/af_{split2}_seq_to_frame_id_to_agent_ids_full-{ts_or_kp}_mdr-{mdr}.pkl'
+        # with open(agent_ids_save_path, 'wb') as f:
+        #     pickle.dump(seq_to_frame_to_agent_ids, f)
+        #     print("saved to", agent_ids_save_path)
+
+        print('avg num agents per frame per scene=', {scene: round(np.mean([len(agent_ids) for frame_id, agent_ids in frames.items()]),2) for scene, frames in seq_to_frame_to_agent_ids.items()})
+        # print('unique agents across entire scene=', {scene: len(set().union(*frames.values())) for scene, frames in seq_to_frame_to_agent_ids.items()})
+        print('num unique agents across entire scene=', {scene: set().union(*frames.values()) for scene, frames in seq_to_frame_to_agent_ids.items()})
+
+        # num sequences
+        # total num sequences 3697
+        # num total frames self.dnf={'clark-center-2019-02-28_1': 1439, 'forbes-cafe-2019-01-22_0': 1446, 'gates-basement-elevators-2019-01-17_1': 1009, 'huang-2-2019-01-25_0': 872, 'jordan-hall-2019-04-22_0': 1522, 'nvidia-aud-2019-04-18_0': 1012, 'packard-poster-session-2019-03-20_2': 1371, 'svl-meeting-gates-2-2019-04-08_1': 871, 'tressider-2019-04-26_2': 1440, 'discovery-walk-2019-02-28_1': 789, 'gates-basement-elevators-2019-01-17_0': 638, 'hewlett-class-2019-01-23_0': 791, 'huang-intersection-2019-01-22_0': 1659, 'meyer-green-2019-03-16_1': 1006, 'nvidia-aud-2019-04-18_2': 498, 'serra-street-2019-01-30_0': 1399, 'tressider-2019-03-16_2': 642, 'tressider-2019-04-26_3': 1659}
+
+        # full kp
+        # total num sequences being used: 1993
+        # num_seq_per_scene={'clark-center-2019-02-28_1': 147, 'forbes-cafe-2019-01-22_0': 241, 'gates-basement-elevators-2019-01-17_1': 162, 'huang-2-2019-01-25_0': 71, 'jordan-hall-2019-04-22_0': 267, 'nvidia-aud-2019-04-18_0': 179, 'packard-poster-session-2019-03-20_2': 256, 'svl-meeting-gates-2-2019-04-08_1': 120, 'tressider-2019-04-26_2': 267, 'discovery-walk-2019-02-28_1': 6, 'gates-basement-elevators-2019-01-17_0': 12, 'hewlett-class-2019-01-23_0': 1, 'meyer-green-2019-03-16_1': 35, 'serra-street-2019-01-30_0': 176, 'tressider-2019-04-26_3': 53}
+        # avg_num_agents_per_frame_per_scene={'clark-center-2019-02-28_1': 1.46, 'forbes-cafe-2019-01-22_0': 2.49, 'gates-basement-elevators-2019-01-17_1': 2.48, 'huang-2-2019-01-25_0': 1.24, 'jordan-hall-2019-04-22_0': 3.41, 'nvidia-aud-2019-04-18_0': 4.15, 'packard-poster-session-2019-03-20_2': 7.51, 'svl-meeting-gates-2-2019-04-08_1': 2.14, 'tressider-2019-04-26_2': 4.99, 'discovery-walk-2019-02-28_1': 1.0, 'gates-basement-elevators-2019-01-17_0': 1.0, 'hewlett-class-2019-01-23_0': 1.0, 'meyer-green-2019-03-16_1': 1.0, 'serra-street-2019-01-30_0': 1.05, 'tressider-2019-04-26_3': 1.04}
+        # avg num unique agents across entire scene= {'clark-center-2019-02-28_1': 18, 'forbes-cafe-2019-01-22_0': 19, 'gates-basement-elevators-2019-01-17_1': 22, 'huang-2-2019-01-25_0': 6, 'jordan-hall-2019-04-22_0': 58, 'nvidia-aud-2019-04-18_0': 21, 'packard-poster-session-2019-03-20_2': 28, 'svl-meeting-gates-2-2019-04-08_1': 14, 'tressider-2019-04-26_2': 50, 'discovery-walk-2019-02-28_1': 1, 'gates-basement-elevators-2019-01-17_0': 1, 'hewlett-class-2019-01-23_0': 1, 'meyer-green-2019-03-16_1': 1, 'serra-street-2019-01-30_0': 3, 'tressider-2019-04-26_3': 6}
+
+        # full ts
+        # total num sequences being used: 3615
+        # num_seq_per_scene={'clark-center-2019-02-28_1': 267, 'forbes-cafe-2019-01-22_0': 272, 'gates-basement-elevators-2019-01-17_1': 184, 'huang-2-2019-01-25_0': 141, 'jordan-hall-2019-04-22_0': 287, 'nvidia-aud-2019-04-18_0': 185, 'packard-poster-session-2019-03-20_2': 257, 'svl-meeting-gates-2-2019-04-08_1': 157, 'tressider-2019-04-26_2': 270, 'discovery-walk-2019-02-28_1': 140, 'gates-basement-elevators-2019-01-17_0': 107, 'hewlett-class-2019-01-23_0': 107, 'huang-intersection-2019-01-22_0': 312, 'meyer-green-2019-03-16_1': 184, 'nvidia-aud-2019-04-18_2': 82, 'serra-street-2019-01-30_0': 262, 'tressider-2019-03-16_2': 111, 'tressider-2019-04-26_3': 290}
+        # avg num agents per frame per scene= {'clark-center-2019-02-28_1': 6.35, 'forbes-cafe-2019-01-22_0': 13.35, 'gates-basement-elevators-2019-01-17_1': 9.15, 'huang-2-2019-01-25_0': 4.74, 'jordan-hall-2019-04-22_0': 7.07, 'nvidia-aud-2019-04-18_0': 10.85, 'packard-poster-session-2019-03-20_2': 26.0, 'svl-meeting-gates-2-2019-04-08_1': 4.96, 'tressider-2019-04-26_2': 21.85, 'discovery-walk-2019-02-28_1': 4.72, 'gates-basement-elevators-2019-01-17_0': 2.56, 'hewlett-class-2019-01-23_0': 2.61, 'huang-intersection-2019-01-22_0': 3.38, 'meyer-green-2019-03-16_1': 3.04, 'nvidia-aud-2019-04-18_2': 3.56, 'serra-street-2019-01-30_0': 2.98, 'tressider-2019-03-16_2': 4.41, 'tressider-2019-04-26_3': 5.77}
+        # unique agents across entire scene= {'clark-center-2019-02-28_1': 54, 'forbes-cafe-2019-01-22_0': 54, 'gates-basement-elevators-2019-01-17_1': 28, 'huang-2-2019-01-25_0': 26, 'jordan-hall-2019-04-22_0': 79, 'nvidia-aud-2019-04-18_0': 31, 'packard-poster-session-2019-03-20_2': 59, 'svl-meeting-gates-2-2019-04-08_1': 19, 'tressider-2019-04-26_2': 107, 'discovery-walk-2019-02-28_1': 20, 'gates-basement-elevators-2019-01-17_0': 26, 'hewlett-class-2019-01-23_0': 19, 'huang-intersection-2019-01-22_0': 40, 'meyer-green-2019-03-16_1': 14, 'nvidia-aud-2019-04-18_2': 16, 'serra-street-2019-01-30_0': 23, 'tressider-2019-03-16_2': 21, 'tressider-2019-04-26_3': 75
 
         # save all this to ../viz/af_data_stats.npy
         # import numpy as np
         # np.save('../viz/af_data_stats.npy', {'d': self.d, 'dnf': self.dnf, 'seq_to_frame_ids': seq_to_frame_ids})
 
+        ### jrdb split
         # print("differences (af - hst)")
         # hst sequence counts by scene
         # {'cubberly-auditorium-2019-04-22_1_test': 201, 'discovery-walk-2019-02-28_0_test': 128, 'discovery-walk-2019-02-28_1_test': 143, 'food-trucks-2019-02-12_0_test': 306, 'gates-ai-lab-2019-04-17_0_test': 229, 'gates-basement-elevators-2019-01-17_0_test': 112, 'gates-foyer-2019-01-17_0_test': 317, 'gates-to-clark-2019-02-28_0_test': 70, 'hewlett-class-2019-01-23_0_test': 143, 'hewlett-class-2019-01-23_1_test': 142, 'huang-2-2019-01-25_1_test': 99, 'huang-intersection-2019-01-22_0_test': 317, 'indoor-coupa-cafe-2019-02-06_0_test': 318, 'lomita-serra-intersection-2019-01-30_0_test': 220, 'meyer-green-2019-03-16_1_test': 186, 'nvidia-aud-2019-01-25_0_test': 230, 'nvidia-aud-2019-04-18_1_test': 85, 'nvidia-aud-2019-04-18_2_test': 84, 'outdoor-coupa-cafe-2019-02-06_0_test': 315, 'quarry-road-2019-02-28_0_test': 72, 'serra-street-2019-01-30_0_test': 265, 'stlc-111-2019-04-19_1_test': 84, 'stlc-111-2019-04-19_2_test': 80, 'tressider-2019-03-16_2_test': 113, 'tressider-2019-04-26_0_test': 229, 'tressider-2019-04-26_1_test': 317, 'tressider-2019-04-26_3_test': 317}
@@ -303,7 +339,9 @@ class AgentFormerDataset(Dataset):
                 frame_index = (index_tmp * self.data_skip
                                + (self.min_past_frames - 1) * self.frame_skip  # return frame is the last obs frame
                                + self.sequence[seq_index].init_frame)  # from 0-indexed list index to 1-indexed frame index (for mot)
-                assert self.sequence[seq_index].init_frame == 0
+                if "half_and_half" not in self.split_type:
+                    print(f"{self.split_type=}")
+                    assert self.sequence[seq_index].init_frame == 0
                 return seq_index, frame_index
             else: # keep going through scenes
                 index_tmp -= self.num_sample_list[seq_index]

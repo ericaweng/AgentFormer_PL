@@ -110,24 +110,6 @@ def get_agents_dict_from_detections(input_path, scene):
   return agents
 
 
-def get_agents_features(agents_dict, max_distance_to_robot=10):
-  """Returns agents features from raw data dict."""
-  agents_pos_dict = collections.defaultdict(dict)
-  for agent_id, agent_data in agents_dict.items():
-    for ts, agent_instance in agent_data:
-      if agent_instance['attributes']['distance'] <= max_distance_to_robot:
-        agents_pos_dict[(ts, agent_id)] = {
-            'p': np.array([
-                agent_instance['box']['cx'],
-                agent_instance['box']['cy'],
-                agent_instance['box']['cz'],
-            ]),
-            # rotation angle is relative to negative x axis of robot
-            'yaw': np.pi - agent_instance['box']['rot_z'],
-        }
-  return agents_pos_dict
-
-
 def get_file_handle(path, mode='rt'):
   file_handle = open(path, mode)
   return file_handle
@@ -298,27 +280,33 @@ def jrdb_preprocess_train(args):
 
 
     agents_features = get_agents_features_with_box(
-        agents_dict, max_distance_to_robot=1000
+        agents_dict, max_distance_to_robot=args.max_distance_to_robot
     )
 
-    # robot_odom = get_robot(
-    #     os.path.join(input_path, 'processed', 'odometry', 'train'), scene
-    # )
-    robot_odom = get_robot_kiss_icp(
-        os.path.join('datasets/jrdb_egomotion_kiss-icp_3d'), scene
-    )
+    if args.old_odometry:
+      print('using old odometry')
+      robot_odom = get_robot(
+          os.path.join(input_path, 'processed', 'odometry', 'train'), scene
+      )
+    else:
+      robot_odom = get_robot_kiss_icp(
+          os.path.join('datasets/jrdb_egomotion_kiss-icp_3d'), scene
+      )
 
     agents_df = pd.DataFrame.from_dict(
         agents_features, orient='index'
     ).rename_axis(['timestep', 'id'])  # pytype: disable=missing-parameter  # pandas-drop-duplicates-overloads
 
     if AGENT_KEYPOINTS:
-      keypoints = get_agents_keypoints(
-          os.path.join(
-              input_path, 'processed', 'labels',
-              'labels_3d_keypoints', 'train'),
-          scene,
-      )
+      if args.use_hmr_kp:
+        keypoints = np.load(f'../AgentFormerSDD/datasets/jrdb_hmr2_raw/{scene}.npz', allow_pickle=True)['arr_0'].item()
+      else:
+        keypoints = get_agents_keypoints(
+            os.path.join(
+                input_path, 'processed', 'labels',
+                'labels_3d_keypoints', 'train'),
+            scene,
+        )
       keypoints_df = pd.DataFrame.from_dict(
           keypoints, orient='index'
       ).rename_axis(['timestep', 'id'])  # pytype: disable=missing-parameter  # pandas-drop-duplicates-overloads
@@ -415,12 +403,16 @@ def main():
     parser.add_argument('--save_trajectories', '-st', action='store_true', default=False,)
     parser.add_argument('--process_pointclouds', '-pp', action='store_true', default=False,
                         help='Whether to process pointclouds.')
-    parser.add_argument('--max_distance_to_robot', type=float, default=15.,
+    parser.add_argument('--max_distance_to_robot', '-mdr', type=float, default=15.,
                         help='Maximum distance of agent to the robot to be included in the processed dataset.')
     parser.add_argument('--max_pc_distance_to_robot', type=float, default=10.,
                         help='Maximum distance of pointcloud point to the robot to be included in the processed dataset.')
     parser.add_argument('--save_robot', '-sr', action='store_true', default=False,
                         help='Whether to save robot poses.')
+    parser.add_argument('--old_odometry', '-oo', action='store_true', default=False,)
+    parser.add_argument('--use_hmr_kp', '-hmr', action='store_true', default=False,
+                        help='Whether to use HMR keypoints instead of Google BlazePose keypoints.')
+
 
     args = parser.parse_args()
 

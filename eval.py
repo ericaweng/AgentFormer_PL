@@ -2,7 +2,7 @@ import numpy as np
 from metrics import stats_func
 
 
-def eval_one_seq(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
+def eval_one_seq(agent_traj, gt_traj, pred_mask, collision_rad, return_sample_vals=False):
     """new function, for returning necessary vals for plotting"""
     assert isinstance(gt_traj, np.ndarray) and len(
             gt_traj.shape) == 3, f"len(gt_traj.shape) should be 3 but is {len(gt_traj.shape)}"
@@ -16,44 +16,50 @@ def eval_one_seq(agent_traj, gt_traj, collision_rad, return_sample_vals=False):
 
     # 'ADE_joint'
     value, sample_vals, ped_vals, _ = stats_func['ADE_joint'](pred_arr=agent_traj, gt_arr=gt_traj,
-                                                           collision_rad=collision_rad,
-                                                           return_ped_vals=True,
-                                                           return_sample_vals=return_sample_vals)
+                                                              pred_mask=pred_mask,
+                                                              collision_rad=collision_rad,
+                                                              return_ped_vals=True,
+                                                              return_sample_vals=return_sample_vals)
     values['ADE_joint'] = value
     ped_values['ADE_joint'] = ped_vals
     all_sample_vals['ADE'] = sample_vals
     # 'FDE_joint'
     value, sample_vals, ped_vals, _ = stats_func['FDE_joint'](pred_arr=agent_traj, gt_arr=gt_traj,
-                                                           collision_rad=collision_rad,
-                                                           return_ped_vals=True,
-                                                           return_sample_vals=return_sample_vals)
+                                                              pred_mask=pred_mask,
+                                                              collision_rad=collision_rad,
+                                                              return_ped_vals=True,
+                                                              return_sample_vals=return_sample_vals)
     values['FDE_joint'] = value
     ped_values['FDE_joint'] = ped_vals
     all_sample_vals['FDE'] = sample_vals
     # 'ADE_marginal'
     value, _, ped_vals, argmins = stats_func['ADE_marginal'](pred_arr=agent_traj, gt_arr=gt_traj,
-                                                          collision_rad=collision_rad,
-                                                          return_ped_vals=True,
-                                                          return_argmin=True)
+                                                             pred_mask=pred_mask,
+                                                             collision_rad=collision_rad,
+                                                             return_ped_vals=True,
+                                                             return_argmin=True)
     values['ADE_marginal'] = value
     ped_values['ADE_marginal'] = ped_vals
 
     # 'FDE_marginal'
     value, _, ped_vals, _ = stats_func['FDE_marginal'](pred_arr=agent_traj, gt_arr=gt_traj,
-                                                 collision_rad=collision_rad,
-                                                 return_ped_vals=True)
+                                                       pred_mask=pred_mask,
+                                                       collision_rad=collision_rad,
+                                                       return_ped_vals=True)
     values['FDE_marginal'] = value
     ped_values['FDE_marginal'] = ped_vals
 
     # 'FDE_marginal 2s'
     value, _, ped_vals, _ = stats_func['FDE_marginal_2s'](pred_arr=agent_traj, gt_arr=gt_traj,
-                                                 collision_rad=collision_rad,
-                                                 return_ped_vals=True)
+                                                          pred_mask=pred_mask,
+                                                          collision_rad=collision_rad,
+                                                          return_ped_vals=True)
     values['FDE_marginal_2s'] = value
     ped_values['FDE_marginal_2s'] = ped_vals
 
     # 'CR_mean'
     value, sample_vals, ped_vals, collision_mats = stats_func['CR_mean'](pred_arr=agent_traj, gt_arr=gt_traj,
+                                                                         pred_mask=pred_mask,
                                                                          collision_rad=collision_rad,
                                                                          return_sample_vals=return_sample_vals,
                                                                          return_ped_vals=True,

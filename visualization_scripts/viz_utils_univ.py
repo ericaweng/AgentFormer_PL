@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import matplotlib.gridspec as gridspec
 
+from visualization_scripts.viz_utils_plotly import AnimObjPose3d as AnimObjPose3d_plotly
+
 
 COCO_CONNECTIVITIES = [[1, 2], [0, 4], [3, 4], [8, 10], [5, 7], [10, 13], [14, 16], [4, 5], [7, 12],
                        [4, 8], [3, 6], [13, 15], [11, 14], [6, 9], [8, 11]]
@@ -20,9 +22,10 @@ BLAZEPOSE_CONNECTIVITIES = [(1, 2), (1, 5), (2, 3), (3, 7), (5, 6), (6, 7), (7, 
                             (29, 31), (26, 28), (28, 30), (30, 32)]
 
 def is_nan_or_0(array):
+    is_nan = np.isnan(np.array(array))
     if len(array.shape) == 1:
-        return np.isnan(array).bool().all(-1) or np.isclose(array, 0, 1e-3, 1e-3).all(-1)
-    return np.isnan(array).bool().all(-1) | np.isclose(array, 0, 1e-3, 1e-3).all(-1)
+        return is_nan.all(-1) or np.isclose(array, 0, 1e-3, 1e-3).all(-1)
+    return is_nan.all(-1) | np.isclose(array, 0, 1e-3, 1e-3).all(-1)
 
 def fig_to_array(fig):
     fig.canvas.draw()
@@ -106,37 +109,34 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
     if pred_len is None:
         pred_len = list_of_arg_dicts[-1]['gt_traj'].shape[0]
 
-    extra_for_3dkp = 3 if np.any([po == AnimObjPose3d for po in list_of_plotting_objs]) else 0
+    # extra_for_3dkp = 1 if np.any([po == AnimObjPose3d for po in list_of_plotting_objs]) else 0
     if plot_size is None:
-        num_plots_height, num_plots_width = get_grid_size_from_num_grids(len(list_of_arg_dicts) + extra_for_3dkp)
+        num_plots_height, num_plots_width = get_grid_size_from_num_grids(len(list_of_arg_dicts))# + extra_for_3dkp)
     else:
         num_plots_height, num_plots_width = plot_size
         assert num_plots_width * num_plots_height >= len(list_of_arg_dicts), \
             f'plot_size ({plot_size}) must be able to accomodate {len(list_of_arg_dicts)} graphs'
 
-    # fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
-    # gs = gridspec.GridSpec(num_plots_height, num_plots_width, figure=fig)
+    fig = plt.figure(figsize=(7.5 * num_plots_width, 5 * num_plots_height))
+    gs = gridspec.GridSpec(num_plots_height+1, num_plots_width, figure=fig)
 
     # Create a figure with specified size to better fit the subplots
-    fig = plt.figure(figsize=(12, 6))
-    gs = gridspec.GridSpec(1, 2, width_ratios=[2, 1])  # Adjust the ratio to give more space to the 3D plot if necessary
-
-    # 3D subplot taking up the first two-thirds of the figure
-    ax1 = fig.add_subplot(gs[0, 0], projection='3d')
+    # fig = plt.figure(figsize=(12, 6))
+    # gs = gridspec.GridSpec(1, 2, width_ratios=[2, 1])  # Adjust the ratio to give more space to the 3D plot if necessary
 
     axes = []
+    # extra_for_3dkp = num_plots_width
     for i, po in enumerate(list_of_plotting_objs):
-        if po == AnimObjPose3d:
-            ax = fig.add_subplot(gs[0, 0], projection='3d')
-            # ax = fig.add_subplot(gs[:1, :2], projection='3d')
+        if po == AnimObjPose3d or po == AnimObjPose3d_plotly:
+            ax = fig.add_subplot(gs[0, :], projection='3d')
             ax.view_init(elev=20, azim=40)
         else:
             assert po == AnimObjPose2d or po == AnimObjBEVTraj2d
-            # total_i = i + extra_for_3dkp
-            # height_i = total_i // num_plots_width
-            # width_i = total_i % num_plots_width
-            # ax = fig.add_subplot(gs[height_i, width_i])
-            ax = fig.add_subplot(gs[0,1])
+            total_i = i# + extra_for_3dkp
+            height_i = total_i // num_plots_width + 1
+            width_i = total_i % num_plots_width
+            ax = fig.add_subplot(gs[height_i, width_i])
+            # ax = fig.add_subplot(gs[0,i])
 
         axes.append(ax)
 
@@ -153,6 +153,7 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
                     assert val.shape[-1] == bounds2d[-1].shape[-1], \
                         f"all trajectories must have same number of dimensions ({val.shape[-1]} != {bounds2d[-1].shape[-1]})"
                 # bounds2d.append(np.array(val).reshape(-1, val.shape[-1]))
+                val = np.array(val)
                 bounds2d.append(val[~is_nan_or_0(val)].reshape(-1, val.shape[-1]))
     bounds2d = np.concatenate(bounds2d)
     bounds2d = [*(np.min(bounds2d, axis=0) - 0.2), *(np.max(bounds2d, axis=0) + 0.2)]
@@ -245,9 +246,7 @@ class AnimObjPose3d:
         if positions is not None:
             # add additional dimension for z-axis
             positions = np.concatenate([positions, np.zeros((*positions.shape[:-1], 1))], axis=-1).transpose(1, 0, 2)[:, None]
-            # gt_history[..., 1] = - gt_history[..., 1]
             gt_history = gt_history * 1 + positions[:, :, :obs_len]
-            # gt_future[..., 1] = - gt_future[..., 1]
             gt_future = gt_future * 1 + positions[:, :, obs_len:]
 
         stuff = np.concatenate([gt_history, gt_future], axis=2).reshape(-1, 3)

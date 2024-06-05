@@ -16,7 +16,7 @@ def list_test_scenes(input_path):
     return scenes
 
 
-def get_agents_features_df_with_box(
+def get_agents_features_df_with_box(args,
         input_path, scene_id, max_distance_to_robot=10.0
 ):
     """Returns agents features with bounding box from raw leaderboard data."""
@@ -42,7 +42,7 @@ def get_agents_features_df_with_box(
     ]
     scene_data_file = get_file_handle(
             os.path.join(
-                    input_path, 'labels', 'PiFeNet',
+                    input_path, 'labels', args.tracking_method,
                     f'{scene_id:04}' + '.txt'
             )
     )
@@ -83,24 +83,27 @@ def jrdb_preprocess_test(args):
     subsample = 1
     for scene in tqdm.tqdm(scenes):
         scene_save_name = scene + '_test'
-        agents_df = get_agents_features_df_with_box(
+        agents_df = get_agents_features_df_with_box(args,
                 os.path.join(input_path, 'test'),
                 scenes.index(scene),
-                max_distance_to_robot=1000
+                max_distance_to_robot=args.max_distance_to_robot,
         )
 
-        # robot_odom = get_robot(
-        #         os.path.join(input_path, 'processed', 'odometry', 'test'), scene
-        # )
-        robot_odom = get_robot_kiss_icp(
-                os.path.join('datasets/jrdb_egomotion_kiss-icp_3d'), scene
-        )
+        if args.old_odometry:
+            print('using old odometry')
+            robot_odom = get_robot(
+                    os.path.join(input_path, 'processed', 'odometry', 'test'), scene
+            )
+        else:
+            robot_odom = get_robot_kiss_icp(
+                    os.path.join('datasets/jrdb_egomotion_kiss-icp_3d'), scene
+            )
 
         if AGENT_KEYPOINTS:
             keypoints = get_agents_keypoints(
                     os.path.join(
                             input_path, 'processed', 'labels',
-                            'labels_3d_keypoints', 'test', 'PiFeNet'
+                            'labels_3d_keypoints', 'test', args.tracking_method
                     ),
                     scene,
             )
@@ -194,25 +197,24 @@ def jrdb_preprocess_test(args):
 
 def main():
     parser = argparse.ArgumentParser(description='Process JRDB2022 dataset with additional tracking and confidence options.')
-    parser.add_argument('--input_path', default='datasets/jrdb', help='Path to jrdb2022 dataset.')
-    parser.add_argument('--output_path', '-op', default='datasets/jrdb_adjusted/odometry_adjusted',
-                        help='Path to output folder.')
+    parser.add_argument('--input_path', '-ip', default='datasets/jrdb', help='Path to jrdb2022 dataset.')
+    parser.add_argument('--output_path', '-op', default=None, help='Path to output folder.')
     parser.add_argument('--no_odometry', '-no', dest='adjust_w_odometry', action='store_false')
     parser.add_argument('--save_keypoints', '-sk', action='store_true', default=False,
                         help='Whether to save keypoints.')
     parser.add_argument('--save_trajectories', '-st', action='store_true', default=False, )
     parser.add_argument('--process_pointclouds', action='store_true', default=True,
                         help='Whether to process pointclouds.')
-    parser.add_argument('--max_distance_to_robot', type=float, default=15.,
+    parser.add_argument('--max_distance_to_robot', '-mdr', type=float, default=15.,
                         help='Maximum distance of agent to the robot to be included in the processed dataset.')
     parser.add_argument('--max_pc_distance_to_robot', type=float, default=10.,
                         help='Maximum distance of pointcloud point to the robot to be included in the processed dataset.')
-    parser.add_argument('--tracking_method', default='ss3d_mot',
-                        help='Name of tracking method to use.')
     parser.add_argument('--tracking_confidence_threshold', type=float, default=0.0,
                         help='Confidence threshold for tracked agent instance to be included in the processed dataset.')
     parser.add_argument('--save_robot', '-sr', action='store_true', default=False,
                         help='Whether to save robot poses.')
+    parser.add_argument('--old_odometry', '-oo', action='store_true', default=False,)
+    parser.add_argument('--tracking_method', '-tm', default=None, required=True, choices=['ss3d_mot', 'PiFeNet'],)
 
 
     args = parser.parse_args()

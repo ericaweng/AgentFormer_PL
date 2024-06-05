@@ -146,7 +146,7 @@ class AgentFormerTrainer(pl.LightningModule):
         pred_motion = self.cfg.traj_scale * data[f'infer_dec_motion'].detach().cpu()
         obs_motion = self.cfg.traj_scale * data[f'pre_motion'].cpu()  # .transpose(1, 0).cpu()
 
-        return {'loss': total_loss, **loss_dict, 'frame': batch['frame'], 'seq': batch['seq'],
+        return {'loss': total_loss, 'frame': batch['frame'], 'seq': batch['seq'],
                 'gt_motion': gt_motion, 'pred_motion': pred_motion, 'obs_motion': obs_motion, 'data': data}
 
     def training_step(self, batch, batch_idx):
@@ -197,7 +197,7 @@ class AgentFormerTrainer(pl.LightningModule):
 
 
     def _compute_and_log_metrics(self, outputs, mode='test'):
-        args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy()) for output in outputs]  #  if output is not None
+        args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy(), output['data']['pred_mask']) for output in outputs]  #  if output is not None
 
         # calculate metrics for each sequence
         if self.args.mp:
