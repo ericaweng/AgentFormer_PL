@@ -49,14 +49,11 @@ class jrdb_preprocess(object):
             self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)['arr_0'].item()
         self.robot_data = np.genfromtxt(f'{data_root}/robot_poses/{seq_name}_robot.txt', delimiter=' ', dtype=float)
         # self.actions_hmr2d_data = np.load(f'/{seq_name}.npz')
-        self.actions_gt_data = np.load(f'datasets/jrdb_adjusted/poses_2d_action_labels/{seq_name}')
-        self.actions_mlp2d = np.load(f'datasets/jrdb_actions_pseudolabels_from_2d_pose.npy')[seq_name]
-        path = f'{data_root}/poses_2d_action_labels/{seq_name}.npz'
-        data = np.load(path, allow_pickle=True)['arr_0'].item()
-
-        print(f"{self.actions_gt_data.keys()=}")
-        print(f"{self.actions_mlp2d.keys()=}")
-        import ipdb; ipdb.set_trace()
+        self.actions_gt = np.load(f'datasets/jrdb_adjusted/poses_2d_action_labels/{seq_name}.npz', allow_pickle=True)['arr_0'].item()
+        self.actions_gt = self.actions_gt['action_labels']
+        self.actions_mlp_gt_2d = np.load(f'datasets/jrdb_all_action_pseudolabels_gt_2d.npy', allow_pickle=True).item()[seq_name]
+        self.actions_mlp_hst_3d = np.load(f'datasets/jrdb_all_action_pseudolabels_hst_3d.npy', allow_pickle=True).item()[seq_name]
+        self.actions_mlp_hmr_2d = np.load(f'datasets/jrdb_all_action_pseudolabels_hmr_2d.npy', allow_pickle=True).item()[seq_name]
 
         # data = np.load(path, allow_pickle=True)['arr_0'].item()
         # self.all_kp_data = data
@@ -107,9 +104,14 @@ class jrdb_preprocess(object):
 
     def get_data(self, frame_id):
         data_kp = self.all_kp_data.get(frame_id, {})
-        action_gt = self.actions_gt_data.get(frame_id, None)
+        action_gt = self.actions_gt.get(frame_id, {})
+        action_mlp_gt_2d = self.actions_mlp_gt_2d.get(frame_id, {})
+        action_mlp_hst_3d = self.actions_mlp_hst_3d.get(frame_id, {})
+        action_mlp_hmr_2d = self.actions_mlp_hmr_2d.get(frame_id, {})
+
         data_pos = self.gt[self.gt[:, 0] == frame_id]
-        return {'kp': data_kp, 'pos': data_pos, 'action': action_gt}
+        return {'kp': data_kp, 'pos': data_pos, 'action_gt': action_gt, 'action_mlp2d': action_mlp_gt_2d, 'action_hst3d': action_mlp_hst_3d,
+                'action_hmr2d': action_mlp_hmr_2d}
 
     def get_pre_data(self, frame):
         DataList = []
@@ -183,10 +185,18 @@ class jrdb_preprocess(object):
         motion = []
         mask = []
         kp_motion = []
+        action_gts = []
+        action_mlp_gt_2ds = []
+        action_mlp_hst_3ds = []
+        action_mlp_hmr_2ds = []
         for ped_id in valid_id:
             mask_i = torch.zeros(num_frames)
             box_3d = torch.zeros([num_frames, 2])
             kp_3d = torch.zeros([num_frames, len(self.kp_mask), 3])
+            action_gt = torch.zeros([num_frames, len(USE_ACTIONS)])
+            action_mlp_gt_2d = torch.zeros([num_frames, len(USE_ACTIONS)])
+            action_mlp_hst_3d = torch.zeros([num_frames, len(USE_ACTIONS)])
+            action_mlp_hmr_2d = torch.zeros([num_frames, len(USE_ACTIONS)])
             for f_i, frame_i in enumerate(range(num_frames)):
                 single_frame = data[frame_i]
                 pos_history = single_frame['pos']
@@ -210,13 +220,27 @@ class jrdb_preprocess(object):
                     kp_3d[frame_i] = torch.from_numpy(single_frame['kp'][ped_id]).float()
                 else:
                     kp_3d[frame_i] = 0
+                if single_frame['action_gt'] is not None and ped_id in single_frame['action_gt']:
+                    actions_this_ped = single_frame['action_gt'][ped_id]
+                    actions_this_ped = actions_this_ped[actions_this_ped < len(USE_ACTIONS)]
+                    action_gt[frame_i, actions_this_ped] = 1
+                if single_frame['action_mlp2d'] is not None and ped_id in single_frame['action_mlp2d']:
+                    action_mlp_gt_2d[frame_i, single_frame['action_mlp2d'][ped_id]] = 1
+                if single_frame['action_hst3d'] is not None and ped_id in single_frame['action_hst3d']:
+                    action_mlp_hst_3d[frame_i, single_frame['action_hst3d'][ped_id]] = 1
+                if single_frame['action_hmr2d'] is not None and ped_id in single_frame['action_hmr2d']:
+                    action_mlp_hmr_2d[frame_i, single_frame['action_hmr2d'][ped_id]] = 1
             motion.append(box_3d)
             mask.append(mask_i)
             # replace nan with 0
             kp_3d[kp_3d != kp_3d] = 0
             kp_motion.append(kp_3d)
+            action_gts.append(action_gt)
+            action_mlp_gt_2ds.append(action_mlp_gt_2d)
+            action_mlp_hst_3ds.append(action_mlp_hst_3d)
+            action_mlp_hmr_2ds.append(action_mlp_hmr_2d)
 
-        return motion, kp_motion, mask
+        return motion, kp_motion, mask, action_gts, action_mlp_gt_2ds, action_mlp_hst_3ds, action_mlp_hmr_2ds
 
     def get_formatted_pre_data(self, data, valid_id):
         return self.format_data(data, self.past_frames, valid_id, is_pre=True)
@@ -247,12 +271,15 @@ class jrdb_preprocess(object):
             return None
 
         heading = self.get_heading(pre_data[0], valid_id)
-        print(f"{heading=}")
         heading_avg = self.get_heading_avg(pre_data, valid_id)
         pred_mask = None
 
-        pre_motion, pre_motion_kp, pre_motion_mask = self.get_formatted_pre_data(pre_data, valid_id)
-        fut_motion, fut_motion_kp, fut_motion_mask = self.get_formatted_fut_data(fut_data, valid_id)
+        pre_motion, pre_motion_kp, pre_motion_mask, pre_action_gt, pre_action_mlp_gt_2d, pre_action_mlp_hst_3d,\
+            pre_action_mlp_hmr_2d \
+            = self.get_formatted_pre_data(pre_data, valid_id)
+        fut_motion, fut_motion_kp, fut_motion_mask, fut_action_gt, fut_action_gt_2d, fut_action_hst_3d,\
+            fut_action_hmr_2d \
+            = self.get_formatted_fut_data(fut_data, valid_id)
         # , pre_motion_kp_mask
         # , fut_motion_kp_mask
 
@@ -261,10 +288,18 @@ class jrdb_preprocess(object):
                 'pre_motion': pre_motion,
                 'pre_motion_mask': pre_motion_mask,
                 'pre_kp': pre_motion_kp,
+                'pre_action_gt': pre_action_gt,
+                'pre_action_gt_2d': pre_action_mlp_gt_2d,
+                'pre_action_hst_3d': pre_action_mlp_hst_3d,
+                'pre_action_hmr_2d': pre_action_mlp_hmr_2d,
                 # 'pre_kp_mask': pre_motion_kp_mask,
                 'fut_motion': fut_motion,
                 'fut_motion_mask': fut_motion_mask,
                 'fut_kp': fut_motion_kp,
+                'fut_action_gt': fut_action_gt,
+                'fut_action_gt_2d': fut_action_gt_2d,
+                'fut_action_hst_3d': fut_action_hst_3d,
+                'fut_action_hmr_2d': fut_action_hmr_2d,
                 # 'fut_kp_mask': fut_motion_kp_mask,
                 'heading': heading,  # only the heading for the last obs timestep
                 'heading_avg': heading_avg,  # the avg heading for all timesteps

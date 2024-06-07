@@ -24,8 +24,8 @@ BLAZEPOSE_CONNECTIVITIES = [(1, 2), (1, 5), (2, 3), (3, 7), (5, 6), (6, 7), (7, 
 def is_nan_or_0(array):
     is_nan = np.isnan(np.array(array))
     if len(array.shape) == 1:
-        return is_nan.all(-1) or np.isclose(array, 0, 1e-3, 1e-3).all(-1)
-    return is_nan.all(-1) | np.isclose(array, 0, 1e-3, 1e-3).all(-1)
+        return is_nan.any(-1) or np.isclose(array, 0, 1e-3, 1e-3).all(-1)
+    return is_nan.any(-1) | np.isclose(array, 0, 1e-3, 1e-3).all(-1)
 
 def fig_to_array(fig):
     fig.canvas.draw()
@@ -36,6 +36,8 @@ def fig_to_array(fig):
 
 def ax_set_up(ax, stuff=None, bounds=None, invert_yaxis=False):
     """ stuff is (N_examples, 2 or 3) """
+    stuff = np.nan_to_num(stuff)
+
     if invert_yaxis:
         ax.invert_yaxis()  # to match the 2d bev trajectory plot better
 
@@ -146,18 +148,22 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
 
     # set global plotting bounds (same for each sample)
     bounds2d = []
-    for graph in list_of_arg_dicts:
+    for gi, graph in enumerate(list_of_arg_dicts):
         for key, val in graph.items():
             if 'traj' in key:
-                if len(bounds2d) > 0:
-                    assert val.shape[-1] == bounds2d[-1].shape[-1], \
-                        f"all trajectories must have same number of dimensions ({val.shape[-1]} != {bounds2d[-1].shape[-1]})"
-                # bounds2d.append(np.array(val).reshape(-1, val.shape[-1]))
-                val = np.array(val)
-                bounds2d.append(val[~is_nan_or_0(val)].reshape(-1, val.shape[-1]))
+                # val = np.array(val)
+                val = list_of_arg_dicts[1]['gt_traj']
+                val = val[~is_nan_or_0(val)].reshape(-1, val.shape[-1])
+                if np.isnan(val).any():
+                    print(f"graph {gi} key {key} where is nan {np.where(np.isnan(val[~is_nan_or_0(val)]))}")
+                bounds2d.append(val)
     bounds2d = np.concatenate(bounds2d)
-    bounds2d = [*(np.min(bounds2d, axis=0) - 0.2), *(np.max(bounds2d, axis=0) + 0.2)]
-    assert len(bounds2d) in [4, ], f"bounds2d must be of length 4 , not {len(bounds2d)}"
+    # if there are nothing in bounds, then set to default
+    if len(bounds2d) == 0:
+        bounds2d = None
+    else:
+        bounds2d = [*(np.min(bounds2d, axis=0) - 0.2), *(np.max(bounds2d, axis=0) + 0.2)]
+        assert len(bounds2d) in [4, ], f"bounds2d must be of length 4 , not {len(bounds2d)}"
 
     anim_objects = []
     animation_frames = []

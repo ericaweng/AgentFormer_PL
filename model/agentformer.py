@@ -13,11 +13,12 @@ from .map_encoder import MapEncoder
 from utils.torch import *
 from utils.utils import initialize_weights
 from model.running_norm import RunningNorm
-from data.jrdb_kp3 import USE_ACTIONS
+from data.jrdb_kp6 import USE_ACTIONS
 
 
 INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2, 'heading_all': 2, 'heading_avg': 2,
                       'action_gt': len(USE_ACTIONS), 'action_mlp2d': len(USE_ACTIONS), 'action_hmr2d': len(USE_ACTIONS),
+                      'action_hst3d': len(USE_ACTIONS),
                       'kp_norm': 99, # 34,
                       'kp_norm_3dhst': 99,
                       'kp_vel': 99, # 34,  # 99 for hst blazepose kp, 34 for jrdb labelled 2d keypoints
@@ -248,9 +249,11 @@ class ContextEncoder(nn.Module):
             elif key == 'action_gt':
                 kp_input_list.append(data['pre_action_gt'])
             elif key == 'action_mlp2d':
-                kp_input_list.append(data['pre_action_mlp2d'])
+                kp_input_list.append(data['pre_action_gt_2d'])
             elif key == 'action_hmr2d':
-                kp_input_list.append(data['pre_action_hmr2d'])
+                kp_input_list.append(data['pre_action_hmr_2d'])
+            elif key == 'action_hst3d':
+                kp_input_list.append(data['pre_action_hst_3d'])
             elif key == 'cam_id':
                 kp_input_list.append(data['pre_cam_id'].unsqueeze(-1))
             elif key == 'cam_intrinsics':
@@ -440,9 +443,11 @@ class FutureEncoder(nn.Module):
             elif key == 'action_gt':
                 kp_input_list.append(data['fut_action_gt'])
             elif key == 'action_mlp2d':
-                kp_input_list.append(data['fut_action_mlp2d'])
+                kp_input_list.append(data['fut_action_gt_2d'])
             elif key == 'action_hmr2d':
-                kp_input_list.append(data['fut_action_hmr2d'])
+                kp_input_list.append(data['fut_action_hmr_2d'])
+            elif key == 'action_hst3d':
+                kp_input_list.append(data['fut_action_hst_3d'])
             elif key == 'cam_id':
                 kp_input_list.append(data['fut_cam_id'].unsqueeze(-1))
             elif key == 'cam_intrinsics':
@@ -891,7 +896,7 @@ class AgentFormer(nn.Module):
             in_data = data
 
         # set meta params for this sequences
-        self.data = defaultdict(lambda: None)
+        self.data = {}
         self.data['cfg'] = self.cfg
         self.data['batch_size'] = len(in_data['pre_motion'])
         self.data['agent_num'] = len(in_data['pre_motion'])
@@ -1002,7 +1007,6 @@ class AgentFormer(nn.Module):
             assert len(self.data['heading'].shape) == 1  # if not already sin / cos'ed
             self.data['heading_vec'] = torch.stack([torch.cos(self.data['heading']), torch.sin(self.data['heading'])], dim=-1)
 
-        assert 'heading_avg' in in_data
         assert 'heading' in in_data and in_data['heading'] is not None
         if 'heading_avg' in self.data and self.data['heading_avg'] is not None:
             self.data['heading_avg'] = torch.stack([torch.cos(self.data['heading_avg']), torch.sin(self.data['heading_avg'])], dim=-1)

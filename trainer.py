@@ -8,7 +8,6 @@ import pytorch_lightning as pl
 
 from model.model_lib import model_dict
 from eval import eval_one_seq
-from metrics import stats_func
 from utils.utils import mkdir_if_missing
 from utils.torch import get_scheduler
 
@@ -197,7 +196,8 @@ class AgentFormerTrainer(pl.LightningModule):
 
 
     def _compute_and_log_metrics(self, outputs, mode='test'):
-        args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy(), output['data']['pred_mask']) for output in outputs]  #  if output is not None
+        args_list = [(output['pred_motion'].numpy(), output['gt_motion'].numpy(), None) for output in outputs]  # if output is not None
+        # output['data']['fut_mask'].numpy()
 
         # calculate metrics for each sequence
         if self.args.mp:
@@ -300,12 +300,10 @@ class AgentFormerTrainer(pl.LightningModule):
                 self.logger.experiment.add_video(f'{mode}/traj_{instance_i}', video_tensor[idx:idx+1], self.global_step, fps=6)
 
     def training_epoch_end(self, outputs):
-        print(f"len(outputs): {len(outputs)}")
         self.outputs = self._compute_and_log_metrics(outputs, 'train')
         self.model.step_annealer()
 
     def validation_epoch_end(self, outputs):
-        print(f"len(outputs): {len(outputs)}")
         if len(outputs) > 0:
             self.outputs = self._compute_and_log_metrics(outputs, 'val')
 
