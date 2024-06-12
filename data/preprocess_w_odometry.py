@@ -1,4 +1,7 @@
-"""Preprocesses the raw train split of JRDB. """
+"""Preprocesses the raw train split of JRDB.
+this file is decommissioned bc of a bug in agents_to_odometry_frame, where the robot was not be transformed to world frame
+(and thus the agents where not being transformed to world frame either)
+"""
 
 import collections
 import json
@@ -7,73 +10,13 @@ import argparse
 
 import numpy as np
 import pandas as pd
-from pyquaternion import Quaternion
+
+from preprocess_utils import pose3
+from preprocess_utils import quaternion
+from preprocess_utils import rotation3
 import tqdm
 
-import cv2
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-
-
-def plot_pedestrian_trajectories(df, scene_name, name='trajectory_video', end=-1, skip=1):
-  # Create the directory if it doesn't exist
-  directory = f"../viz/hst_jrdb_data/{scene_name}"
-  os.makedirs(directory, exist_ok=True)
-
-  # Prepare video writer
-  video_name = f"{directory}/{name}.mp4"
-  frame_size = (640, 480)
-  fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-  frame_rate = 15 / skip
-  video_writer = cv2.VideoWriter(video_name, fourcc, frame_rate, frame_size)
-
-  # Unique timesteps
-  timesteps = df.index.get_level_values('timestep').unique()
-  x_min, x_max = df['p'].apply(lambda x: x[0]).min(), df['p'].apply(lambda x: x[0]).max()
-  y_min, y_max = df['p'].apply(lambda x: x[1]).min(), df['p'].apply(lambda x: x[1]).max()
-
-  for timestep in timesteps[:end:skip]:
-    fig, ax = plt.subplots()
-    canvas = FigureCanvas(fig)
-    ax.set_xlim([x_min, x_max])  # Set these limits to fit your data
-    ax.set_ylim([y_min, y_max])
-
-    # Filter data for the current timestep
-    timestep_data = df.loc[timestep]
-
-    # Plot each pedestrian
-    for _, row in timestep_data.iterrows():
-      position = row['p'][:2]  # Get x, y position
-      yaw = row['yaw']
-
-      # Plot pedestrian as a circle
-      ax.scatter(*position, s=100)  # Adjust s for size
-
-      # Calculate end point of the arrow based on yaw
-      end_point = (position[0] + np.cos(yaw) * 0.5, position[1] + np.sin(yaw) * 0.5)
-      ax.annotate('', xy=end_point, xytext=position,
-                  arrowprops=dict(facecolor='black', shrink=0.05))
-
-    ax.set_aspect('equal')
-    # plt.axis('off')
-
-    # Convert plot to image
-    canvas.draw()
-    s, (width, height) = canvas.print_to_buffer()
-    image = np.frombuffer(s, np.uint8).reshape((height, width, 4))
-
-    # Convert RGBA to BGR
-    image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
-
-    # Resize for video
-    image = cv2.resize(image, frame_size)
-
-    video_writer.write(image)
-
-    plt.close(fig)
-
-  video_writer.release()
-  print(f"Video saved as {video_name}")
+from visualize_preprocessed_data import plot_pedestrian_trajectories
 
 
 def get_agents_dict(input_path, scene):
@@ -127,7 +70,7 @@ def get_robot_kiss_icp(input_path, scene):
     ts = row[0]
     robot[ts] = {
         'p': np.array([row[1], row[2], row[3]]),
-        'q': np.array([row[7], row[4], row[5], row[6]])
+        'q': np.array([row[4], row[5], row[6], row[7]])
     }
 
   return robot
@@ -153,65 +96,78 @@ def get_robot(input_path, scene):
     }
 
   return robot
+def robot_to_odometry_frame(robot_df):
+  """Transforms robot features into odometry frame."""
+  # initial world pose
+  world_pose_odometry = pose3.Pose3(
+      rotation3.Rotation3(
+          quaternion.Quaternion(robot_df.loc[0]['q'])), robot_df.loc[0]['p'])
+  # initial odometry pose in world frame
+  odometry_pose_world = world_pose_odometry.inverse()
 
+  # translate robot such that initial position is at origin
+  robot_dict = {}
+  for ts, row in robot_df.iterrows():
+    world_pose_robot = pose3.Pose3(
+        rotation3.Rotation3(quaternion.Quaternion(row['q'])), row['p'])
+    odometry_pose_robot = odometry_pose_world * world_pose_robot
+
+    robot_dict[ts] = {
+        'p': odometry_pose_robot.translation,
+        'yaw': odometry_pose_robot.rotation.euler_angles(radians=True)[-1]
+        }
+  return pd.DataFrame.from_dict(
+      robot_dict, orient='index').rename_axis(['timestep'])  # pytype: disable=missing-parameter  # pandas-drop-duplicates-overloads
 
 
 def agents_to_odometry_frame(agents_df, robot_df):
-  """Transforms agents features into odometry frame using pyquaternion."""
-  # Calculate the world pose odometry quaternion and position
-  robot_initial_quat = Quaternion(robot_df.loc[0]['q'])
-  robot_initial_pos = np.array(robot_df.loc[0]['p'])
-
-  # The inverse transformation is obtained by inverting the quaternion and negating the position
-  odometry_quat_world = robot_initial_quat.inverse
-  odometry_pos_world = -odometry_quat_world.rotate(robot_initial_pos)
+  """Transforms agents features into odometry frame."""
+  world_pose_odometry = pose3.Pose3(
+      rotation3.Rotation3(
+          quaternion.Quaternion(robot_df.loc[0]['q'])), robot_df.loc[0]['p'])
+  odometry_pose_world = world_pose_odometry.inverse()
 
   agents_dict = {}
   for index, row in agents_df.iterrows():
     ts = index[0]
     robot_odometry_dp = robot_df.loc[ts]
 
-    # Quaternion and position for the world pose of the robot
-    world_quat_robot = Quaternion(robot_odometry_dp['q'])
-    world_pos_robot = np.array(robot_odometry_dp['p'])
+    world_pose_robot = pose3.Pose3(
+        rotation3.Rotation3(
+            quaternion.Quaternion(robot_odometry_dp['q'])),
+        robot_odometry_dp['p'])
 
-    # Quaternion and position for the robot pose relative to the agent
-    agent_yaw_rotation = Quaternion(axis=[0, 0, 1], radians=row['yaw'])
-    agent_pos = np.array(row['p'])
+    robot_pose_agent = pose3.Pose3(
+        rotation3.Rotation3.from_euler_angles(
+            rpy_radians=[0., 0., row['yaw']]), row['p'])
 
-    # Calculate the odometry pose of the agent
-    odometry_pos_agent = odometry_quat_world.rotate(
-            world_quat_robot.rotate(agent_pos) + world_pos_robot
-    ) + odometry_pos_world
-    odometry_yaw_agent = (odometry_quat_world * world_quat_robot * agent_yaw_rotation).yaw_pitch_roll[0]
+    odometry_pose_agent = (odometry_pose_world * world_pose_robot
+                           * robot_pose_agent)
 
-    # Store the transformed position and yaw
     agents_dict[index] = {
-            'p': odometry_pos_agent,
-            'yaw': odometry_yaw_agent
-    }
+        'p': odometry_pose_agent.translation,
+        'yaw': odometry_pose_agent.rotation.euler_angles(radians=True)[-1]}
 
-    # Add length, width, height if available
     if 'l' in row:
       agents_dict[index]['l'] = row['l']
       agents_dict[index]['w'] = row['w']
       agents_dict[index]['h'] = row['h']
 
-    # Rotate keypoints if available
     if 'keypoints' in row:
+      world_rot_robot = rotation3.Rotation3(
+          quaternion.Quaternion(robot_odometry_dp['q']))
+      odometry_rot_robot = odometry_pose_world.rotation * world_rot_robot
       rot_keypoints = []
       for keypoint in row['keypoints']:
         if np.isnan(keypoint).any():
           rot_keypoints.append(keypoint)
         else:
-          rotated_keypoint = odometry_quat_world.rotate(
-                  world_quat_robot.rotate(keypoint)
-          )
-          rot_keypoints.append(rotated_keypoint)
+          rot_keypoints.append(odometry_rot_robot.rotate_point(keypoint))
       rot_keypoints = np.array(rot_keypoints)
       agents_dict[index]['keypoints'] = rot_keypoints
 
-  return pd.DataFrame.from_dict(agents_dict, orient='index').rename_axis(['timestep', 'id'])
+  return pd.DataFrame.from_dict(
+      agents_dict, orient='index').rename_axis(['timestep', 'id'])  # pytype: disable=missing-parameter  # pandas-drop-duplicates-overloads
 
 
 def get_agents_features_with_box(agents_dict, max_distance_to_robot=10):
@@ -266,8 +222,9 @@ def jrdb_preprocess_train(args):
       os.path.join(input_path, 'train')
   )
   for scene in tqdm.tqdm(scenes):
+    if scene != 'clark-center-2019-02-28_1':#clark-center-intersection-2019-02-28_0':  # clark-center-2019-02-28_1':
     # if scene != 'gates-to-clark-2019-02-28_1':#clark-center-intersection-2019-02-28_0':
-    #     continue
+        continue
 
     if not FROM_DETECTIONS:
       agents_dict = get_agents_dict(
@@ -346,14 +303,18 @@ def jrdb_preprocess_train(args):
     )
 
     # plot_pedestrian_trajectories(robot_df, scene, 'robot')
-    # plot_pedestrian_trajectories(agents_df.rename_axis(['timestep', 'id']), scene, 'before_odo', end=1000, skip=10)
+    # plot_pedestrian_trajectories(agents_df.rename_axis(['timestep', 'id']), scene, 'before_odo', end=1000, skip=10, plot_robot=True)
     if args.adjust_w_odometry:
       agents_in_odometry_df0 = agents_to_odometry_frame(
           agents_df, robot_df.iloc[::subsample].reset_index(drop=True)
       )
-      # plot_pedestrian_trajectories(agents_in_odometry_df0, scene, 'after_odo', end=1000, skip=10)
+      filename = f'after_odo_{"og_odo" if args.old_odometry else "kiss"}'
+      plot_pedestrian_trajectories(agents_in_odometry_df0, scene, filename, end=1000, skip=10, robot_df=robot_df)
+      print(f"{robot_df=}")
     else:
       agents_in_odometry_df0 = agents_df.rename_axis(['timestep', 'id'])
+
+    import ipdb; ipdb.set_trace()
 
     os.makedirs(output_path, exist_ok=True)
     ## change df to out format
@@ -368,9 +329,9 @@ def jrdb_preprocess_train(args):
       agents_in_odometry_df[['timestep', 'id2', 'x', 'y', 'yaw']].to_csv(f'{output_path}/{scene}.txt', sep=' ', header=False, index=False)
 
     if args.save_robot:
+      robot_df = robot_to_odometry_frame(robot_df)
       robot_df['x'] = robot_df['p'].apply(lambda x: round(x[0],6))
       robot_df['y'] = robot_df['p'].apply(lambda x: round(x[1],6))
-      robot_df['yaw'] = robot_df['q'].apply(lambda x: Quaternion(x).yaw_pitch_roll[0])
       if not os.path.exists(f'{output_path}/robot_poses'):
         os.makedirs(f'{output_path}/robot_poses')
       robot_df[['x', 'y', 'yaw']].to_csv(f'{output_path}/robot_poses/{scene}_robot.txt', sep=' ', header=False, index=False)

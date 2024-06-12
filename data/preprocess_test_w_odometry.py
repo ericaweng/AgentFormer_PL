@@ -1,4 +1,7 @@
-"""Preprocesses the raw test split of JRDB. """
+"""Preprocesses the raw test split of JRDB.
+this file is decommissioned bc of a bug in agents_to_odometry_frame, where the robot was not be transformed to world frame
+(and thus the agents where not being transformed to world frame either)
+"""
 
 import tqdm
 

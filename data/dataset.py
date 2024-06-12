@@ -340,7 +340,6 @@ class AgentFormerDataset(Dataset):
                                + (self.min_past_frames - 1) * self.frame_skip  # return frame is the last obs frame
                                + self.sequence[seq_index].init_frame)  # from 0-indexed list index to 1-indexed frame index (for mot)
                 if "half_and_half" not in self.split_type:
-                    print(f"{self.split_type=}")
                     assert self.sequence[seq_index].init_frame == 0
                 return seq_index, frame_index
             else: # keep going through scenes
