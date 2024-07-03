@@ -45,12 +45,19 @@ class jrdb_preprocess(object):
         self.gt = np.genfromtxt(trajectories_path, delimiter=' ', dtype=float)
         self.kp_source = parser.get('kp_source', 'blazepose')
         if self.kp_source == 'blazepose':
-            self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)['arr_0'].item()
+            self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)[
+                'arr_0'].item()
+            self.kp_mask = np.arange(33)
         elif self.kp_source == 'hmr2':
-            self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)['arr_0'].item()
+            from pathlib import Path
+            self.all_kp_data = np.load(f"{Path(data_root).parent}/jrdb/jrdb_hmr2_raw_stitched/{seq_name}_kp_3d.npz",
+                                       allow_pickle=True)['arr_0'].item()
+            self.kp_mask = np.arange(44)
+        else:
+            raise ValueError(f"kp_source {self.kp_source} not recognized")
+
         self.robot_data = np.genfromtxt(f'{data_root}/robot_poses/{seq_name}_robot.txt', delimiter=' ', dtype=float)
 
-        self.kp_mask = np.arange(33)
 
         # check that frame_ids are equally-spaced
         frames = np.unique(self.gt[:, 0].astype(int))
@@ -196,7 +203,7 @@ class jrdb_preprocess(object):
                     box_3d[frame_i] = torch.zeros((1, 2))
                     mask_i[frame_i] = 0
                 # if joints info exists
-                if single_frame['kp'] is not None and ped_id in single_frame['kp']:
+                if single_frame['kp'] is not None and ped_id in single_frame['kp'] and single_frame['kp'][ped_id] is not None:
                     kp_3d[frame_i] = torch.from_numpy(single_frame['kp'][ped_id]).float()
                 else:
                     kp_3d[frame_i] = 0

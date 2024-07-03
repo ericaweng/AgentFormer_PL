@@ -175,7 +175,7 @@ class AgentFormerDataset(Dataset):
 
         self.preprocess_data = True if trial_ds_size is not None else parser.get('preprocess_data', False)  # or args.test_certain_frames_only
         if args.test_certain_frames_only:
-            self.get_certain_frames(args.frames)
+            self.get_certain_frames(args.peds)
         elif self.preprocess_data:
             self.get_preprocessed_data(num_total_samples, frames_list, start_frame)
         else:
@@ -262,27 +262,27 @@ class AgentFormerDataset(Dataset):
         # print(f"len(data) before frame_skip downsample: {len(datas)}")
         self.sample_list = datas#[::self.data_skip]
 
-        print(f"num sequences per scene {self.d=}")
-        # print(f"which frame ids (samples) per scene are being used {seq_to_frame_ids=}")
-        # save frame ids:
-        import pickle
-        split2 = 'test' if self.split == 'val' else self.split
-        ts_or_kp = 'kp' if self.exclude_kpless_data else 'ts'
-        mdr = 1000 if '1000' in self.data_root_jrdb else 15
-
-        print('total num sequences', sum(self.d.values()))
-        print(f"num total frames {self.dnf=}")
-        print(f"total num sequences being used: {sum([len(v) for k,v in seq_to_frame_ids.items()])}")  # 5354
-        # num_seq_per_scene = {k: len(v) for k, v in seq_to_frame_ids.items()}
-        # print(f"{num_seq_per_scene=}")
-        # agent_ids_save_path = f'../human-scene-transformer/human_scene_transformer/af_{split2}_seq_to_frame_id_to_agent_ids_full-{ts_or_kp}_mdr-{mdr}.pkl'
-        # with open(agent_ids_save_path, 'wb') as f:
-        #     pickle.dump(seq_to_frame_to_agent_ids, f)
-        #     print("saved to", agent_ids_save_path)
-
-        print('avg num agents per frame per scene=', {scene: round(np.mean([len(agent_ids) for frame_id, agent_ids in frames.items()]),2) for scene, frames in seq_to_frame_to_agent_ids.items()})
-        # print('unique agents across entire scene=', {scene: len(set().union(*frames.values())) for scene, frames in seq_to_frame_to_agent_ids.items()})
-        print('num unique agents across entire scene=', {scene: set().union(*frames.values()) for scene, frames in seq_to_frame_to_agent_ids.items()})
+        # print(f"num sequences per scene {self.d=}")
+        # # print(f"which frame ids (samples) per scene are being used {seq_to_frame_ids=}")
+        # # save frame ids:
+        # import pickle
+        # split2 = 'test' if self.split == 'val' else self.split
+        # ts_or_kp = 'kp' if self.exclude_kpless_data else 'ts'
+        # mdr = 1000 if '1000' in self.data_root_jrdb else 15
+        #
+        # print('total num sequences', sum(self.d.values()))
+        # print(f"num total frames {self.dnf=}")
+        # print(f"total num sequences being used: {sum([len(v) for k,v in seq_to_frame_ids.items()])}")  # 5354
+        # # num_seq_per_scene = {k: len(v) for k, v in seq_to_frame_ids.items()}
+        # # print(f"{num_seq_per_scene=}")
+        # # agent_ids_save_path = f'../human-scene-transformer/human_scene_transformer/af_{split2}_seq_to_frame_id_to_agent_ids_full-{ts_or_kp}_mdr-{mdr}.pkl'
+        # # with open(agent_ids_save_path, 'wb') as f:
+        # #     pickle.dump(seq_to_frame_to_agent_ids, f)
+        # #     print("saved to", agent_ids_save_path)
+        #
+        # print('avg num agents per frame per scene=', {scene: round(np.mean([len(agent_ids) for frame_id, agent_ids in frames.items()]),2) for scene, frames in seq_to_frame_to_agent_ids.items()})
+        # # print('unique agents across entire scene=', {scene: len(set().union(*frames.values())) for scene, frames in seq_to_frame_to_agent_ids.items()})
+        # print('num unique agents across entire scene=', {scene: set().union(*frames.values()) for scene, frames in seq_to_frame_to_agent_ids.items()})
 
         # num sequences
         # total num sequences 3697

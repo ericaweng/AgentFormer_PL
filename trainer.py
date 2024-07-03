@@ -158,7 +158,7 @@ class AgentFormerTrainer(pl.LightningModule):
             return self._step(batch, 'val')
 
     def test_step(self, batch, batch_idx):
-        if self.args.test_certain_frames_only and (batch['seq'], batch['frame']) not in self.args.frames:
+        if self.args.test_certain_frames_only and (batch['seq'], batch['frame']) not in self.args.peds:
             print(f"{(batch['seq'], batch['frame'])=}")
             return
 
@@ -176,18 +176,15 @@ class AgentFormerTrainer(pl.LightningModule):
                 save_dir = f'../trajectory_reward/results/trajectories/{self.model_name}/trajnet_sdd'
                 frame = batch['frame'] * batch['frame_skip']
             elif self.dataset_name == 'jrdb':
-                save_dir = f'trajectories/{self.model_name}'
+                save_dir = f'../viz/af_trajectories/{self.model_name}'
                 frame = batch['frame']
-            else:
-                save_dir = f'../trajectory_reward/results/trajectories/{self.model_name}/trajnet_sdd'
-                frame = batch['frame'] * batch['frame_skip']
             for idx, sample in enumerate(pred_motion.transpose(0, 1)):
                 formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12,
                                                             frame_scale=batch['frame_scale'], future=True)
                 save_trajectories(formatted, save_dir, batch['seq'], frame, suffix=f"/sample_{idx:03d}")
-            formatted = format_agentformer_trajectories(gt_motion, batch, self.cfg, timesteps=12,
-                                                        frame_scale=batch['frame_scale'], future=True)
-            save_trajectories(formatted, save_dir, batch['seq'], frame, suffix='/gt')
+            # formatted = format_agentformer_trajectories(gt_motion, batch, self.cfg, timesteps=12,
+            #                                             frame_scale=batch['frame_scale'], future=True)
+            # save_trajectories(formatted, save_dir, batch['seq'], frame, suffix='/gt')
             formatted = format_agentformer_trajectories(obs_motion.transpose(0, 1), batch, self.cfg, timesteps=8,
                                                         frame_scale=batch['frame_scale'], future=False)
             save_trajectories(formatted, save_dir, batch['seq'], frame, suffix="/obs")

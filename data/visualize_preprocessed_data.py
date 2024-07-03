@@ -1,12 +1,21 @@
 import numpy as np
 import pandas as pd
-from jrdb_split import get_jrdb_split_egomotion
+from data.jrdb_split import get_jrdb_split_egomotion
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import cv2
 import os
-import pyquaternion
+from pyquaternion import Quaternion
 
+
+def convert_quaternion(xyzw):
+  """Convert quaternion from xyzw to wxyz."""
+  return Quaternion(xyzw[3], xyzw[0], xyzw[1], xyzw[2])
+
+def convert_back_quaternion(wxyz_quat):
+  """Convert quaternion from wxyz to xyzw."""
+  w, x, y, z = wxyz_quat.elements
+  return np.array([x, y, z, w])
 
 
 TRAIN, TEST, _ = get_jrdb_split_egomotion()
@@ -69,12 +78,8 @@ def plot_pedestrian_trajectories(df, scene_name, name='trajectory_video', end=-1
             ax.plot(robot_path[:, 0], robot_path[:, 1], color='red')
             # plot current arrow showing current orientation
             robot_quat = robot_df.iloc[int(timestep)]['q']
-            if robot_quat.shape[0] == 4:
-                # assume robot_quat is w, x, y, z
-                robot_yaw = pyquaternion.Quaternion(*robot_quat).yaw_pitch_roll[0]
-            else:
-                import ipdb; ipdb.set_trace()
-                robot_yaw = robot_quat[0]
+            assert robot_quat.shape[0] == 4
+            robot_yaw = convert_quaternion(robot_quat).yaw_pitch_roll[0]
             end_point = (robot_position[0] + np.cos(robot_yaw) * 0.5, robot_position[1] + np.sin(robot_yaw) * 0.5)
             ax.annotate('', xy=end_point, xytext=robot_position, arrowprops=dict(facecolor='red', shrink=0.05))
 

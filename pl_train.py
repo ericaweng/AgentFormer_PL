@@ -176,7 +176,7 @@ def main(args):
     elif 'viz' in args.mode:
         from viz_utils_plot import _save_viz_gt
         args.test_certain_frames_only = True
-        args.frames = {
+        args.peds = {
                 ('clark-center-2019-02-28_0', 40),
                 ('clark-center-intersection-2019-02-28_0', 40),
         }

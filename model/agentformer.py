@@ -16,16 +16,17 @@ from model.running_norm import RunningNorm
 from data.jrdb_kp6 import USE_ACTIONS
 
 
-INPUT_TYPE_TO_DIMS = {'scene_norm': 2, 'vel': 2, 'heading': 2, 'heading_all': 2, 'heading_avg': 2,
+def get_dims_from_input_type(cfg, key):
+    d = {'scene_norm': 2, 'vel': 2, 'heading': 2, 'heading_all': 2, 'heading_avg': 2,
                       'action_gt': len(USE_ACTIONS), 'action_mlp2d': len(USE_ACTIONS), 'action_hmr2d': len(USE_ACTIONS),
                       'action_hst3d': len(USE_ACTIONS),
-                      'kp_norm': 99, # 34,
-                      'kp_norm_3dhst': 99,
-                      'kp_vel': 99, # 34,  # 99 for hst blazepose kp, 34 for jrdb labelled 2d keypoints
-                      # 'kp_vel_3dhst': 34,
+                      'kp_norm': 99 if cfg.get('kp_source', 'blazepose') == 'blazepose' else 44*3,  # 34,
+                      'kp_vel': 99 if cfg.get('kp_source', 'blazepose') == 'blazepose' else 44*3,  # 34,  # 99 for hst blazepose kp, 34 for jrdb labelled 2d keypoints
+                                # 'kp_vel_3dhst': 34,
                       'kp_scores': 17,
                       'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1,
                       'action': len(USE_ACTIONS), 'action_score': len(USE_ACTIONS)}
+    return d[key]
 
 def generate_ar_mask(sz, agent_num, agent_mask):
     assert sz % agent_num == 0
@@ -188,9 +189,9 @@ class ContextEncoder(nn.Module):
         in_dim_kp = 0
         for key in self.input_type:
             if key in ['scene_norm', 'vel', 'heading', 'heading_all', 'heading_avg'] or self.concat_all_inputs:
-                in_dim += self.input_type_to_dims[key]
+                in_dim += self.input_type_to_dims(ctx, key)
             else:
-                in_dim_kp += self.input_type_to_dims[key]
+                in_dim_kp += self.input_type_to_dims(ctx, key)
         if in_dim_kp > 0:
             if ctx['add_kp']:
                 self.input_fc_kp = nn.Sequential(nn.Linear(in_dim_kp, self.model_dim),
@@ -206,6 +207,7 @@ class ContextEncoder(nn.Module):
             self.kp_embedding_dim = 0
             self.input_fc_kp = None
             self.input_fc = nn.Linear(in_dim, self.model_dim)
+        self.in_dim = in_dim
 
         if self.input_norm_type == 'running_norm':
             self.input_norm = RunningNorm(in_dim)
@@ -379,9 +381,9 @@ class FutureEncoder(nn.Module):
         in_dim_kp = 0
         for key in self.input_type:
             if key in ['scene_norm', 'vel', 'heading', 'heading_all', 'heading_avg'] or self.concat_all_inputs:
-                in_dim += self.input_type_to_dims[key]
+                in_dim += self.input_type_to_dims(ctx, key)
             else:
-                in_dim_kp += self.input_type_to_dims[key]
+                in_dim_kp += self.input_type_to_dims(ctx, key)
         if in_dim_kp > 0:
             if ctx['add_kp']:
                 # todo
@@ -829,9 +831,10 @@ class AgentFormer(nn.Module):
             'concat_all_inputs': cfg.get('concat_all_inputs', True),
             'pos_embedding_dim': pos_embedding_dim,
             'kp_embedding_dim': kp_embedding_dim,
-            'input_type_to_dims': cfg.get('input_type_to_dims', INPUT_TYPE_TO_DIMS),
+            'input_type_to_dims': cfg.get('input_type_to_dims', get_dims_from_input_type),
             'kp_dim': cfg.get('kp_dim', 3),
             'num_kp': cfg.get('num_kp', 24),
+                'kp_source': cfg.get('kp_source', 'blazepose'),
             'n_projection_layer': cfg.get('n_projection_layer', 1),
             'use_learned_nan': cfg.get('use_learned_nan', False),
                 'mask_nan_after_embedding': cfg.get('mask_nan_after_embedding', False),

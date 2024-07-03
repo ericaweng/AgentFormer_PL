@@ -6,8 +6,6 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import matplotlib.gridspec as gridspec
 
-from visualization_scripts.viz_utils_plotly import AnimObjPose3d as AnimObjPose3d_plotly
-
 
 COCO_CONNECTIVITIES = [[1, 2], [0, 4], [3, 4], [8, 10], [5, 7], [10, 13], [14, 16], [4, 5], [7, 12],
                        [4, 8], [3, 6], [13, 15], [11, 14], [6, 9], [8, 11]]
@@ -129,7 +127,7 @@ def plot_anim_grid(save_fn=None, title=None, list_of_arg_dicts=None, list_of_plo
     axes = []
     # extra_for_3dkp = num_plots_width
     for i, po in enumerate(list_of_plotting_objs):
-        if po == AnimObjPose3d or po == AnimObjPose3d_plotly:
+        if po == AnimObjPose3d:
             ax = fig.add_subplot(gs[0, :], projection='3d')
             ax.view_init(elev=20, azim=40)
         else:

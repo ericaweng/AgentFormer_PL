@@ -5,12 +5,12 @@ this file is decommissioned bc of a bug in agents_to_odometry_frame, where the r
 
 import tqdm
 
-from preprocess_w_odometry import *
+from data.preprocess_w_odometry import *
 from pyquaternion import Quaternion
 
 AGENT_KEYPOINTS = True
 FROM_DETECTIONS = True
-_TRACKING_CONFIDENCE_THRESHOLD = 0.01
+_TRACKING_CONFIDENCE_THRESHOLD = 0.00#1
 
 
 def list_test_scenes(input_path):
@@ -19,8 +19,8 @@ def list_test_scenes(input_path):
     return scenes
 
 
-def get_agents_features_df_with_box(args,
-        input_path, scene_id, max_distance_to_robot=10.0
+def get_agents_features_df_with_box(
+        input_path, scene_id, max_distance_to_robot=10.0, tracking_method=None,
 ):
     """Returns agents features with bounding box from raw leaderboard data."""
     jrdb_header = [
@@ -45,16 +45,17 @@ def get_agents_features_df_with_box(args,
     ]
     scene_data_file = get_file_handle(
             os.path.join(
-                    input_path, 'labels', args.tracking_method,
+                    input_path, 'labels', tracking_method,
                     f'{scene_id:04}' + '.txt'
             )
     )
     df = pd.read_csv(scene_data_file, sep=' ', names=jrdb_header)
 
     def camera_to_lower_velodyne(p):
-        return np.stack(
-                [p[..., 2], -p[..., 0], -p[..., 1] + (0.742092 - 0.606982)], axis=-1
-        )
+        return np.stack([p[..., 2], -p[..., 0], -p[..., 1] + .9], axis=-1)
+        # return np.stack(
+        #         [p[..., 2], -p[..., 0], -p[..., 1] + (0.742092 - 0.606982)], axis=-1
+        # )
 
     df = df[df['score'] >= _TRACKING_CONFIDENCE_THRESHOLD]
 
@@ -62,9 +63,12 @@ def get_agents_features_df_with_box(args,
             lambda s: camera_to_lower_velodyne(s.to_numpy()), axis=1
     )
     df['distance'] = df['p'].apply(lambda s: np.linalg.norm(s, axis=-1))
-    df['l'] = df['height']
-    df['h'] = df['width']
-    df['w'] = df['length']
+    # df['l'] = df['height']
+    # df['h'] = df['width']
+    # df['w'] = df['length']
+    df['l'] = df['length']  # height']
+    df['h'] = df['height']  # width']
+    df['w'] = df['width']  # length']
     df['yaw'] = df['rotation_y']
 
     df['id'] = df['track id'].apply(lambda s: f'pedestrian:{s}')
@@ -77,6 +81,22 @@ def get_agents_features_df_with_box(args,
     return df[['p', 'yaw', 'l', 'h', 'w']]
 
 
+def df_to_boxes(df):
+    """Returns 3d detection boxes from dataframe."""
+    agents_pos_dict = {}
+    for (ts, agent_id_), row in df.iterrows():
+        if f"{ts:06}.pcb" not in agents_pos_dict:
+            agents_pos_dict[f"{ts:06}.pcb"] = []
+        agents_pos_dict[f"{ts:06}.pcb"].append(
+            {
+                    'label_id': agent_id_,
+                    'box': {'cx': row['p'][0], 'cy': row['p'][1], 'cz': row['p'][2],
+                            'l': row['l'], 'w': row['w'], 'h': row['h'], 'rot_z': row['yaw']},
+                    'attributes': {}
+            })
+    return agents_pos_dict
+
+
 def jrdb_preprocess_test(args):
     input_path, output_path = args.input_path, args.output_path
     """Preprocesses the raw test split of JRDB."""
@@ -86,10 +106,10 @@ def jrdb_preprocess_test(args):
     subsample = 1
     for scene in tqdm.tqdm(scenes):
         scene_save_name = scene + '_test'
-        agents_df = get_agents_features_df_with_box(args,
-                os.path.join(input_path, 'test'),
-                scenes.index(scene),
-                max_distance_to_robot=args.max_distance_to_robot,
+        agents_df = get_agents_features_df_with_box(os.path.join(input_path, 'test'),
+                                                    scenes.index(scene),
+                                                    max_distance_to_robot=args.max_distance_to_robot,
+                                                    tracking_method=args.tracking_method,
         )
 
         if args.old_odometry:

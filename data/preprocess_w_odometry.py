@@ -10,13 +10,11 @@ import argparse
 
 import numpy as np
 import pandas as pd
+from pyquaternion import Quaternion
 
-from preprocess_utils import pose3
-from preprocess_utils import quaternion
-from preprocess_utils import rotation3
 import tqdm
 
-from visualize_preprocessed_data import plot_pedestrian_trajectories
+from data.visualize_preprocessed_data import plot_pedestrian_trajectories, convert_quaternion, convert_back_quaternion
 
 
 def get_agents_dict(input_path, scene):
@@ -96,57 +94,52 @@ def get_robot(input_path, scene):
     }
 
   return robot
-def robot_to_odometry_frame(robot_df):
-  """Transforms robot features into odometry frame."""
-  # initial world pose
-  world_pose_odometry = pose3.Pose3(
-      rotation3.Rotation3(
-          quaternion.Quaternion(robot_df.loc[0]['q'])), robot_df.loc[0]['p'])
-  # initial odometry pose in world frame
-  odometry_pose_world = world_pose_odometry.inverse()
-
-  # translate robot such that initial position is at origin
-  robot_dict = {}
-  for ts, row in robot_df.iterrows():
-    world_pose_robot = pose3.Pose3(
-        rotation3.Rotation3(quaternion.Quaternion(row['q'])), row['p'])
-    odometry_pose_robot = odometry_pose_world * world_pose_robot
-
-    robot_dict[ts] = {
-        'p': odometry_pose_robot.translation,
-        'yaw': odometry_pose_robot.rotation.euler_angles(radians=True)[-1]
-        }
-  return pd.DataFrame.from_dict(
-      robot_dict, orient='index').rename_axis(['timestep'])  # pytype: disable=missing-parameter  # pandas-drop-duplicates-overloads
 
 
 def agents_to_odometry_frame(agents_df, robot_df):
   """Transforms agents features into odometry frame."""
-  world_pose_odometry = pose3.Pose3(
-      rotation3.Rotation3(
-          quaternion.Quaternion(robot_df.loc[0]['q'])), robot_df.loc[0]['p'])
-  odometry_pose_world = world_pose_odometry.inverse()
+
+  # Initial world pose
+  initial_quat = convert_quaternion(robot_df.iloc[0]['q'])
+  initial_pos = robot_df.iloc[0]['p']
+  world_pose_odometry = np.eye(4)
+  world_pose_odometry[:3, :3] = initial_quat.rotation_matrix
+  world_pose_odometry[:3, 3] = initial_pos
+
+  # Initial odometry pose in world frame
+  odometry_pose_world = np.linalg.inv(world_pose_odometry)
 
   agents_dict = {}
   for index, row in agents_df.iterrows():
     ts = index[0]
     robot_odometry_dp = robot_df.loc[ts]
 
-    world_pose_robot = pose3.Pose3(
-        rotation3.Rotation3(
-            quaternion.Quaternion(robot_odometry_dp['q'])),
-        robot_odometry_dp['p'])
+    # Robot's world pose at the current timestamp
+    robot_quat = convert_quaternion(robot_odometry_dp['q'])
+    robot_pos = robot_odometry_dp['p']
+    world_pose_robot = np.eye(4)
+    world_pose_robot[:3, :3] = robot_quat.rotation_matrix
+    world_pose_robot[:3, 3] = robot_pos
 
-    robot_pose_agent = pose3.Pose3(
-        rotation3.Rotation3.from_euler_angles(
-            rpy_radians=[0., 0., row['yaw']]), row['p'])
+    # Agent's pose relative to the robot
+    agent_yaw = row['yaw']
+    agent_pos = row['p']
+    robot_pose_agent = np.eye(4)
+    robot_pose_agent[:3, :3] = Quaternion(axis=[0, 0, 1], angle=agent_yaw).rotation_matrix
+    robot_pose_agent[:3, 3] = agent_pos
 
-    odometry_pose_agent = (odometry_pose_world * world_pose_robot
-                           * robot_pose_agent)
+    # Transform agent's pose into the odometry frame
+    odometry_pose_agent = np.dot(np.dot(odometry_pose_world, world_pose_robot), robot_pose_agent)
+
+    # Extract position and yaw angle from the transformed pose
+    transformed_pos = odometry_pose_agent[:3, 3]
+    transformed_quat = Quaternion(matrix=odometry_pose_agent[:3, :3])
+    yaw_angle = transformed_quat.yaw_pitch_roll[0]
 
     agents_dict[index] = {
-        'p': odometry_pose_agent.translation,
-        'yaw': odometry_pose_agent.rotation.euler_angles(radians=True)[-1]}
+            'p': transformed_pos,
+            'yaw': yaw_angle
+    }
 
     if 'l' in row:
       agents_dict[index]['l'] = row['l']
@@ -154,20 +147,131 @@ def agents_to_odometry_frame(agents_df, robot_df):
       agents_dict[index]['h'] = row['h']
 
     if 'keypoints' in row:
-      world_rot_robot = rotation3.Rotation3(
-          quaternion.Quaternion(robot_odometry_dp['q']))
-      odometry_rot_robot = odometry_pose_world.rotation * world_rot_robot
+      robot_quat = convert_quaternion(robot_odometry_dp['q'])
+      odometry_rot_robot = Quaternion(matrix=np.dot(odometry_pose_world[:3, :3], robot_quat.rotation_matrix))
       rot_keypoints = []
       for keypoint in row['keypoints']:
         if np.isnan(keypoint).any():
           rot_keypoints.append(keypoint)
         else:
-          rot_keypoints.append(odometry_rot_robot.rotate_point(keypoint))
+          rot_keypoints.append(odometry_rot_robot.rotate(keypoint))
       rot_keypoints = np.array(rot_keypoints)
       agents_dict[index]['keypoints'] = rot_keypoints
 
   return pd.DataFrame.from_dict(
-      agents_dict, orient='index').rename_axis(['timestep', 'id'])  # pytype: disable=missing-parameter  # pandas-drop-duplicates-overloads
+          agents_dict, orient='index').rename_axis(
+          ['timestep', 'id'])  # pytype: disable=missing-parameter  # pandas-drop-duplicates-overloads
+
+
+def robot_to_odometry_frame_q(robot_df):
+  """Transforms robot features into odometry frame, preserving q."""
+
+  # Initial world pose
+  initial_quat = convert_quaternion(robot_df.iloc[0]['q'])
+  initial_pos = robot_df.iloc[0]['p']
+  world_pose_odometry = np.eye(4)
+  world_pose_odometry[:3, :3] = initial_quat.rotation_matrix
+  world_pose_odometry[:3, 3] = initial_pos
+
+  # Initial odometry pose in world frame
+  odometry_pose_world = np.linalg.inv(world_pose_odometry)
+
+  # Translate robot such that initial position is at origin
+  robot_dict = {}
+  for ts, row in robot_df.iterrows():
+    quat = convert_quaternion(row['q'])
+    pos = row['p']
+    world_pose_robot = np.eye(4)
+    world_pose_robot[:3, :3] = quat.rotation_matrix
+    world_pose_robot[:3, 3] = pos
+
+    odometry_pose_robot = np.dot(odometry_pose_world, world_pose_robot)
+
+    # Extract position and yaw angle from the transformed pose
+    transformed_pos = odometry_pose_robot[:3, 3]
+    transformed_quat = Quaternion(matrix=odometry_pose_robot[:3, :3])
+    converted_back_q = convert_back_quaternion(transformed_quat)
+
+    robot_dict[ts] = {
+            'p': transformed_pos,
+            'q': converted_back_q
+    }
+
+  return pd.DataFrame.from_dict(robot_dict, orient='index').rename_axis(['timestep'])
+
+
+def robot_to_odometry_frame_q(robot_df):
+  """Transforms robot features into odometry frame, preserving q."""
+
+  # Initial world pose
+  initial_quat = convert_quaternion(robot_df.iloc[0]['q'])
+  initial_pos = robot_df.iloc[0]['p']
+  world_pose_odometry = np.eye(4)
+  world_pose_odometry[:3, :3] = initial_quat.rotation_matrix
+  world_pose_odometry[:3, 3] = initial_pos
+
+  # Initial odometry pose in world frame
+  odometry_pose_world = np.linalg.inv(world_pose_odometry)
+
+  # Translate robot such that initial position is at origin
+  robot_dict = {}
+  for ts, row in robot_df.iterrows():
+    quat = convert_quaternion(row['q'])
+    pos = row['p']
+    world_pose_robot = np.eye(4)
+    world_pose_robot[:3, :3] = quat.rotation_matrix
+    world_pose_robot[:3, 3] = pos
+
+    odometry_pose_robot = np.dot(odometry_pose_world, world_pose_robot)
+
+    # Extract position and yaw angle from the transformed pose
+    transformed_pos = odometry_pose_robot[:3, 3]
+    transformed_quat = Quaternion(matrix=odometry_pose_robot[:3, :3])
+    converted_back_q = convert_back_quaternion(transformed_quat)
+
+    robot_dict[ts] = {
+            'p': transformed_pos,
+            'q': converted_back_q
+    }
+
+  return pd.DataFrame.from_dict(robot_dict, orient='index').rename_axis(['timestep'])
+
+def robot_to_odometry_frame(robot_df):
+  """Transforms robot features into odometry frame."""
+
+  # Initial world pose
+  initial_quat = convert_quaternion(robot_df.iloc[0]['q'])
+  initial_pos = robot_df.iloc[0]['p']
+  world_pose_odometry = np.eye(4)
+  world_pose_odometry[:3, :3] = initial_quat.rotation_matrix
+  world_pose_odometry[:3, 3] = initial_pos
+
+  # Initial odometry pose in world frame
+  odometry_pose_world = np.linalg.inv(world_pose_odometry)
+
+  # Translate robot such that initial position is at origin
+  robot_dict = {}
+  for ts, row in robot_df.iterrows():
+    quat = convert_quaternion(row['q'])
+    pos = row['p']
+    world_pose_robot = np.eye(4)
+    world_pose_robot[:3, :3] = quat.rotation_matrix
+    world_pose_robot[:3, 3] = pos
+
+    odometry_pose_robot = np.dot(odometry_pose_world, world_pose_robot)
+
+    # Extract position and yaw angle from the transformed pose
+    transformed_pos = odometry_pose_robot[:3, 3]
+    transformed_quat = Quaternion(matrix=odometry_pose_robot[:3, :3])
+    yaw_angle = transformed_quat.yaw_pitch_roll[0]
+
+    robot_dict[ts] = {
+            'p': transformed_pos,
+            'yaw': yaw_angle
+    }
+
+  return pd.DataFrame.from_dict(robot_dict, orient='index').rename_axis(['timestep'])
+
 
 
 def get_agents_features_with_box(agents_dict, max_distance_to_robot=10):
@@ -179,7 +283,7 @@ def get_agents_features_with_box(agents_dict, max_distance_to_robot=10):
         agents_pos_dict[(ts, agent_id)] = {
             'p': np.array([agent_instance['box']['cx'],
                            agent_instance['box']['cy'],
-                           agent_instance['box']['cz']]),
+                           agent_instance['box']['cz']-.4]),
             # rotation angle is relative to negatiev x axis of robot
             'yaw': np.pi - agent_instance['box']['rot_z'],
             'l': agent_instance['box']['l'],
@@ -192,6 +296,16 @@ def list_scenes(input_path):
   scenes = os.listdir(os.path.join(input_path, 'labels', 'labels_3d'))
   scenes.sort()
   return [scene[:-5] for scene in scenes]
+
+
+def get_agents_keypoints_hmr(input_path):
+  """Returns agents keypoints from raw data."""
+  d = np.load(input_path, allow_pickle=True)['arr_0'].item()
+  new_dict = {}
+  for frame in d:
+    for ped_id, peds in d[frame].items():
+      new_dict[(frame, f"pedestrian:{ped_id}")] = {'keypoints': peds}
+  return new_dict
 
 
 def get_agents_keypoints(input_path, scene):
@@ -302,15 +416,13 @@ def jrdb_preprocess_train(args):
         .stack('id', dropna=True)
     )
 
-    # plot_pedestrian_trajectories(robot_df, scene, 'robot')
-    # plot_pedestrian_trajectories(agents_df.rename_axis(['timestep', 'id']), scene, 'before_odo', end=1000, skip=10, plot_robot=True)
+    plot_pedestrian_trajectories(agents_df.rename_axis(['timestep', 'id']), scene, 'before_odo', end=1000, skip=10, plot_robot=True)
     if args.adjust_w_odometry:
       agents_in_odometry_df0 = agents_to_odometry_frame(
           agents_df, robot_df.iloc[::subsample].reset_index(drop=True)
       )
       filename = f'after_odo_{"og_odo" if args.old_odometry else "kiss"}'
-      plot_pedestrian_trajectories(agents_in_odometry_df0, scene, filename, end=1000, skip=10, robot_df=robot_df)
-      print(f"{robot_df=}")
+      plot_pedestrian_trajectories(agents_in_odometry_df0, scene, filename, end=1000, skip=10, robot_df=robot_to_odometry_frame_q(robot_df))
     else:
       agents_in_odometry_df0 = agents_df.rename_axis(['timestep', 'id'])
 

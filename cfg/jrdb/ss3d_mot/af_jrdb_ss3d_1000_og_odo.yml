@@ -1,6 +1,6 @@
 # ------------------- General Options -------------------------
 
-seed                         : 0
+seed                         : 1
 dataset                      : jrdb
 frame_skip                   : 5
 data_skip                    : 1

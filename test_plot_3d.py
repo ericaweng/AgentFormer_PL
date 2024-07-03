@@ -1,26 +1,24 @@
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 
-# Create data
-t = np.linspace(0, 10, 100)
-x = np.sin(t)
-y = np.cos(t)
-z = t
+def main():
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
 
-# Create 3D scatter plot
-fig = go.Figure(data=[go.Scatter3d(x=x, y=y, z=z, mode='markers')])
+    # Define start points and directions
+    start_x, start_y, start_z = [0], [0], [0]  # Start points
+    dir_x, dir_y, dir_z = [1], [1], [1]  # Direction vectors
 
-# Add frames for animation
-frames = [go.Frame(data=[go.Scatter3d(x=x[:k], y=y[:k], z=z[:k])]) for k in range(1, len(t))]
-fig.frames = frames
+    # Create the 3D quiver plot
+    ax.quiver(start_x, start_y, start_z, dir_x, dir_y, dir_z, length=1, color='k')
 
-# Animation settings
-fig.update_layout(updatemenus=[dict(type="buttons", showactive=False, buttons=[dict(label="Play", method="animate", args=[None])])])
+    # Set the limits of the plot
+    ax.set_xlim([0, 2])
+    ax.set_ylim([0, 2])
+    ax.set_zlim([0, 2])
 
-# Save to HTML
-fig.write_html("../viz/animation.html")
+    plt.savefig("../viz/test_plot_3d.png")
 
-# Save to MP4 (requires ffmpeg)
-fig.write_html("../viz/animation.html")
-fig.write_html("../viz/animation.html", auto_open=True)
-fig.write_image("../viz/animation.png")
+if __name__ == "__main__":
+    main()

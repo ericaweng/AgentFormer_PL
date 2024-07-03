@@ -7,7 +7,6 @@ from viz_utils import get_metrics_str
 
 from visualization_scripts.viz_utils_univ import AnimObjBEVTraj2d, plot_anim_grid
 from visualization_scripts.viz_utils_univ import AnimObjPose2d, AnimObjPose3d
-# from visualization_scripts.viz_utils_plotly import AnimObjPose3d
 
 
 SCENE_FRAMES_TO_PLOT = {
