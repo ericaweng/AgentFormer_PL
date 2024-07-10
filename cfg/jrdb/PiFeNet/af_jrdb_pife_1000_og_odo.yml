@@ -26,8 +26,8 @@ tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
 dataloader_version: 4
-kp_source: blazepose
 split_type: hst_full  #sanity #hst_full
+kp_source: hmr2
 #exclude_kpless_data: true
 preprocess_data: true
 #include_robot_data: true

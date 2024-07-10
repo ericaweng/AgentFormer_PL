@@ -26,8 +26,8 @@ tf_ff_dim: 512
 tf_nhead: 8
 tf_dropout: 0.1
 dataloader_version: 4
-kp_source: blazepose
-split_type: hst_full  #sanity #hst_full
+split_type: hst_full
+kp_source: hmr2
 #exclude_kpless_data: true
 preprocess_data: true
 #include_robot_data: true
@@ -38,7 +38,8 @@ keep_subsamples: false  # during eval
 #mask: true  # for calculating loss
 #exclude_kpless_data: true
 #zero_kpless_data: true  # zero out kpless data during train and val
-input_type: ['scene_norm', 'vel', 'heading', 'heading_avg', 'kp_norm', 'kp_vel']
+input_type: ['scene_norm', 'vel', 'heading', 'heading_avg', 'last_head_ori', 'avg_head_ori',
+             'last_body_ori', 'avg_body_ori', 'last_mid_leg_dir', 'avg_mid_leg_dir']
 ckpt_monitor: 'val/ADE_marginal_agent'
 pred_type: 'scene_norm'
 sn_out_type: 'norm'

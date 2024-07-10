@@ -18,14 +18,19 @@ from data.jrdb_kp6 import USE_ACTIONS
 
 def get_dims_from_input_type(cfg, key):
     d = {'scene_norm': 2, 'vel': 2, 'heading': 2, 'heading_all': 2, 'heading_avg': 2,
-                      'action_gt': len(USE_ACTIONS), 'action_mlp2d': len(USE_ACTIONS), 'action_hmr2d': len(USE_ACTIONS),
-                      'action_hst3d': len(USE_ACTIONS),
-                      'kp_norm': 99 if cfg.get('kp_source', 'blazepose') == 'blazepose' else 44*3,  # 34,
-                      'kp_vel': 99 if cfg.get('kp_source', 'blazepose') == 'blazepose' else 44*3,  # 34,  # 99 for hst blazepose kp, 34 for jrdb labelled 2d keypoints
-                                # 'kp_vel_3dhst': 34,
-                      'kp_scores': 17,
-                      'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1,
-                      'action': len(USE_ACTIONS), 'action_score': len(USE_ACTIONS)}
+          'action_gt': len(USE_ACTIONS), 'action_mlp2d': len(USE_ACTIONS), 'action_hmr2d': len(USE_ACTIONS),
+          'action_hst3d': len(USE_ACTIONS),
+          'head_ori': 3, 'body_ori': 3,
+         'avg_head_ori': 3, 'avg_body_ori': 3,
+         'last_head_ori': 3, 'last_body_ori': 3,
+         'last_left_leg_dir': 3, 'last_right_leg_dir': 3, 'last_mid_leg_dir': 3,
+         'avg_left_leg_dir': 3, 'avg_right_leg_dir': 3, 'avg_mid_leg_dir': 3,
+         'kp_norm': 99 if cfg.get('kp_source', 'blazepose') == 'blazepose' else 44*3,  # 34,
+          'kp_vel': 99 if cfg.get('kp_source', 'blazepose') == 'blazepose' else 44*3,  # 34,  # 99 for hst blazepose kp, 34 for jrdb labelled 2d keypoints
+                    # 'kp_vel_3dhst': 34,
+          'kp_scores': 17,
+          'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1,
+          'action': len(USE_ACTIONS), 'action_score': len(USE_ACTIONS)}
     return d[key]
 
 def generate_ar_mask(sz, agent_num, agent_mask):
@@ -188,10 +193,10 @@ class ContextEncoder(nn.Module):
         in_dim = 0
         in_dim_kp = 0
         for key in self.input_type:
-            if key in ['scene_norm', 'vel', 'heading', 'heading_all', 'heading_avg'] or self.concat_all_inputs:
-                in_dim += self.input_type_to_dims(ctx, key)
-            else:
+            if 'kp' in key and not self.concat_all_inputs:
                 in_dim_kp += self.input_type_to_dims(ctx, key)
+            else:
+                in_dim += self.input_type_to_dims(ctx, key)
         if in_dim_kp > 0:
             if ctx['add_kp']:
                 self.input_fc_kp = nn.Sequential(nn.Linear(in_dim_kp, self.model_dim),
@@ -237,8 +242,6 @@ class ContextEncoder(nn.Module):
                 traj_in_list.append(data['pre_motion_norm'])
             elif key == 'scene_norm':
                 traj_in_list.append(data['pre_motion_scene_norm'])
-            elif key == 'kp':
-                kp_input_list.append(data['pre_kp'].reshape(*data['pre_kp'].shape[0:2], -1))
             elif key == 'kp_norm':
                 kp_input_list.append(data['pre_kp_norm'].reshape(*data['pre_kp_norm'].shape[0:2], -1))
             elif key == 'kp_vel':
@@ -246,29 +249,10 @@ class ContextEncoder(nn.Module):
                 if len(self.input_type) > 1:
                     vel = torch.cat([vel[[0]], vel], dim=0)
                 kp_input_list.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
-            elif key == 'kp_scores':
-                kp_input_list.append(data['pre_kp_scores'])
-            elif key == 'action_gt':
-                kp_input_list.append(data['pre_action_gt'])
-            elif key == 'action_mlp2d':
-                kp_input_list.append(data['pre_action_gt_2d'])
-            elif key == 'action_hmr2d':
-                kp_input_list.append(data['pre_action_hmr_2d'])
-            elif key == 'action_hst3d':
-                kp_input_list.append(data['pre_action_hst_3d'])
-            elif key == 'cam_id':
-                kp_input_list.append(data['pre_cam_id'].unsqueeze(-1))
-            elif key == 'cam_intrinsics':
-                kp_input_list.append(data['pre_cam_intrinsics'])
-            elif key == 'cam_extrinsics':
-                kp_input_list.append(data['pre_cam_extrinsics'])
             elif key == 'heading_all':
                 traj_in_list.append(data['pre_heading'])
             elif key == 'heading':
                 hv = data['heading_vec'].unsqueeze(0).repeat((num_timesteps, 1, 1))
-                traj_in_list.append(hv)
-            elif key == 'heading_avg':
-                hv = data['heading_avg'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)
             elif key == 'action':
                 traj_in_list.append(data['pre_action_label'])
@@ -277,10 +261,8 @@ class ContextEncoder(nn.Module):
             elif key == 'map':
                 map_enc = data['map_enc'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(map_enc)
-            elif key == 'sf_feat':
-                traj_in_list.append(data['pre_sf_feat'])
             else:
-                raise ValueError('unknown input_type!')
+                traj_in_list.append(data[key].unsqueeze(0).repeat((num_timesteps, 1, 1)))
 
         if self.concat_all_inputs:
             traj_in_list = [*traj_in_list, *kp_input_list]
@@ -380,10 +362,10 @@ class FutureEncoder(nn.Module):
         in_dim = 0
         in_dim_kp = 0
         for key in self.input_type:
-            if key in ['scene_norm', 'vel', 'heading', 'heading_all', 'heading_avg'] or self.concat_all_inputs:
-                in_dim += self.input_type_to_dims(ctx, key)
-            else:
+            if 'kp' in key and not self.concat_all_inputs:
                 in_dim_kp += self.input_type_to_dims(ctx, key)
+            else:
+                in_dim += self.input_type_to_dims(ctx, key)
         if in_dim_kp > 0:
             if ctx['add_kp']:
                 # todo
@@ -440,29 +422,10 @@ class FutureEncoder(nn.Module):
                 vel = data['fut_kp_vel']
                 # vel = torch.cat([vel[[0]], vel], dim=0)  # unsure what this is for
                 kp_input_list.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
-            elif key == 'kp_scores':
-                kp_input_list.append(data['fut_kp_scores'])
-            elif key == 'action_gt':
-                kp_input_list.append(data['fut_action_gt'])
-            elif key == 'action_mlp2d':
-                kp_input_list.append(data['fut_action_gt_2d'])
-            elif key == 'action_hmr2d':
-                kp_input_list.append(data['fut_action_hmr_2d'])
-            elif key == 'action_hst3d':
-                kp_input_list.append(data['fut_action_hst_3d'])
-            elif key == 'cam_id':
-                kp_input_list.append(data['fut_cam_id'].unsqueeze(-1))
-            elif key == 'cam_intrinsics':
-                kp_input_list.append(data['fut_cam_intrinsics'])
-            elif key == 'cam_extrinsics':
-                kp_input_list.append(data['fut_cam_extrinsics'])
             elif key == 'heading_all':
                 traj_in_list.append(data['fut_heading'])
             elif key == 'heading':
                 hv = data['heading_vec'].unsqueeze(0).repeat((num_timesteps, 1, 1))
-                traj_in_list.append(hv)
-            elif key == 'heading_avg':
-                hv = data['heading_avg'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)
             elif key == 'action':
                 traj_in_list.append(data['fut_action_label'])
@@ -472,7 +435,7 @@ class FutureEncoder(nn.Module):
                 map_enc = data['map_enc'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(map_enc)
             else:
-                raise ValueError('unknown input_type!')
+                traj_in_list.append(data[key].unsqueeze(0).repeat((num_timesteps, 1, 1)))
         if self.concat_all_inputs:
             traj_in_list = [*traj_in_list, *kp_input_list]
             kp_input_list = []
@@ -980,10 +943,157 @@ class AgentFormer(nn.Module):
         self.data['train_theta'] = theta  # save for plotting
 
         # Pose normalization (currently n/a)
-        if 'kp_norm' in self.input_type and 'kp_norm' in self.input_type:
+        if 'kp_norm' in self.input_type:
             for key in ['pre_kp', 'fut_kp']:
                 # 0 = hip joint is subtracted from each ped's joints to normalize
                 self.data[f'{key}_norm'] = self.data[key]# - self.data[key][:,:,:1]  # already normalized in data processing tho
+
+        # if 'head_ori' in self.input_type:
+        if np.any(['head_ori' in k for k in self.input_type]):
+            # (ts=7, num_ped, num_joints=44, 3)
+            midpoint_ears = self.data['pre_kp'][:, :, 17:18].mean(2)
+            last_head_ori = self.data['pre_kp'][-1, :, 0] - midpoint_ears[-1]
+            pre_head_ori = self.data['pre_kp'][:, :, 0] - midpoint_ears
+            avg_head_ori = pre_head_ori.mean(0)
+            fut_head_ori = self.data['fut_kp'][:, :, 0] - self.data['fut_kp'][:, :, 17:18].mean(2)
+
+            # last_head_ori = self.data['pre_kp'][-1, :, 0] - self.data['pre_kp'][-1, :, 43]
+            # pre_head_ori = self.data['pre_kp'][:, :, 0] - self.data['pre_kp'][:, :, 43]
+            # avg_head_ori = pre_head_ori.mean(0)
+            # fut_head_ori = self.data['fut_kp'][:, :, 0] - self.data['fut_kp'][:, :, 43]
+
+            # last_head_ori = last_head_ori[..., :2]
+            # pre_head_ori = pre_head_ori[..., :2]
+            # avg_head_ori = avg_head_ori[..., :2]
+            # fut_head_ori = fut_head_ori[..., :2]
+
+            self.data['last_head_ori'] = last_head_ori / (torch.norm(last_head_ori, dim=-1, keepdim=True) + 1e8)
+            self.data['pre_head_ori'] = pre_head_ori / (torch.norm(pre_head_ori, dim=-1, keepdim=True) + 1e8)
+            self.data['avg_head_ori'] = avg_head_ori / (torch.norm(avg_head_ori, dim=-1, keepdim=True) + 1e8)
+            self.data['fut_head_ori'] = fut_head_ori / (torch.norm(fut_head_ori, dim=-1, keepdim=True) + 1e8)
+
+            # assert self.data['last_head_ori'].shape == (self.data['agent_num'], 2)
+            # assert self.data['avg_head_ori'].shape == (self.data['agent_num'], 2)
+            # assert self.data['pre_head_ori'].shape == (7, self.data['agent_num'], 2)
+            # assert self.data['fut_head_ori'].shape == (12, self.data['agent_num'], 2)
+        if np.any(['leg_dir' in k for k in self.input_type]):
+            pre_right_leg_dir = self.data['pre_kp'][:, :, 9] - self.data['pre_kp'][:, :, 25]
+            pre_left_leg_dir = self.data['pre_kp'][:, :, 12] - self.data['pre_kp'][:, :, 30]
+            pre_mid_leg_dir = (pre_right_leg_dir + pre_left_leg_dir) / 2
+            fut_right_leg_dir = self.data['fut_kp'][:, :, 9] - self.data['fut_kp'][:, :, 25]
+            fut_left_leg_dir = self.data['fut_kp'][:, :, 12] - self.data['fut_kp'][:, :, 30]
+            fut_mid_leg_dir = (fut_right_leg_dir + fut_left_leg_dir) / 2
+
+            pre_mid_leg_dir_normed = pre_mid_leg_dir / (torch.norm(pre_mid_leg_dir, dim=-1, keepdim=True) + 1e8)
+            last_mid_leg_dir = pre_mid_leg_dir_normed[-1]
+            avg_mid_leg_dir = pre_mid_leg_dir_normed.mean(0)
+            self.data['pre_mid_leg_dir'] = pre_mid_leg_dir_normed
+            self.data['pre_right_leg_dir'] = pre_right_leg_dir / (torch.norm(pre_right_leg_dir, dim=-1, keepdim=True) + 1e8)
+            self.data['pre_left_leg_dir'] = pre_left_leg_dir / (torch.norm(pre_left_leg_dir, dim=-1, keepdim=True) + 1e8)
+            self.data['fut_mid_leg_dir'] = fut_mid_leg_dir / (torch.norm(fut_mid_leg_dir, dim=-1, keepdim=True) + 1e8)
+            self.data['fut_right_leg_dir'] = fut_right_leg_dir / (torch.norm(fut_right_leg_dir, dim=-1, keepdim=True) + 1e8)
+            self.data['fut_left_leg_dir'] = fut_left_leg_dir / (torch.norm(fut_left_leg_dir, dim=-1, keepdim=True) + 1e8)
+            self.data['last_mid_leg_dir'] = last_mid_leg_dir
+            self.data['last_right_leg_dir'] = self.data['pre_right_leg_dir'][-1]
+            self.data['last_left_leg_dir'] = self.data['pre_left_leg_dir'][-1]
+            self.data['avg_mid_leg_dir'] = avg_mid_leg_dir
+            self.data['avg_right_leg_dir'] = self.data['pre_right_leg_dir'].mean(0)
+            self.data['avg_left_leg_dir'] = self.data['pre_left_leg_dir'].mean(0)
+
+        # if 'body_ori' in self.input_type:
+        if np.any(['body_ori' in k for k in self.input_type]):
+            # body orientation vector
+            right_pre = self.data['pre_kp'][:, :, [34,5]].mean(2) - self.data['pre_kp'][:, :, [33,2]].mean(2)
+            up_pre = self.data['pre_kp'][:, :, 40] - self.data['pre_kp'][:, :, 41]
+
+            # body_ori = right vector cross up vector then normalized to unit length
+            last_body_ori = torch.cross(right_pre[-1], up_pre[-1], dim=-1)
+            avg_body_ori = torch.cross(right_pre.mean(0), up_pre.mean(0), dim=-1)
+            pre_body_ori = torch.cross(right_pre, up_pre, dim=-1)
+
+            right_fut = self.data['fut_kp'][:, :, [34,5]].mean(2) - self.data['fut_kp'][:, :, [33,2]].mean(2)
+            up_fut = self.data['fut_kp'][:, :, 40] - self.data['fut_kp'][:, :, 41]
+            fut_body_ori = torch.cross(right_fut, up_fut, dim=-1)
+
+            # last_body_ori = last_body_ori[...,:2]
+            # avg_body_ori = avg_body_ori[...,:2]
+            # pre_body_ori = pre_body_ori[...,:2]
+            # fut_body_ori = fut_body_ori[...,:2]
+
+            self.data['last_body_ori'] = last_body_ori / (torch.norm(last_body_ori, dim=-1, keepdim=True) + 1e8)
+            self.data['avg_body_ori'] = avg_body_ori / (torch.norm(avg_body_ori, dim=-1, keepdim=True) + 1e8)
+            self.data['pre_body_ori'] = pre_body_ori / (torch.norm(pre_body_ori, dim=-1, keepdim=True) + 1e8)
+            self.data['fut_body_ori'] = fut_body_ori / (torch.norm(fut_body_ori, dim=-1, keepdim=True) + 1e8)
+
+            # assert self.data['last_body_ori'].shape == (self.data['agent_num'], 2)
+            # assert self.data['avg_body_ori'].shape == (self.data['agent_num'], 2)
+            # assert self.data['pre_body_ori'].shape == (7, self.data['agent_num'], 2)
+            # assert self.data['fut_body_ori'].shape == (12, self.data['agent_num'], 2)
+
+        if False and True: # plot these to see if they are correct
+            from visualization_scripts.smpl_model_utils import draw_skeleton_plotly, up_layout
+            from plotly.subplots import make_subplots
+            import plotly.graph_objects as go
+            from jrdb_toolkit.visualisation.visualize_constants import OPENPOSE44_CONNECTIONS
+
+            ts_viz = -1
+            num_peds_viz = 2
+            ncols = 3
+
+            joints = self.data['pre_kp'][:, :num_peds_viz].cpu().numpy().mean(0)
+            kintree_table = np.array(OPENPOSE44_CONNECTIONS)
+
+            # Define three viewing angles
+            views = [
+                    dict(eye=dict(x=-2.5, y=1, z=1)),
+                    dict(eye=dict(x=0.5, y=2.5, z=1)),
+                    dict(eye=dict(x=2.5, y=-1, z=1))
+            ]*num_peds_viz
+            scene_layout = up_layout(joints)
+
+            # Update scenes for each subplot with the corresponding view and set up subplots
+            title=''
+            fig = make_subplots(rows=num_peds_viz, cols=ncols, specs=[[{'type': 'surface'}]*ncols]*num_peds_viz,)
+            for idx, view in enumerate(views, start=1):
+                scene_key = f'scene{"" if idx == 1 else idx}'  # Scene keys are 'scene', 'scene2', 'scene3', ...
+                fig.update_layout({scene_key: {'camera': view, 'aspectmode': 'cube', 'xaxis': scene_layout['xaxis'],
+                                               'yaxis': scene_layout['yaxis'], 'zaxis': scene_layout['zaxis']},
+                                   'title': go.layout.Title(
+                                           text=title,
+                                           xref="paper",
+                                           font=dict(size=20),
+                                           x=0),
+                                   'grid': dict(rows=num_peds_viz, columns=3, pattern='independent'),
+                                   })
+
+            # draw joints
+            for i in range(1, num_peds_viz+1):
+                draw_skeleton_plotly(joints[i-1:i], kintree_table, fig, i, 1)
+                draw_skeleton_plotly(joints[i-1:i], kintree_table, fig, i, 2)
+                draw_skeleton_plotly(joints[i-1:i], kintree_table, fig, i, 3)
+
+            # draw vectors
+            vectors = [(joints[:, 0], joints[:, 0] + 0.1 * self.data['avg_head_ori'][:num_peds_viz].cpu().numpy()),
+                       (joints[:, 41], joints[:, 41] + 0.1 * self.data['avg_body_ori'][:num_peds_viz].cpu().numpy()),
+                       (joints[:, [10,13]].mean(1), joints[:, [10,13]].mean(1) + 0.1 * self.data['avg_mid_leg_dir'][:num_peds_viz].cpu().numpy()),
+                       (joints[:, 28], joints[:, 28] + 0.1 * self.data['avg_right_leg_dir'][:num_peds_viz].cpu().numpy()),
+                       (joints[:, 27], joints[:, 27] + 0.1 * self.data['avg_left_leg_dir'][:num_peds_viz].cpu().numpy()),
+                       ]
+            for ped_i in range(num_peds_viz):
+                for col in range(1,ncols+1):
+                    for p1, p2 in vectors:
+                        fig.add_trace(go.Scatter3d(
+                                x=[p1[ped_i, 0], p2[ped_i, 0]],
+                                y=[p1[ped_i, 1], p2[ped_i, 1]],
+                                z=[p1[ped_i, 2], p2[ped_i, 2]],
+                                mode='lines',
+                                line=dict(color='cornflowerblue', width=6),
+                        ), row=ped_i+1, col=col)
+
+            savepath = '../viz/test_af_head_ori_feat.png'
+            fig.write_image(savepath, width=1000*ncols, height=1000*num_peds_viz)
+
+            import ipdb; ipdb.set_trace()
 
         # motion and keypoint velocity features
         self.data['pre_vel'] = self.data['pre_motion'][1:] - self.data['pre_motion'][:-1, :]
@@ -1047,6 +1157,12 @@ class AgentFormer(nn.Module):
         else:
             mask = torch.zeros([cur_motion.shape[0], cur_motion.shape[0]]).to(device)
         self.data['agent_mask'] = mask
+
+        # final checks
+        for k in self.data.keys():
+            if isinstance(self.data[k], torch.Tensor):
+                assert not torch.any(torch.isnan(self.data[k])), f"nan in {k}!: {self.data[k]}"
+
 
     def step_annealer(self):
         for anl in self.param_annealers:

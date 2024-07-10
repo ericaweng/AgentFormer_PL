@@ -100,7 +100,11 @@ def agents_to_odometry_frame(agents_df, robot_df):
   """Transforms agents features into odometry frame."""
 
   # Initial world pose
-  initial_quat = convert_quaternion(robot_df.iloc[0]['q'])
+  if 'q' in robot_df.columns:
+    initial_quat = convert_quaternion(robot_df.iloc[0]['q'])
+  else:
+    # get quat from yaw
+    initial_quat = Quaternion(axis=[0, 0, 1], angle=robot_df.iloc[0]['yaw'])
   initial_pos = robot_df.iloc[0]['p']
   world_pose_odometry = np.eye(4)
   world_pose_odometry[:3, :3] = initial_quat.rotation_matrix
@@ -115,7 +119,10 @@ def agents_to_odometry_frame(agents_df, robot_df):
     robot_odometry_dp = robot_df.loc[ts]
 
     # Robot's world pose at the current timestamp
-    robot_quat = convert_quaternion(robot_odometry_dp['q'])
+    if 'q' in robot_odometry_dp:
+      robot_quat = convert_quaternion(robot_odometry_dp['q'])
+    else:
+      robot_quat = Quaternion(axis=[0, 0, 1], angle=robot_odometry_dp['yaw'])
     robot_pos = robot_odometry_dp['p']
     world_pose_robot = np.eye(4)
     world_pose_robot[:3, :3] = robot_quat.rotation_matrix
@@ -146,8 +153,17 @@ def agents_to_odometry_frame(agents_df, robot_df):
       agents_dict[index]['w'] = row['w']
       agents_dict[index]['h'] = row['h']
 
+    if 'pred' in row and not np.any(np.isnan(row['pred'])):
+      # transform pred into odometry frame. pred: (3,)
+      pred_pos = row['pred']
+      pred_pos = np.dot(odometry_pose_agent, np.array([*pred_pos, 1]))[:3]
+      agents_dict[index]['pred'] = pred_pos
+
     if 'keypoints' in row:
-      robot_quat = convert_quaternion(robot_odometry_dp['q'])
+      if 'q' in robot_odometry_dp:
+        robot_quat = convert_quaternion(robot_odometry_dp['q'])
+      else:
+        robot_quat = Quaternion(axis=[0, 0, 1], angle=robot_odometry_dp['yaw'])
       odometry_rot_robot = Quaternion(matrix=np.dot(odometry_pose_world[:3, :3], robot_quat.rotation_matrix))
       rot_keypoints = []
       for keypoint in row['keypoints']:

@@ -116,10 +116,11 @@ def main():
         if seq_name in TRAIN:
             bbox_2d = get_bboxes_stitched(seq_name)
             root_dir = "datasets/jrdb/train"
-            label_3d_path = f"{root_dir}/labels/labels_3d/{seq_name}.json"
-            with open(label_3d_path, 'r') as f:
-                labels_3d = json.load(f)
-                labels_3d = labels_3d['labels']
+            labels_3d = None
+            # label_3d_path = f"{root_dir}/labels/labels_3d/{seq_name}.json"
+            # with open(label_3d_path, 'r') as f:
+            #     labels_3d = json.load(f)
+            #     labels_3d = labels_3d['labels']
         else:
             assert seq_name in TEST
             root_dir = "datasets/jrdb/test"
@@ -175,8 +176,7 @@ def main():
                 hmr_labels_3d_pose[frame_id][ped_id] = kp_robot_frame
 
         # save
-        # np.savez(new_save_path, hmr_labels_3d_pose)
-        import ipdb; ipdb.set_trace()
+        np.savez(new_save_path, hmr_labels_3d_pose)
 
 
 if __name__ == '__main__':

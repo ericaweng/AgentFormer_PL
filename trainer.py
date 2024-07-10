@@ -176,7 +176,7 @@ class AgentFormerTrainer(pl.LightningModule):
                 save_dir = f'../trajectory_reward/results/trajectories/{self.model_name}/trajnet_sdd'
                 frame = batch['frame'] * batch['frame_skip']
             elif self.dataset_name == 'jrdb':
-                save_dir = f'../viz/af_trajectories/{self.model_name}'
+                save_dir = f'../viz/af_traj_preds/{self.model_name}'
                 frame = batch['frame']
             for idx, sample in enumerate(pred_motion.transpose(0, 1)):
                 formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12,

@@ -52,7 +52,7 @@ def get_agents_features_df_with_box(
     df = pd.read_csv(scene_data_file, sep=' ', names=jrdb_header)
 
     def camera_to_lower_velodyne(p):
-        return np.stack([p[..., 2], -p[..., 0], -p[..., 1] + .9], axis=-1)
+        return np.stack([p[..., 2], -p[..., 0], -p[..., 1]+.8], axis=-1)
         # return np.stack(
         #         [p[..., 2], -p[..., 0], -p[..., 1] + (0.742092 - 0.606982)], axis=-1
         # )
