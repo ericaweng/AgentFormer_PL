@@ -3,6 +3,7 @@ from itertools import starmap
 from functools import partial
 import multiprocessing
 import numpy as np
+import pandas as pd
 import torch
 import pytorch_lightning as pl
 
@@ -14,6 +15,9 @@ from utils.torch import get_scheduler
 from viz_utils_plot import _save_catch_all
 from data.categorize_interactions import get_interaction_matrix_for_scene, INTERACTION_CAT_ABBRS
 from data.ped_interactions import INTERACTION_CAT_NAMES
+from data.preprocess_w_odometry import agents_to_robot_frame, agents_to_odometry_frame
+
+from visualization_scripts.viz_single_ts import plot_scene
 
 
 def agg_metrics(all_metrics):
@@ -43,6 +47,85 @@ def save_trajectories(trajectory, save_dir, seq_name, frame, suffix=''):
     if isinstance(trajectory, torch.Tensor):
         trajectory = trajectory.cpu().numpy()
     np.savetxt(fname, trajectory, fmt="%.3f")
+
+
+def df_to_array(df):
+    """
+    Convert DataFrame with x and y columns to (num_timesteps, num_peds, 2) array, filling in blanks with n/as.
+    The index of the DataFrame should be (timestep, id), and timestep does not start at 0, and there may be a frame_skip.
+    """
+    # Ensure the DataFrame has the correct index and columns
+    assert isinstance(df.index, pd.MultiIndex), "Index should be a MultiIndex with (timestep, id)"
+    assert 'x' in df.columns and 'y' in df.columns or 'p' in df.columns, "DataFrame should have 'x' and 'y' columns or 'p'"
+
+    # Get unique timesteps and pedestrian IDs
+    unique_timesteps = df.index.get_level_values('timestep').unique()
+    unique_ped_ids = df.index.get_level_values('id').unique()
+
+    # Initialize an array with shape (num_timesteps, num_peds, 2) filled with np.nan
+    num_timesteps = len(unique_timesteps)
+    num_ped_ids = len(unique_ped_ids)
+    result_array = np.full((num_timesteps, num_ped_ids, 2), np.nan)  # Use np.nan as a placeholder for missing values
+
+    # Create mappings from timesteps and pedestrian IDs to array indices
+    timestep_to_index = {timestep: i for i, timestep in enumerate(unique_timesteps)}
+    ped_id_to_index = {ped_id: i for i, ped_id in enumerate(unique_ped_ids)}
+
+    # Populate the array with values from the DataFrame
+    for (timestep, ped_id), row in df.iterrows():
+        timestep_index = timestep_to_index[timestep]
+        ped_id_index = ped_id_to_index[ped_id]
+        if 'x' in df.columns and 'y' in df.columns:
+            result_array[timestep_index, ped_id_index] = [row['x'], row['y']]
+        else:
+            result_array[timestep_index, ped_id_index] = row['p'][:2]
+
+    return result_array
+
+
+def format_and_save_trajs(trajectory, data, future=True, save_name=None):
+    """trajectory: (num_peds, timesteps, 2)"""
+    num_agents, num_timesteps, _ = trajectory.shape
+    formatted_trajectories = []
+    if not future:
+        trajectory = torch.flip(trajectory, [0, 1])
+
+    # Initialize the agents_df dictionary
+    agents_dict = {
+            'timestep': [],
+            'id': [],
+            'p': [],
+            'yaw': []
+    }
+
+    for ped_i, track_id in enumerate(data['valid_id']):
+        for ts_i in range(num_timesteps):
+            if future:
+                curr_data = data['fut_data'][ts_i]['pos']
+            else:
+                curr_data = data['pre_data'][ts_i]['pos']
+            # Get data with the same track_id
+            updated_data = curr_data[curr_data[:, 1] == track_id].squeeze()[...,:4]
+            formatted_trajectories.append(updated_data)
+            agents_dict['timestep'].append(updated_data[0])
+            agents_dict['id'].append(track_id)
+            agents_dict['p'].append(np.concatenate([trajectory[ped_i, ts_i], [0]]))
+
+    if not future:
+        formatted_trajectories = np.flip(formatted_trajectories, axis=0)
+
+    agents_dict['yaw'] = np.zeros_like(agents_dict['id'])
+    agents_df = pd.DataFrame(agents_dict).set_index(['timestep', 'id'])
+    agents_df = agents_to_robot_frame(agents_df, data['robot_data'])
+    agents_df['x'] = agents_df['p'].apply(lambda x: x[0])
+    agents_df['y'] = agents_df['p'].apply(lambda x: x[1])
+    agents_df2 = agents_df[['x', 'y']]
+
+    if save_name is not None:
+        os.makedirs(os.path.dirname(save_name), exist_ok=True)
+        agents_df2.to_csv(save_name, sep=' ', header=False)
+
+    return agents_df[['p', 'q']], agents_df2
 
 
 def format_agentformer_trajectories(trajectory, data, cfg, timesteps=12, frame_scale=10, future=True):
@@ -105,7 +188,7 @@ class AgentFormerTrainer(pl.LightningModule):
         # self.hparams.update(vars(cfg))
         # self.hparams.update({'args': vars(args)})
         self.model_name = "_".join(self.cfg.id.split("_")[1:])
-        self.dataset_name = self.cfg.id.split("_")[0].replace('-', '_')
+        self.dataset_name = self.cfg.id.split("_")[1].replace('-', '_')
         self.log_train_this_time = False
         self.int_matrices = None
         # if self.args.trial:
@@ -167,27 +250,40 @@ class AgentFormerTrainer(pl.LightningModule):
             if return_dict is None:
                 return
 
-        pred_motion = return_dict['pred_motion']  # (num_peds, num_samples, pred_steps, 2)
-        gt_motion = return_dict['gt_motion']  # (pred_steps, num_peds, 2)
-        obs_motion = return_dict['obs_motion']  # (obs_steps, num_peds, 2)
+        if True:
+            pred_motion = return_dict['pred_motion']  # (num_peds, num_samples, pred_steps, 2)
+            gt_motion = return_dict['gt_motion'].transpose(0,1).cpu().numpy()  # (pred_steps, num_peds, 2)
+            obs_motion = return_dict['obs_motion'].cpu().numpy()  # (obs_steps, num_peds, 2)
 
         if self.args.save_traj:
             if self.dataset_name == 'trajnet_sdd':
                 save_dir = f'../trajectory_reward/results/trajectories/{self.model_name}/trajnet_sdd'
                 frame = batch['frame'] * batch['frame_skip']
             elif self.dataset_name == 'jrdb':
-                save_dir = f'../viz/af_traj_preds/{self.model_name}'
+                save_dir = f'../viz/af_traj_preds/{self.model_name}/{batch["seq"]}'
                 frame = batch['frame']
+            else:
+                raise NotImplementedError
             for idx, sample in enumerate(pred_motion.transpose(0, 1)):
-                formatted = format_agentformer_trajectories(sample, batch, self.cfg, timesteps=12,
-                                                            frame_scale=batch['frame_scale'], future=True)
-                save_trajectories(formatted, save_dir, batch['seq'], frame, suffix=f"/sample_{idx:03d}")
-            # formatted = format_agentformer_trajectories(gt_motion, batch, self.cfg, timesteps=12,
-            #                                             frame_scale=batch['frame_scale'], future=True)
-            # save_trajectories(formatted, save_dir, batch['seq'], frame, suffix='/gt')
-            formatted = format_agentformer_trajectories(obs_motion.transpose(0, 1), batch, self.cfg, timesteps=8,
-                                                        frame_scale=batch['frame_scale'], future=False)
-            save_trajectories(formatted, save_dir, batch['seq'], frame, suffix="/obs")
+                save_name = os.path.join(save_dir, f'{frame}_pred-{idx}.txt')
+                format_and_save_trajs(sample, batch, True, save_name)
+                break
+
+            # pred_traj = pred_motion.transpose(0, 2)[:, 0].cpu().numpy()
+            #
+            # plot_scene(obs_motion, gt_motion, pred_traj, ped_ids=np.arange(obs_motion.shape[1]), frame_id=9,
+            #            save_fn='../viz/test_global.png')
+            # agents_df, agents_df2 = format_and_save_trajs(pred_motion.transpose(0,1)[0].cpu().numpy(), batch, True, save_name)
+            # new_pred_traj = df_to_array(agents_df2)
+            # plot_scene(obs_motion, gt_motion, new_pred_traj, ped_ids=np.arange(obs_motion.shape[1]), frame_id=9,
+            #            save_fn='../viz/test_robot.png')
+            # back_to_global_agents_df = agents_to_odometry_frame(agents_df, batch['robot_data'])
+            # new_pred_traj = df_to_array(back_to_global_agents_df)
+            # print(f"{new_pred_traj.shape=}")
+            # plot_scene(obs_motion, gt_motion, new_pred_traj, ped_ids=np.arange(obs_motion.shape[1]), frame_id=9,
+            #            save_fn='../viz/test_back_global.png')
+            #
+            # import ipdb; ipdb.set_trace()
 
         return return_dict
 

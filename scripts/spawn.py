@@ -159,8 +159,27 @@ def spawn(cmds, args):
     print(f"finished all {total_cmds_launched} processes")
 
 
+def get_cmds_vis():
+    run_names = ["jrdb_pife_1000_kiss_head_ori",
+                  "jrdb_pife_1000_og_odo_head_ori",
+                  "jrdb_pife_1000_kiss",
+                  "jrdb_pife_1000_og_odo",
+                  "jrdb_pife_1000_kiss_blazepose",
+                  "jrdb_pife_1000_kiss_head_body_leg_ori",
+                  "jrdb_pife_1000_og_odo_blazepose",
+                  "jrdb_pife_1000_og_odo_head_body_leg_ori",
+                  'jrdb_pife_1000_og_odo_no_kp']
+    cmds = []
+    for run_name in run_names:
+        cmd = f"python jrdb_toolkit/visualisation/visualise2.py --run_name {run_name}"
+        cmds.append(cmd)
+    return cmds
+
+
 def main(args):
-    if args.wandb:
+    if args.viz:
+        cmds = get_cmds_vis()
+    elif args.wandb:
         cmds = get_cmds_wandb(args)
     else:
         cmds = get_cmds(args)
@@ -178,6 +197,7 @@ if __name__ == "__main__":
     argparser.add_argument('--cfgs', '-cf', nargs='+', default=None)
     argparser.add_argument('--glob_str', '-g', nargs='+', default=None)
     argparser.add_argument('--wandb', '-w', action='store_true')
+    argparser.add_argument('--viz', '-v', action='store_true')
     try:
         cuda_visible = [int(i) for i in os.environ['CUDA_VISIBLE_DEVICES'].split(',')]
     except KeyError:

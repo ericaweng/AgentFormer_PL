@@ -2,6 +2,7 @@
 
 import torch
 import numpy as np
+import pandas as pd
 from data import ped_interactions
 
 
@@ -56,8 +57,12 @@ class jrdb_preprocess(object):
         else:
             raise ValueError(f"kp_source {self.kp_source} not recognized")
 
-        self.robot_data = np.genfromtxt(f'{data_root}/robot_poses/{seq_name}_robot.txt', delimiter=' ', dtype=float)
-
+        # egomotion
+        self.robot_data = pd.read_csv(f'{data_root}/robot_poses/{seq_name}_robot.txt', delimiter=' ', dtype=float,
+                                      names=['x', 'y', 'yaw']).rename_axis('timestep')
+        pos_2d = self.robot_data[['x', 'y']].values
+        self.robot_data['p'] = list(np.concatenate([pos_2d, np.zeros((pos_2d.shape[0], 1))], axis=1))  # append 0 as z-position
+        self.robot_data = self.robot_data[['p', 'yaw']]
 
         # check that frame_ids are equally-spaced
         frames = np.unique(self.gt[:, 0].astype(int))
@@ -231,6 +236,14 @@ class jrdb_preprocess(object):
                 mask[idx] = 1
         return mask
 
+    def get_relevant_robot_data(self, frame):
+        """return the relevant robot data, based on which frames are required, as a dataframe"""
+        start_frame = frame - self.past_frames * self.frame_skip
+        end_frame = frame + (1 + self.future_frames) * self.frame_skip
+        relevant_frames = range(start_frame, end_frame, self.frame_skip)
+        curr_robot_data = self.robot_data[self.robot_data.index.get_level_values('timestep').astype(int).isin(relevant_frames)]
+        return curr_robot_data
+
     def __call__(self, frame):
 
         assert frame - self.init_frame >= 0 and frame - self.init_frame <= self.TotalFrame() - 1, 'frame is %d, total is %d' % (
@@ -249,18 +262,20 @@ class jrdb_preprocess(object):
 
         pre_motion, pre_motion_kp, pre_motion_mask = self.get_formatted_pre_data(pre_data, valid_id)
         fut_motion, fut_motion_kp, fut_motion_mask = self.get_formatted_fut_data(fut_data, valid_id)
-        # , pre_motion_kp_mask
-        # , fut_motion_kp_mask
+
+        curr_robot_data = self.get_relevant_robot_data(frame)
 
         data = {
                 # These fields have a pre and fut, and are organized by ped. (num_peds, num_timesteps, **)
                 'pre_motion': pre_motion,
                 'pre_motion_mask': pre_motion_mask,
                 'pre_kp': pre_motion_kp,
+                'pre_data': pre_data,
                 # 'pre_kp_mask': pre_motion_kp_mask,
                 'fut_motion': fut_motion,
                 'fut_motion_mask': fut_motion_mask,
                 'fut_kp': fut_motion_kp,
+                'fut_data': fut_data,
                 # 'fut_kp_mask': fut_motion_kp_mask,
                 'heading': heading,  # only the heading for the last obs timestep
                 'heading_avg': heading_avg,  # the avg heading for all timesteps
@@ -271,6 +286,7 @@ class jrdb_preprocess(object):
                 'frame_scale': 1,
                 'frame': frame,
                 'valid_id': valid_id,
+                'robot_data': curr_robot_data,
         }
 
         return data

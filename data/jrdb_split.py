@@ -286,9 +286,9 @@ def get_jackrabbot_split_half_and_half():  # for each scene, use half for traini
 
 def get_jackrabbot_split_sanity():
     """"""
-    train = ['tressider-2019-03-16_1',]
-    val = ['tressider-2019-03-16_1',]
-    test = ['tressider-2019-03-16_1',]
+    train = ['huang-basement-2019-01-25_0',]
+    val = ['huang-basement-2019-01-25_0',]
+    test = ['huang-basement-2019-01-25_0',]
 
     return train, val, test
 

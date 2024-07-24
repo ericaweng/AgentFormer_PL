@@ -9,11 +9,18 @@ from jrdb_toolkit.visualisation.visualize_constants import BLAZEPOSE_CONNECTIVIT
 
 
 def plot_scene(obs_traj, gt_traj=None, pred_traj=None, ped_ids=None, ped_radius=0.1, frame_id=None, ped_colors=None,
-               bounds=None, plot_ped_texts=False, heading=None):
+               bounds=None, plot_ped_texts=False, heading=None, save_fn=None):
+    """obs_traj: (obs_len, num_peds, 2)
+    gt_traj: (pred_len, num_peds, 2)
+    pred_traj: (pred_len, num_peds, 2)
+    """
 
     obs_len, num_peds, _ = obs_traj.shape
     if pred_traj is not None:
         pred_len, _, _ = pred_traj.shape
+
+    if ped_colors is None:
+        ped_colors = {ped_id: np.array(color) for color, ped_id in zip(plt.cm.tab20.colors, ped_ids)}
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 7))
 
@@ -109,9 +116,12 @@ def plot_scene(obs_traj, gt_traj=None, pred_traj=None, ped_ids=None, ped_radius=
     # Remove any margins
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
 
-    img = fig_to_array(fig)
-    plt.close(fig)
-    return img
+    if save_fn is not None:
+        plt.savefig(save_fn)
+    else:
+        img = fig_to_array(fig)
+        plt.close(fig)
+        return img
 
 
 def plot_scene_3d(pose, ped_ids, ped_colors, pose_type, bounds=None, robot_loc=None, robot_yaw=None,
@@ -210,9 +220,7 @@ def get_bounds(*stuff):
     stuff = np.nan_to_num(stuff)
     center = (stuff.min(axis=0) + stuff.max(axis=0)) / 2
     width_xyz = (stuff.max(axis=0) - stuff.min(axis=0))
-    print(f"{width_xyz=}")
     width = width_xyz.max()
-    print(f"{width=}")
 
     dim_min_x = center[0] - width / 2
     dim_max_x = center[0] + width / 2
@@ -233,7 +241,6 @@ def _ax_set_up(ax, stuff=None, bounds=None, invert_yaxis=False):
         ax.invert_yaxis()  # to match the 2d bev trajectory plot better
 
     if bounds is None:
-        import ipdb; ipdb.set_trace()
         assert stuff is not None
         res = get_bounds(*stuff)
         dim_min_x, dim_max_x, dim_min_y, dim_max_y = res[:4]
