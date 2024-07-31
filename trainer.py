@@ -250,24 +250,22 @@ class AgentFormerTrainer(pl.LightningModule):
             if return_dict is None:
                 return
 
-        if True:
-            pred_motion = return_dict['pred_motion']  # (num_peds, num_samples, pred_steps, 2)
-            gt_motion = return_dict['gt_motion'].transpose(0,1).cpu().numpy()  # (pred_steps, num_peds, 2)
-            obs_motion = return_dict['obs_motion'].cpu().numpy()  # (obs_steps, num_peds, 2)
+        pred_motion = return_dict['pred_motion']  # (num_peds, num_samples, pred_steps, 2)
+        gt_motion = return_dict['gt_motion'].transpose(0,1).cpu().numpy()  # (pred_steps, num_peds, 2)
+        obs_motion = return_dict['obs_motion'].cpu().numpy()  # (obs_steps, num_peds, 2)
 
         if self.args.save_traj:
             if self.dataset_name == 'trajnet_sdd':
                 save_dir = f'../trajectory_reward/results/trajectories/{self.model_name}/trajnet_sdd'
                 frame = batch['frame'] * batch['frame_skip']
             elif self.dataset_name == 'jrdb':
-                save_dir = f'../viz/af_traj_preds/{self.model_name}/{batch["seq"]}'
+                save_dir = f'../results_traj_preds/af_traj_preds/{self.model_name}/{batch["seq"]}'
                 frame = batch['frame']
             else:
                 raise NotImplementedError
             for idx, sample in enumerate(pred_motion.transpose(0, 1)):
                 save_name = os.path.join(save_dir, f'{frame}_pred-{idx}.txt')
                 format_and_save_trajs(sample, batch, True, save_name)
-                break
 
             # pred_traj = pred_motion.transpose(0, 2)[:, 0].cpu().numpy()
             #

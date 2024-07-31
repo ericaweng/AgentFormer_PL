@@ -21,6 +21,13 @@ from viz_utils_plot import SCENE_FRAMES_TO_PLOT
 def main(args):
     # initialize AgentFormer config from full config filename
     cfg = Config(args.cfg)
+    if args.exclude_kpless_data is not None:
+        cfg.exclude_kpless_data = args.exclude_kpless_data
+    if args.split_type is not None:
+        cfg.split_type = args.split_type
+
+    print(f"{cfg.exclude_kpless_data=}")
+    print(f"{cfg.split_type=}")
 
     # Set global random seed
     pl.seed_everything(args.seed)
@@ -274,6 +281,8 @@ if __name__ == '__main__':
     parser.add_argument('--tag', '-tg', default=None)
     parser.add_argument('--test_certain_frames_only', '-tf', action='store_true', default=False)
     parser.add_argument('--frames', '-ff', default=SCENE_FRAMES_TO_PLOT)
+    parser.add_argument('--exclude_kpless_data', '-ekd', action='store_true', default=None)
+    parser.add_argument('--split_type', default=None)
 
     args = parser.parse_args()
 

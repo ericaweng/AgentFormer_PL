@@ -29,6 +29,7 @@ dataloader_version: 4
 split_type: hst_full  #sanity #hst_full
 #exclude_kpless_data: true
 preprocess_data: true
+kp_source: hmr2
 #include_robot_data: true
 #mask_nan_after_embedding: false  # whether to mask out nans after input embedding, or before
 #use_learned_nan: false  # o/w, use 0 for values where position is unavailable. only can be true if mask_nan_after_embedding is true

@@ -3,7 +3,9 @@ from metrics import stats_func
 
 
 def eval_one_seq(agent_traj, gt_traj, pred_mask, collision_rad, return_sample_vals=False):
-    """new function, for returning necessary vals for plotting"""
+    """new function, for returning necessary vals for plotting
+    agent_traj: (num_peds, num_samples, num_timesteps, 2)
+    gt_traj: (num_peds, num_timesteps, 2)"""
     assert isinstance(gt_traj, np.ndarray) and len(
             gt_traj.shape) == 3, f"len(gt_traj.shape) should be 3 but is {len(gt_traj.shape)}"
     assert isinstance(agent_traj, np.ndarray) and len(

@@ -133,17 +133,26 @@ class jrdb_preprocess(object):
         cur_ped_id = self.GetID(pre_data[0]['pos'])  # ped_ids this frame
 
         valid_id = []
-        for idx in cur_ped_id:
+        for idx in list(map(int,cur_ped_id)):
             is_invalid = False
             for frame in pre_data[:self.min_past_frames]:
-                if isinstance(frame['pos'], list) or idx not in frame['pos'][:,1] or self.exclude_kpless_data and (
-                        idx not in frame['kp'] or np.all(frame['kp'][idx]==0) or np.all(np.isnan(frame['kp'][idx]))):
+                exclude_kp = self.exclude_kpless_data and (
+                        idx not in frame['kp']
+                        or frame['kp'][idx] is None
+                        or np.all(frame['kp'][idx] == 0)
+                        or np.all(np.isnan(frame['kp'][idx])))
+                if isinstance(frame['pos'], list) or idx not in frame['pos'][:,1] or exclude_kp:
                     is_invalid = True
                     break
             if is_invalid:
                 continue
             for frame_i, frame in enumerate(fut_data[:self.min_future_frames]):
-                if isinstance(frame['pos'], list) or idx not in frame['pos'][:,1] or self.exclude_kpless_data and idx not in frame['kp']:
+                exclude_kp = self.exclude_kpless_data and (
+                        idx not in frame['kp']
+                        or frame['kp'][idx] is None
+                        or np.all(frame['kp'][idx] == 0)
+                        or np.all(np.isnan(frame['kp'][idx])))
+                if isinstance(frame['pos'], list) or idx not in frame['pos'][:, 1] or exclude_kp:
                     is_invalid = True
                     break
             if is_invalid:

@@ -60,6 +60,7 @@ def get_cmds_old(args):
     cmd_i = 0  # index of cmd to-run (but not necessarily launched)
     no_model = 0
     already_computed = 0
+    results_dir = 'results_jrdb1'
     cfgs = args.cfgs
 
     if cfgs is None:
@@ -71,13 +72,13 @@ def get_cmds_old(args):
     for cfg in cfgs:
         # check if model exists
         if not args.train:
-            if len(glob.glob(f'results-joint/{cfg}/*.ckpt')) == 0:
+            if len(glob.glob(f'{results_dir}/{cfg}/*.ckpt')) == 0:
                 print("cfg does not have model:", cfg)
                 no_model += 1
                 if not args.train:
                     continue
             else:
-                model_epoch = glob.glob(f'results-joint/{cfg}/*=*.ckpt')[-1].split('=')[-1].split('.ckpt')[0]
+                model_epoch = glob.glob(f'{results_dir}/{cfg}/*=*.ckpt')[-1].split('=')[-1].split('.ckpt')[0]
                 # print(f"{cfg} model_epoch:", model_epoch)
 
         # check if results have already been computed
@@ -95,7 +96,7 @@ def get_cmds_old(args):
         if args.train:
             tail = ''
         else:
-            tail = ' -m test --save_traj -v'
+            tail = ' -m test --save_traj'
 
         if args.extra_flags is not None:
             print("extra_flags:", args.extra_flags)
@@ -103,7 +104,7 @@ def get_cmds_old(args):
                 flag = flag.strip()
                 tail += f" -{flag}"
 
-        cmd = f"python pl_train.py --cfg {cfg}{tail}"
+        cmd = f"python pl_train.py {cfg}{tail}"
 
         # gather all commands into a list
         cmds.append(cmd)
@@ -169,6 +170,7 @@ def get_cmds_vis():
                   "jrdb_pife_1000_og_odo_blazepose",
                   "jrdb_pife_1000_og_odo_head_body_leg_ori",
                   'jrdb_pife_1000_og_odo_no_kp']
+
     cmds = []
     for run_name in run_names:
         cmd = f"python jrdb_toolkit/visualisation/visualise2.py --run_name {run_name}"
@@ -176,13 +178,32 @@ def get_cmds_vis():
     return cmds
 
 
+def get_cmds_vis_compare():
+
+    seqs = [('jrdb_pife_1000_kiss_head_ori','jrdb_pife_1000_kiss_blazepose'),
+            ]
+
+    cmds = []
+    for run_name0,run_name1 in seqs:
+        seq = f'{run_name0}_vs_{run_name1}'
+        cmd = f"python jrdb_toolkit/visualisation/visualise2.py --run_name ../results_traj_preds/af_traj_preds/{run_name0} --seq_ids_to_visualize {seq}"
+        cmds.append(cmd)
+        cmd = f"python jrdb_toolkit/visualisation/visualise2.py --run_name ../results_traj_preds/af_traj_preds/{run_name1} --seq_ids_to_visualize {seq}"
+        cmds.append(cmd)
+    return cmds
+
+
 def main(args):
-    if args.viz:
+    if args.viz_compare:
+        cmds = get_cmds_vis_compare()
+    elif args.viz:
         cmds = get_cmds_vis()
     elif args.wandb:
         cmds = get_cmds_wandb(args)
+    # elif:
+    #     cmds = get_cmds(args)
     else:
-        cmds = get_cmds(args)
+        cmds = get_cmds_old(args)
 
     spawn(cmds, args)
 
@@ -198,6 +219,7 @@ if __name__ == "__main__":
     argparser.add_argument('--glob_str', '-g', nargs='+', default=None)
     argparser.add_argument('--wandb', '-w', action='store_true')
     argparser.add_argument('--viz', '-v', action='store_true')
+    argparser.add_argument('--viz_compare', '-vc', action='store_true')
     try:
         cuda_visible = [int(i) for i in os.environ['CUDA_VISIBLE_DEVICES'].split(',')]
     except KeyError:
