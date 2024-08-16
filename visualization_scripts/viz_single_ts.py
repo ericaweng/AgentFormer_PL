@@ -125,93 +125,106 @@ def plot_scene(obs_traj, gt_traj=None, pred_traj=None, ped_ids=None, ped_radius=
 
 
 def plot_scene_3d(pose, ped_ids, ped_colors, pose_type, bounds=None, robot_loc=None, robot_yaw=None,
-                  frame_id=None, ped_ids_pred=None,
-                  obs_traj=None, gt_traj=None, pred_traj=None):
-        """
-        Create a 3D plot image of the pedestrian poses for current timestep.
-        """
+                  frame_id=None, ped_ids_pred=None, obs_traj=None, gt_traj=None, pred_traj=None,
+                  point_cloud=None, vectors_3d=None):
+    """
+    Create a 3D plot image of the pedestrian poses for current timestep.
+    """
 
-        fig, ax = plt.subplots(1, 1, figsize=(20, 20), subplot_kw={'projection': '3d'})
+    fig, ax = plt.subplots(1, 1, figsize=(20, 20), subplot_kw={'projection': '3d'})
 
-        if robot_loc is not None:
-            # plot robot as a red sphere
-            ax.scatter(*robot_loc, s=200, color='blue', alpha=0.5)
-            # arrow pointing toward robot yaw
-        if robot_yaw is not None:
-            arrow_start = robot_loc
-            arrow_length = 1 * np.array([np.cos(robot_yaw), np.sin(robot_yaw), 0])
-            # use quiver
-            ax.add_artist(ax.quiver(*arrow_start, *arrow_length, color='b', alpha=0.5))
+    if robot_loc is not None:
+        # plot robot as a red sphere
+        ax.scatter(*robot_loc, s=200, color='blue', alpha=0.5)
+        # arrow pointing toward robot yaw
+    if robot_yaw is not None:
+        arrow_start = robot_loc
+        arrow_length = 1 * np.array([np.cos(robot_yaw), np.sin(robot_yaw), 0])
+        # use quiver
+        ax.add_artist(ax.quiver(*arrow_start, *arrow_length, color='b', alpha=0.5))
 
-        for ped_i in range(pose.shape[0]):  # for each ped
-            ped_id = ped_ids[ped_i]
-            vals = pose[ped_i]
-            for j1, j2 in BLAZEPOSE_CONNECTIVITIES if pose_type.lower() == 'blazepose' else OPENPOSE44_CONNECTIONS:
-                x = np.array([vals[j1, 0], vals[j2, 0]])
-                y = np.array([vals[j1, 1], vals[j2, 1]])
-                z = np.array([vals[j1, 2], vals[j2, 2]])
-                ax.plot(x, y, z, lw=1, color=ped_colors[ped_id][[2, 1, 0]])
+    for ped_i in range(pose.shape[0]):  # for each ped
+        ped_id = ped_ids[ped_i]
+        vals = pose[ped_i]
+        for j1, j2 in BLAZEPOSE_CONNECTIVITIES if pose_type.lower() == 'blazepose' else OPENPOSE44_CONNECTIONS:
+            x = np.array([vals[j1, 0], vals[j2, 0]])
+            y = np.array([vals[j1, 1], vals[j2, 1]])
+            z = np.array([vals[j1, 2], vals[j2, 2]])
+            ax.plot(x, y, z, lw=1, color=ped_colors[ped_id][[2, 1, 0]])
 
-        # trajectories plotting
-        if obs_traj is not None and pred_traj is not None and gt_traj is not None:
-            if obs_traj is not None:
-                obs_len, num_peds, _ = obs_traj.shape
-            if pred_traj is not None:
-                pred_len, num_peds, _ = pred_traj.shape
+    # trajectories plotting
+    if obs_traj is not None and pred_traj is not None and gt_traj is not None:
+        if obs_traj is not None:
+            obs_len, num_peds, _ = obs_traj.shape
+        if pred_traj is not None:
+            pred_len, num_peds, _ = pred_traj.shape
 
-            # color and style properties
-            text_offset_x = -0.5
-            text_offset_y = -0.2
-            plot_ped_texts = False
-            lw = 4
+        # color and style properties
+        text_offset_x = -0.5
+        text_offset_y = -0.2
+        plot_ped_texts = False
+        lw = 4
 
-            is_obs = frame_id < obs_len
+        is_obs = frame_id < obs_len
+
+        if is_obs:
+            obs_alpha = 1
+            gt_alpha = 0
+            pred_alpha = 0
+        else:
+            obs_alpha = 0.5
+            gt_alpha = 1
+            pred_alpha = 1
+
+        # plot obs traj
+        for ped_i, ped_id in enumerate(ped_ids_pred):
+            color = ped_colors[ped_id][[2, 1, 0]]
+
+            ax.scatter(*np.concatenate([obs_traj, gt_traj])[frame_id, ped_i], s=100, color=color, alpha=obs_alpha, zorder=0)
+            ax.plot(*obs_traj[:frame_id + 1, ped_i].T, color=color, alpha=obs_alpha, linestyle='-', linewidth=lw, zorder=1)
+
+            # plot ped texts
+            if plot_ped_texts:
+                ped_texts = []
+                for ped_i in range(num_peds):
+                    int_text = ax.text(gt_traj[-1, ped_i, 0] + text_offset_x, gt_traj[-1, ped_i, 1] - text_offset_y,
+                                       f'A{ped_id}', color=color, fontsize=14)
+                    ped_texts.append(ax.add_artist(int_text))
 
             if is_obs:
-                obs_alpha = 1
-                gt_alpha = 0
-                pred_alpha = 0
-            else:
-                obs_alpha = 0.5
-                gt_alpha = 1
-                pred_alpha = 1
+                continue
+            # plot gt futures
+            if gt_traj is not None:
+                gt_plus_last_obs = np.concatenate(
+                        [obs_traj[-1:, ped_i], gt_traj[:frame_id - obs_len + 1, ped_i]])
+                ax.plot(*gt_plus_last_obs.T, color=color, alpha=gt_alpha, linestyle='-', linewidth=lw, zorder=1)
 
-            # plot obs traj
-            for ped_i, ped_id in enumerate(ped_ids_pred):
-                color = ped_colors[ped_id][[2, 1, 0]]
+            # plot pred futures
+            if pred_traj is not None:
+                pred_plus_last_obs = np.concatenate(
+                        [obs_traj[-1:, ped_i], pred_traj[:frame_id - obs_len + 1, ped_i]])
+                ax.plot(*pred_plus_last_obs.T, color=color, alpha=pred_alpha, linestyle='--', linewidth=lw, zorder=1)
 
-                ax.scatter(*np.concatenate([obs_traj, gt_traj])[frame_id, ped_i], s=100, color=color, alpha=obs_alpha, zorder=0)
-                ax.plot(*obs_traj[:frame_id + 1, ped_i].T, color=color, alpha=obs_alpha, linestyle='-', linewidth=lw, zorder=1)
+    # plot 2d point cloud
+    filtered_points = point_cloud
+    filtered_points = filtered_points[filtered_points[:, 2] > -0.2]
+    plt.scatter(filtered_points[:, 0], filtered_points[:, 1], s=1)
 
-                # plot ped texts
-                if plot_ped_texts:
-                    ped_texts = []
-                    for ped_i in range(num_peds):
-                        int_text = ax.text(gt_traj[-1, ped_i, 0] + text_offset_x, gt_traj[-1, ped_i, 1] - text_offset_y,
-                                           f'A{ped_id}', color=color, fontsize=14)
-                        ped_texts.append(ax.add_artist(int_text))
+    # Plot the 3D vectors in red
+    if vectors_3d is not None:
+        for start_point, end_point in vectors_3d:
+            norm_vector = (end_point - start_point) / np.linalg.norm(end_point - start_point) * 0.5  # normalize to length 0.5
+            ax.quiver(start_point[0], start_point[1], start_point[2],
+                      norm_vector[0], norm_vector[1], norm_vector[2], color='magenta')
 
-                if is_obs:
-                    continue
-                # plot gt futures
-                if gt_traj is not None:
-                    gt_plus_last_obs = np.concatenate(
-                            [obs_traj[-1:, ped_i], gt_traj[:frame_id - obs_len + 1, ped_i]])
-                    ax.plot(*gt_plus_last_obs.T, color=color, alpha=gt_alpha, linestyle='-', linewidth=lw, zorder=1)
+    # Remove any margins
+    _ax_set_up(ax, pose.reshape(-1, pose.shape[-1]), bounds, True)
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
 
-                # plot pred futures
-                if pred_traj is not None:
-                    pred_plus_last_obs = np.concatenate(
-                            [obs_traj[-1:, ped_i], pred_traj[:frame_id - obs_len + 1, ped_i]])
-                    ax.plot(*pred_plus_last_obs.T, color=color, alpha=pred_alpha, linestyle='--', linewidth=lw, zorder=1)
+    img = fig_to_array(fig)
+    plt.close(fig)
+    return img
 
-        # Remove any margins
-        _ax_set_up(ax, pose.reshape(-1, pose.shape[-1]), bounds, True)
-        plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
-
-        img = fig_to_array(fig)
-        plt.close(fig)
-        return img
 
 
 def get_bounds(*stuff):

@@ -52,7 +52,7 @@ def process_sequence(seq_id, preds, scene, method):
 
 def process_method(scene, method):
     pred_traj_path = f'{method}/{scene}'
-    pred_trajs_robot_frame = convert_pred_txts_to_dict_global(pred_traj_path)
+    pred_trajs_robot_frame = convert_pred_txts_to_dict(pred_traj_path)
 
     method_name = method.split("/")[-1]
     assert len(method_name) > 0

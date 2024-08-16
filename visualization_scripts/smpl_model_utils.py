@@ -6,8 +6,10 @@ import tempfile
 
 
 def up_layout(verts):
-    center = (verts.min(axis=(0,1)) + verts.max(axis=(0,1))) / 2
-    width_xyz = (verts.max(axis=(0,1)) - verts.min(axis=(0,1)))
+    verts_no_nan = np.nan_to_num(verts)
+
+    center = (verts_no_nan.min(axis=(0, 1)) + verts_no_nan.max(axis=(0, 1))) / 2
+    width_xyz = (verts_no_nan.max(axis=(0, 1)) - verts_no_nan.min(axis=(0, 1)))
     width = width_xyz.max()
     dim_min_x = center[0] - width / 2
     dim_max_x = center[0] + width / 2
@@ -85,7 +87,7 @@ def display_smpl_model_plotly(model_info, title=None, with_joints=False, only_jo
 
 
 def draw_skeleton_plotly(joints, kintree_table, fig, row, col):
-    colors = ['red', 'green', 'blue']
+    colors = ['red']#, 'green', 'blue']
     for joints3D in joints:
         fig.add_trace(go.Scatter3d(
             x=joints3D[:, 0],
@@ -93,7 +95,8 @@ def draw_skeleton_plotly(joints, kintree_table, fig, row, col):
             z=joints3D[:, 2],
             mode='markers+text',
             marker=dict(size=2),
-            text=[f"{i}" for i in range(joints3D.shape[0])]
+            text=[f"{i}" for i in range(joints3D.shape[0])],
+                showlegend=False,
         ), row=row, col=col)
         # for joints3D, kintree_table in zip(joints, kintree_tables):
         for i in range(0, kintree_table.shape[0]):
@@ -104,7 +107,8 @@ def draw_skeleton_plotly(joints, kintree_table, fig, row, col):
                 z=[joints3D[j1, 2], joints3D[j2, 2]],
                 mode='lines',
                 # mode='lines+markers+text',
-                line=dict(color=colors[i%3], width=2),
+                line=dict(color=colors[i%len(colors)], width=2),
+                    showlegend=False,
                 # marker=dict(size=5),
                 #     text=[f"{j1}", j2]
             ), row=row, col=col)

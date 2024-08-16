@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='sgan-af',
+    name='af-sdd',
     packages=[
         package for package in find_packages()
     ],

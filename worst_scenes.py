@@ -29,6 +29,7 @@ def get_agents_df(scene):
                                                     tracking_method=TRACKING_METHOD)
     return agents_df
 
+
 def process_sequence(seq_id, preds, scene, method):
     pred_df = pd.DataFrame.from_dict(preds, orient='index').rename_axis(['timestep', 'id'])
     agents_df = get_agents_df(scene)
@@ -43,16 +44,19 @@ def process_sequence(seq_id, preds, scene, method):
     assert 12 * len(pred_ids) == trajs_df.shape[0], f"{12 * len(pred_ids)} != {trajs_df.shape[0]}"
 
     gt_traj = make_pos_array(trajs_df, pred_steps, ped_ids_pred)[..., :2]
-    pred_traj = make_pos_array(trajs_df, pred_steps, ped_ids_pred, 'pred')[..., :2]
+    # (num_preds, num_timesteps, 3)
+    pred_traj = make_pos_array(trajs_df, pred_steps, ped_ids_pred, 'pred')[..., :2].swapaxes(1,0)
+    # (num_preds, num_samples, num_timesteps, 3)
 
     all_metrics, all_ped_vals, all_sample_vals, argmins, collision_mats = eval_one_seq(
-            pred_traj[:, None], gt_traj, pred_mask=None, collision_rad=0.1)
+            pred_traj, gt_traj, pred_mask=None, collision_rad=0.1, return_sample_vals=True)
 
-    return seq_id, method, all_metrics
+    return seq_id, method, all_metrics, all_sample_vals
+
 
 def process_method(scene, method):
     pred_traj_path = f'{method}/{scene}'
-    pred_trajs_robot_frame = convert_pred_txts_to_dict_global(pred_traj_path)
+    pred_trajs_robot_frame = convert_pred_txts_to_dict(pred_traj_path)
 
     method_name = method.split("/")[-1]
     if len(method_name) == 0:
@@ -66,16 +70,17 @@ def process_method(scene, method):
         ]
 
         for future in as_completed(futures):
-            seq_id, method_name, all_metrics = future.result()
-            scene_results[seq_id] = all_metrics
+            seq_id, method_name, all_metrics, min_ade_sample = future.result()
+            scene_results[seq_id] = all_metrics | {'best_sample_idx' : np.argmin(min_ade_sample['ADE'])}
 
     return scene, scene_results
+
 
 def main(args):
     eval_results = {}
     method = args.method
 
-    for scene in tqdm(HST_TEST):
+    for scene in tqdm(HST_TEST[:args.until]):
         scene, scene_results = process_method(scene, method)
         if scene not in eval_results:
             eval_results[scene] = {}
@@ -86,18 +91,18 @@ def main(args):
     ade_comparisons = {}
 
     if True:
-        threshold = 2
+        threshold = 1.5
 
         for scene in eval_results:
-            notable_frames[scene] = []
+            notable_frames[scene] = {}
             ade_comparisons[scene] = {}
             for seq_id, preds in eval_results[scene].items():
                 ade = eval_results[scene][seq_id]['ADE_marginal']
                 if ade > threshold:
-                    notable_frames[scene].append(seq_id)
+                    notable_frames[scene][seq_id]=eval_results[scene][seq_id]['best_sample_idx']
                     ade_comparisons[scene][seq_id]=ade
 
-            notable_frames[scene] = sorted(notable_frames[scene])
+            # notable_frames[scene] = sorted(notable_frames[scene])
 
         print(f"{notable_frames=}")
 
@@ -112,6 +117,8 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--method', "-m", type=str, default='')
+    parser.add_argument('--until', "-u", type=int, default=19)
     args = parser.parse_args()
 
     main(args)
+

@@ -148,6 +148,89 @@ def agents_to_robot_frame(agents_df, robot_df):
   return pd.DataFrame.from_dict(transformed_agents_dict, orient='index').rename_axis(['timestep', 'id'])
 
 
+def box_to_hyperplanes(pos, yaw, l, w, h):
+  """Transforms a bounding box to a set of hyperplanes."""
+  s = np.sin(yaw)
+  c = np.cos(yaw)
+  normal = np.array([
+      np.array([0, 0, h/2]),
+      np.array([0, 0, -h/2]),
+      np.array([-s * w/2, c * w/2, 0]),
+      np.array([-s * -w/2, c * -w/2, 0]),
+      np.array([c * l/2, s * l/2, 0]),
+      np.array([c * -l/2, s * -l/2, 0])])
+  points = pos + normal
+  normal = normal / np.linalg.norm(normal, axis=-1, keepdims=True)
+  w = -normal
+
+  d = -w[:, 0] * points[:, 0] - w[:, 1] * points[:, 1] - w[:, 2] * points[:, 2]
+
+  return w, d
+
+
+def filter_agents_and_ground_from_point_cloud(
+    agents_df, pointcloud_dict, robot_in_odometry_df, max_dist=10.):
+  """Filter points which are in human bb or belong to ground."""
+  for t, agent_df in agents_df.groupby('timestep'):
+    if t not in pointcloud_dict:
+      continue
+    pc_points = pointcloud_dict[t]
+    robot_p = robot_in_odometry_df.loc[t]['p'][:2]
+    dist_mask = np.linalg.norm(robot_p - pc_points[..., :2], axis=-1) < max_dist
+    pc_points = pc_points[
+        (pc_points[:, -1] > -0.2) & (pc_points[:, -1] < 0.5) & dist_mask]
+    for _, row in agent_df.iterrows():
+      w, d = box_to_hyperplanes(
+          row['p'], row['yaw'], 1.5*row['l'], 1.5*row['w'], row['h'])
+      agent_pc_mask = np.all((pc_points @ w.T + d) > 0., axis=-1)
+      pc_points = pc_points[~agent_pc_mask]
+    np.random.shuffle(pc_points)
+    pointcloud_dict[t] = pc_points
+  return pointcloud_dict
+
+
+def pc_to_odometry_frame(pc_dict, robot_df):
+  """Transforms point clouds into odometry frame."""
+  if 'q' in robot_df.columns:
+    initial_quat = convert_quaternion(robot_df.iloc[0]['q'])
+  else:
+    # get quat from yaw
+    initial_quat = Quaternion(axis=[0, 0, 1], angle=robot_df.iloc[0]['yaw'])
+  initial_pos = robot_df.iloc[0]['p']
+  world_pose_odometry = np.eye(4)
+  world_pose_odometry[:3, :3] = initial_quat.rotation_matrix
+  world_pose_odometry[:3, 3] = initial_pos
+
+  odometry_pose_world = np.linalg.inv(world_pose_odometry)
+
+  pc_list = []
+  for ts, pc in pc_dict.items():
+    # robot_odometry_dp = robot_df.loc[ts]
+
+    robot_pos = robot_df.loc[ts, 'p']
+    if 'q' in robot_df.columns:
+      robot_quat = convert_quaternion(robot_df.loc[ts, 'q'])
+    else:
+      robot_quat = Quaternion(axis=[0, 0, 1], angle=robot_df.loc[ts, 'yaw'])
+
+    # Create transformation matrix for robot pose
+    world_pose_robot = np.eye(4)
+    world_pose_robot[:3, :3] = robot_quat.rotation_matrix
+    world_pose_robot[:3, 3] = robot_pos
+
+    odometry_pose_robot = odometry_pose_world * world_pose_robot
+
+    # odometry_pc = pc.transform(odometry_pose_robot.matrix4x4())
+    # Apply the transformation to the point cloud
+    pc_homogeneous = np.hstack((pc, np.ones((pc.shape[0], 1))))
+    odometry_pc_homogeneous = np.dot(odometry_pose_robot, pc_homogeneous.T).T
+    odometry_pc = odometry_pc_homogeneous[:, :3]
+
+    pc_list.append(np.array(odometry_pc, dtype=np.float32))
+
+  return pc_list
+
+
 def agents_to_odometry_frame(agents_df, robot_df):
   """Transforms agents features into odometry frame."""
 
@@ -234,6 +317,14 @@ def agents_to_odometry_frame(agents_df, robot_df):
           rot_keypoints.append(odometry_rot_robot.rotate(keypoint))
       rot_keypoints = np.array(rot_keypoints)
       agents_dict[index]['keypoints'] = rot_keypoints
+
+      for geom_key in ['head_orientation', 'body_orientation', 'gaze']:
+        if geom_key in row:
+          if np.isnan(row[geom_key]).any():
+            assert np.isnan(row[geom_key]).all()
+            agents_dict[index][geom_key] = row[geom_key]
+          else:
+            agents_dict[index][geom_key] = odometry_rot_robot.rotate(row[geom_key])
 
   return pd.DataFrame.from_dict(
           agents_dict, orient='index').rename_axis(
