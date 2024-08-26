@@ -4,8 +4,10 @@ import numpy as np
 from torch.utils.data import Dataset
 
 from data.nuscenes_pred_split import get_nuscenes_pred_split
+from data.tbd_split import get_tbd_split
 from .preprocessor import preprocess
 from .preprocessor_sdd import SDDPreprocess
+from .tbd import TBDPreprocess
 from .jrdb_kp import jrdb_preprocess
 from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
 from .jrdb_kp3 import jrdb_preprocess as jrdb_preprocess_w_action_label
@@ -30,7 +32,6 @@ class AgentFormerDataset(Dataset):
             self.single_frame = int(self.args.seq_frame.split(" ")[1])
         self.past_frames = parser.past_frames
         self.exclude_kpless_data = parser.get('exclude_kpless_data', False)
-        self.data_root_jrdb = parser.data_root_jrdb
         self.min_past_frames = parser.min_past_frames
         self.frame_skip = parser.get('frame_skip', 1)
         if split == 'train':
@@ -58,6 +59,7 @@ class AgentFormerDataset(Dataset):
         assert phase in ['training', 'testing'], 'error'
         assert split in ['train', 'val', 'test'], 'error'
 
+        self.split_type = split_type = parser.get('split_type', 'full')
         if parser.dataset == 'nuscenes_pred':
             data_root = parser.data_root_nuscenes_pred
             seq_train, seq_val, seq_test = get_nuscenes_pred_split(data_root)
@@ -71,7 +73,6 @@ class AgentFormerDataset(Dataset):
             seq_train, seq_val, seq_test = get_stanford_drone_split()
         elif parser.dataset == 'jrdb':
             data_root = parser.data_root_jrdb
-            self.split_type = split_type = parser.get('split_type', 'full')
             if split_type == 'no_egomotion':
                 seq_train, seq_val, seq_test = get_jrdb_split_no_egomotion()
             elif split_type == 'egomotion':
@@ -89,6 +90,15 @@ class AgentFormerDataset(Dataset):
             else:
                 assert split_type == 'training_only'
                 seq_train, seq_val, seq_test = get_jrdb_training_split_erica()
+            self.init_frame = 0
+        elif parser.dataset == 'tbd':
+            data_root = parser.data_root_tbd
+            if split_type == 'full':
+                seq_train, seq_val, seq_test = get_tbd_split()
+            elif split_type == 'sanity':
+                seq_train, seq_val, seq_test = get_tbd_split(sanity=True)
+            else:
+                raise ValueError('Unknown split type!')
             self.init_frame = 0
         elif parser.dataset == 'pedx':
             data_root = parser.data_root_pedx
@@ -127,8 +137,10 @@ class AgentFormerDataset(Dataset):
                 process_func = jrdb_preprocess_w_learned_action_label
             else:
                 assert dl_v == 0
-                import ipdb; ipdb.set_trace()
                 process_func = jrdb_vanilla
+        elif parser.dataset == 'tbd':
+            data_root = parser.data_root_tbd
+            process_func = TBDPreprocess
         else:
             assert parser.dataset == 'pedx'
             process_func = PedXPreprocess
@@ -341,6 +353,8 @@ class AgentFormerDataset(Dataset):
                                + self.sequence[seq_index].init_frame)  # from 0-indexed list index to 1-indexed frame index (for mot)
                 if "half_and_half" not in self.split_type:
                     assert self.sequence[seq_index].init_frame == 0
+                    # if self.sequence[seq_index].init_frame != 0:
+                        # subtract init_frame to get the correct frame index
                 return seq_index, frame_index
             else: # keep going through scenes
                 index_tmp -= self.num_sample_list[seq_index]

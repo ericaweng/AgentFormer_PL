@@ -15,9 +15,7 @@ from utils.torch import get_scheduler
 from viz_utils_plot import _save_catch_all
 from data.categorize_interactions import get_interaction_matrix_for_scene, INTERACTION_CAT_ABBRS
 from data.ped_interactions import INTERACTION_CAT_NAMES
-from data.preprocess_w_odometry import agents_to_robot_frame, agents_to_odometry_frame
-
-from visualization_scripts.viz_single_ts import plot_scene
+from data.preprocess_w_odometry import agents_to_robot_frame
 
 
 def agg_metrics(all_metrics):

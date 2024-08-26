@@ -1109,7 +1109,7 @@ class AgentFormer(nn.Module):
 
         # remove nans in data
         for key in [k for k in self.data.keys() if k.split('_')[0] in ['pre', 'fut'] and 'data' not in k] + ['heading', 'heading_avg', 'cur_motion', 'scene_orig']:
-            if self.data[key] is not None:
+            if self.data.get(key, None) is not None:
                 self.data[key] = torch.where(torch.isnan(self.data[key]), torch.zeros_like(self.data[key]), self.data[key])
 
         # use heading
@@ -1120,7 +1120,7 @@ class AgentFormer(nn.Module):
             assert len(self.data['heading'].shape) == 1  # if not already sin / cos'ed
             self.data['heading_vec'] = torch.stack([torch.cos(self.data['heading']), torch.sin(self.data['heading'])], dim=-1)
 
-        assert 'heading' in in_data and in_data['heading'] is not None
+        # assert 'heading' in in_data and in_data['heading'] is not None
         if 'heading_avg' in self.data and self.data['heading_avg'] is not None:
             self.data['heading_avg'] = torch.stack([torch.cos(self.data['heading_avg']), torch.sin(self.data['heading_avg'])], dim=-1)
 

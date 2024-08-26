@@ -23,11 +23,10 @@ def main(args):
     cfg = Config(args.cfg)
     if args.exclude_kpless_data is not None:
         cfg.exclude_kpless_data = args.exclude_kpless_data
+        print(f"{cfg.exclude_kpless_data=}")
     if args.split_type is not None:
         cfg.split_type = args.split_type
-
-    print(f"{cfg.exclude_kpless_data=}")
-    print(f"{cfg.split_type=}")
+        print(f"{cfg.split_type=}")
 
     # Set global random seed
     pl.seed_everything(args.seed)
@@ -140,6 +139,9 @@ def main(args):
             if 'jrdb' in cfg.dataset:
                 logger.experiment.save('data/jrdb_kp5.py')
                 logger.experiment.save('data/jrdb_split.py')
+            elif 'tbd' in cfg.dataset:
+                logger.experiment.save('data/tbd_split.py')
+                logger.experiment.save('data/tbd.py')
         else:
             logger = TensorBoardLogger(args.logs_root, name=cfg.id)
     else:
@@ -251,18 +253,18 @@ if __name__ == '__main__':
     parser.add_argument('--mode', '-m', default='train')
     parser.add_argument('--seed', '-s', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_workers', '-nw', type=int, default=8)
+    parser.add_argument('--num_workers', '-nw', type=int, default=0)
     parser.add_argument('--devices', type=int, default=None)
     parser.add_argument('--no_gpu', '-ng', action='store_true', default=False)
     parser.add_argument('--dont_resume', '-dr', '-nc', dest='resume', action='store_false', default=True)
     parser.add_argument('--checkpoint_path', '-cp', default=None)
     parser.add_argument('--checkpoint_str', '-c', default=None)
     parser.add_argument('--trial', '-t', action='store_true', default=False, help='if true, then does a trial run (without save checkpoints or logs, and allows user to specify smaller dataset size for sanity checking)')
-    parser.add_argument('--no_mp', '-nmp', dest='mp', action='store_false', default=True)
+    parser.add_argument('--mp', action='store_true', default=False)
     parser.add_argument('--viz', '-v', dest='save_viz', action='store_true')
     parser.add_argument('--save_viz_every_time', '-vv', action='store_true', default=False)
     parser.add_argument('--save_num', '-vn', type=int, default=10, help='number of visualizations to save per eval')
-    parser.add_argument('--logs_root', '-lr', default='results_jrdb1', help='where to save checkpoints and tb logs')
+    parser.add_argument('--logs_root', '-lr', default='results_tbd', help='where to save checkpoints and tb logs')
     parser.add_argument('--log_on_trial', '-lot', action='store_true', default=False)
     parser.add_argument('--ckpt_on_trial', '-l', '-ck', action='store_true', default=False)
     parser.add_argument('--save_traj', '-st', action='store_true', default=False)

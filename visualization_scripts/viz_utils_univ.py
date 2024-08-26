@@ -1,3 +1,4 @@
+import cv2
 import tempfile
 import numpy as np
 
@@ -286,13 +287,14 @@ def draw_pose_2d_single_frame(pose, ax, thin, frame_idx):
             ax.plot(x, y, lw=1 if thin else 2, color=COLORS[i % len(COLORS)])
 
 
-def draw_pose_3d_single_frame(pose, ax, thin, frame_idx):
+def draw_pose_3d_single_frame(pose, ax, thin, frame_idx, connectivities=BLAZEPOSE_CONNECTIVITIES):
     """
     Draw a single pose for a given frame index.
+    pose: (num_peds, num_kp, num_ts, 3)
     """
     for i in range(pose.shape[0]):  # for each ped
         vals = pose[i, :, frame_idx]
-        for j1, j2 in BLAZEPOSE_CONNECTIVITIES:
+        for j1, j2 in connectivities:
             x = np.array([vals[j1, 0], vals[j2, 0]])
             y = np.array([vals[j1, 1], vals[j2, 1]])
             z = np.array([vals[j1, 2], vals[j2, 2]])
@@ -307,7 +309,8 @@ class AnimObjBEVTraj2d:
                        pred_traj=None, ped_num_label_on='gt', show_ped_ids=False, show_ped_pos=False, bounds=None,
                        scene_stats=None, avg_heading=None, last_heading=None, collision_mats=None, extend_last_frame=3,
                        show_ped_stats=False, text_time=None, text_fixed=None, grid_values=None,
-                       plot_collisions_all=False, plot_title=None, ax=None, pred_alpha=None):
+                       plot_collisions_all=False, plot_title=None, ax=None, pred_alpha=None, disappear_on_traj_end=False,
+                       video=None, fps=None):
         # TODO show_ped_pos does not do ped pos for obs steps
         """
         obs_traj: shape (8, num_peds, 2) observation input to model, first 8 timesteps of the scene
@@ -553,12 +556,26 @@ class AnimObjBEVTraj2d:
             z_min, z_max = np.min(np.array(z)), np.max(np.array(z))
             state_mesh = ax.pcolormesh(x, y, z, alpha=.8, vmin=0, vmax=1, zorder=3)
 
-        ## animation update function
+            ## animation update function
+
         def update(frame_i):
             nonlocal x, y
+
             # for replicating last scene
             if frame_i >= obs_len + pred_len:
                 return
+
+            # if video
+            if video is not None:
+                if isinstance(video, list) or isinstance(video, np.ndarray):
+                    frame = video[frame_i]
+                else:
+                    assert isinstance(video, cv2.VideoCapture)
+                    ret, frame = video.read()
+                    if not ret:
+                        print("Video ended prematurely")
+                        return
+                ax.imshow(frame, zorder=1)
 
             # heatmap
             if grid_values is not None and frame_i < obs_len + pred_len - 1:
@@ -587,7 +604,8 @@ class AnimObjBEVTraj2d:
                     if show_ped_pos and len(ped_pos_texts_obs) > 0:
                         ped_pos_text = f"{circle_gt.center[0]:0.1f}, {circle_gt.center[1]:0.1f}"
                         ped_pos_texts_obs[ped_i].set_text(ped_pos_text)
-                        ped_pos_texts_obs[ped_i].set_position((circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
+                        ped_pos_texts_obs[ped_i].set_position(
+                                (circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
                 for ped_i, circle_fake in enumerate(circles_fake):
                     circle_fake.center = obs_traj[frame_i, ped_i]
                 if show_ped_pos:
@@ -632,43 +650,52 @@ class AnimObjBEVTraj2d:
 
             if obs_len <= frame_i < obs_len + pred_len:
                 if gt_traj is not None:
-                    # assert len(circles_gt) == len(lines_pred_gt) == len(ped_texts), f'{len(circles_gt)}, {len(lines_pred_gt)}, {len(ped_texts)} should all be equal'
                     for ped_i, (circle_gt, line_pred_gt) in enumerate(zip(circles_gt, lines_pred_gt)):
                         pos_gt = gt_traj[frame_i - obs_len, ped_i]
                         if is_nan_or_0(pos_gt):
                             circle_gt.set_visible(False)
+                            if disappear_on_traj_end:
+                                line_pred_gt.set_visible(False)
                         else:
                             circle_gt.set_visible(True)
                             circle_gt.center = pos_gt
+                            line_pred_gt.set_visible(True)
+
                         if obs_traj is not None:
                             is_non_nan_ts_ped_i = ~is_nan_or_0(obs_traj[:, ped_i])
                             last_obs = obs_traj[is_non_nan_ts_ped_i, ped_i]
                             if len(last_obs) == 0:
-                                is_non_nan_ts_ped_i = (gt_traj[:, ped_i]!=0).any(-1)
+                                is_non_nan_ts_ped_i = (gt_traj[:, ped_i] != 0).any(-1)
                                 last_obs = gt_traj[is_non_nan_ts_ped_i, ped_i][-1:]
                             else:
                                 last_obs = last_obs[-1:]
 
-                            # get only the gt positions that are not nan, and up until current animation timestep
                             gt_traj_until_now = gt_traj[:frame_i + 1 - obs_len, ped_i]
-                            not_nan_gt_idxs = (gt_traj_until_now!=0).any(-1)
+                            not_nan_gt_idxs = (gt_traj_until_now != 0).any(-1)
                             not_nan_gts = gt_traj_until_now[not_nan_gt_idxs]
                             last_obs_pred_gt = np.concatenate([last_obs, not_nan_gts])
                         else:
-                            # get only the gt positions that are not nan, and up until current animation timestep
                             gt_traj_until_now = gt_traj[:frame_i + 1 - obs_len, ped_i]
-                            not_nan_gt_idxs = (gt_traj_until_now!=0).any(-1)
+                            not_nan_gt_idxs = (gt_traj_until_now != 0).any(-1)
                             last_obs_pred_gt = gt_traj_until_now[not_nan_gt_idxs]
 
                         line_pred_gt.set_data(*last_obs_pred_gt.T)
-                        # move the pedestrian texts (ped number and relation)
+
                         if len(ped_texts) > 0:
-                            ped_texts[ped_i].set_position((circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
+                            ped_texts[ped_i].set_position(
+                                    (circle_gt.center[0] + text_offset_x, circle_gt.center[1] - text_offset_y))
 
                 if pred_traj is not None:
-                    assert len(lines_pred_fake) == len(circles_fake)
                     for ped_i, (circle_fake, line_pred_fake) in enumerate(zip(circles_fake, lines_pred_fake)):
                         circle_fake.center = pred_traj[frame_i - obs_len, ped_i]
+                        if is_nan_or_0(circle_fake.center):
+                            circle_fake.set_visible(False)
+                            if disappear_on_traj_end:
+                                line_pred_fake.set_visible(False)
+                        else:
+                            circle_fake.set_visible(True)
+                            line_pred_fake.set_visible(True)
+
                         if obs_traj is not None:
                             is_non_nan_ts_ped_i = ~is_nan_or_0(obs_traj[:, ped_i])
                             last_obs = obs_traj[is_non_nan_ts_ped_i, ped_i]
@@ -677,29 +704,31 @@ class AnimObjBEVTraj2d:
                                 last_obs = pred_traj[is_non_nan_ts_ped_i, ped_i][-1:]
                             else:
                                 last_obs = last_obs[-1:]
-                            # get only the pred positions that are not nan, and up until current animation timestep
                             pred_traj_until_now = pred_traj[:frame_i + 1 - obs_len, ped_i]
                             not_nan_pred_idxs = ~is_nan_or_0(pred_traj_until_now)
                             not_nan_preds = pred_traj_until_now[not_nan_pred_idxs]
                             last_obs_pred_fake = np.concatenate([last_obs, not_nan_preds])
                         else:
-                            # get only the pred positions that are not nan, and up until current animation timestep
                             pred_traj_until_now = pred_traj[:frame_i + 1 - obs_len, ped_i]
                             not_nan_gt_idxs = ~is_nan_or_0(pred_traj_until_now)
                             last_obs_pred_fake = pred_traj_until_now[not_nan_gt_idxs]
                         line_pred_fake.set_data(*last_obs_pred_fake.T)
+
                         if show_ped_pos and len(ped_pos_texts) > 0:
                             ped_pos_text = f"{circle_fake.center[0]:0.1f}, {circle_fake.center[1]:0.1f}"
                             ped_pos_texts[ped_i].set_text(ped_pos_text)
-                            ped_pos_texts[ped_i].set_position((circle_fake.center[0] + text_offset_x, circle_fake.center[1] - text_offset_y))
+                            ped_pos_texts[ped_i].set_position(
+                                    (circle_fake.center[0] + text_offset_x, circle_fake.center[1] - text_offset_y))
 
-            # update collision circles (only if we are during pred timesteps)
             if (plot_collisions_all or obs_len <= frame_i <= obs_len + pred_len) and collision_mats is not None:
-                assert len(collision_mats.shape) == 3 and collision_mats.shape[1] == collision_mats.shape[2], 'collision mats is not square'
+                assert len(collision_mats.shape) == 3 and collision_mats.shape[1] == collision_mats.shape[
+                    2], 'collision mats is not square'
                 if plot_collisions_all:
-                    assert len(collision_mats) == obs_len + pred_len, f'plot_collisons_all is {plot_collisions_all}, so collision_mat size should be {obs_len + pred_len} but is {len(collision_mats)}'
+                    assert len(
+                        collision_mats) == obs_len + pred_len, f'plot_collisons_all is {plot_collisions_all}, so collision_mat size should be {obs_len + pred_len} but is {len(collision_mats)}'
                 else:
-                    assert len(collision_mats) == pred_len, f'plot_collisons_all is {plot_collisions_all}, so collision_mat size should be {pred_len} but is {len(collision_mats)}'
+                    assert len(
+                        collision_mats) == pred_len, f'plot_collisons_all is {plot_collisions_all}, so collision_mat size should be {pred_len} but is {len(collision_mats)}'
 
                 if pred_traj is not None and obs_traj is not None:
                     obs_gt_fake = np.concatenate([obs_traj, pred_traj])
@@ -713,7 +742,6 @@ class AnimObjBEVTraj2d:
                     raise RuntimeError
 
                 for ped_i in range(num_peds):
-                    # new frame; decrease the text disappearance delay by 1
                     if collided_delays[ped_i] > 0:
                         collided_delays[ped_i] -= 1
                     for ped_j in range(ped_i):
@@ -721,17 +749,15 @@ class AnimObjBEVTraj2d:
                             collision_frame_idx = frame_i
                         else:
                             collision_frame_idx = frame_i - obs_len
-                        if collided_delays[ped_i] > 0:  # still in delay, circle doesn't disappear
+                        if collided_delays[ped_i] > 0:
                             break
                         elif collision_mats[collision_frame_idx, ped_i, ped_j]:
-                            ## put the center of the circle in the point between the two ped centers
                             x = (obs_gt_fake[frame_i][ped_i][0] + obs_gt_fake[frame_i][ped_j][0]) / 2
                             y = (obs_gt_fake[frame_i][ped_i][1] + obs_gt_fake[frame_i][ped_j][1]) / 2
                             collision_circles[ped_i].set_center((x, y))
                             collision_circles[ped_i].set_edgecolor(cmap_fake(ped_i))
                             collision_circles[ped_i].set_visible(True)
 
-                            ## add persistent yellow collision circle
                             ax.add_artist(plt.Circle((x, y), collide_circle_rad, fc=yellow, zorder=1, ec='none'))
                             collided_delays[ped_i] = collision_delay
                             break
@@ -741,7 +767,11 @@ class AnimObjBEVTraj2d:
         self.update = update
 
         if fig is not None:
-            anim = animation.FuncAnimation(fig, update, frames=obs_len + pred_len + extend_last_frame, interval=500)
+            if fps is not None:
+                interval = 1000 / fps
+            else:
+                interval = 1000 / 2
+            anim = animation.FuncAnimation(fig, update, frames=obs_len + pred_len + extend_last_frame, interval=interval)
             anim.save(save_fn)
             print(f"saved animation to {save_fn}")
             plt.close(fig)

@@ -100,9 +100,9 @@ def _save_catch_all(self, outputs, all_sample_vals, collision_mats, tag='', anim
                          'pred_traj': pred_fake_traj_min,
                          'collision_mats': collision_mats[frame_i][-1],
                          'text_fixed': min_SADE_stats}
-            if output['data']['heading_vec'] is not None:
+            if output['data'].get('heading_vec', None) is not None:
                 args_dict['last_heading'] = output['data']['heading_vec'].detach().cpu().numpy()  # (1,2)
-            if output['data']['heading_avg'] is not None:
+            if 'heading_avg' in output['data'] and output['data']['heading_avg'] is not None:
                 args_dict['avg_heading'] = output['data']['heading_avg'].detach().cpu().numpy()  # (1,2)
             list_of_arg_dicts.append(args_dict)
             list_of_functions.append(AnimObjBEVTraj2d)
@@ -117,9 +117,9 @@ def _save_catch_all(self, outputs, all_sample_vals, collision_mats, tag='', anim
                          'pred_traj': pred_fake_traj[sample_i],
                          'text_fixed': stats if seq_to_sample_metrics['ADE'] is not None else None,
                          'collision_mats': collision_mats[frame_i][sample_i]}
-            if output['data']['heading_vec'] is not None:
+            if output['data'].get('heading_vec', None) is not None:
                 args_dict['last_heading'] = output['data']['heading_vec'].detach().cpu().numpy()  # (1,2)
-            if output['data']['heading_avg'] is not None:
+            if 'heading_avg' in output['data'] and output['data']['heading_avg'] is not None:
                 args_dict['avg_heading'] = output['data']['heading_avg'].detach().cpu().numpy()  # (1,2)
             list_of_arg_dicts.append(args_dict)
             list_of_functions.append(AnimObjBEVTraj2d)
