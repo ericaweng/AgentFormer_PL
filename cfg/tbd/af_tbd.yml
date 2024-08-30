@@ -1,9 +1,10 @@
 # ------------------- General Options -------------------------
 
-seed: 1
+seed: 0
 dataset: tbd
 frame_skip: 4
-data_skip: 1
+data_skip_train: 16
+data_skip_val: 76
 data_root_tbd: datasets/tbd/2/Pedestrian_labels/3d_traj
 
 # ------------------- Feature Extractor -------------------------
@@ -32,6 +33,8 @@ preprocess_data: true
 #include_robot_data: true
 #min_dist_to_robot: 7
 keep_subsamples: false # during eval
+sliding_window: true # during eval: whether to do sliding window or not. if not then data_skip = frame_skip * (past_frames + future_frames)
+keep_subsamples_train: false # during train
 #zero_kpless_data: true  # zero out kpless data during train and val
 input_type: ["scene_norm", "vel"] # "heading", "heading_avg", "kp_norm", "kp_vel"]
 ckpt_monitor: "val/ADE_marginal_agent"

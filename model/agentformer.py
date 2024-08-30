@@ -13,7 +13,7 @@ from .map_encoder import MapEncoder
 from utils.torch import *
 from utils.utils import initialize_weights
 from model.running_norm import RunningNorm
-from data.jrdb_kp6 import USE_ACTIONS
+from data.jrdb_kp_action import USE_ACTIONS
 
 
 def get_dims_from_input_type(cfg, key):
@@ -251,6 +251,8 @@ class ContextEncoder(nn.Module):
                 kp_input_list.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
             elif key == 'heading_all':
                 traj_in_list.append(data['pre_heading'])
+            elif key == 'head_ori':
+                traj_in_list.append(data['pre_head_ori'])#.reshape(*data['pre_head_ori'].shape[0:2], -1))
             elif key == 'heading':
                 hv = data['heading_vec'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)
@@ -424,6 +426,8 @@ class FutureEncoder(nn.Module):
                 kp_input_list.append(vel.reshape((vel.shape[0], vel.shape[1], -1)))
             elif key == 'heading_all':
                 traj_in_list.append(data['fut_heading'])
+            elif key == 'head_ori':
+                traj_in_list.append(data['fut_head_ori'])#.reshape(*data['pre_head_ori'].shape[0:2], -1))
             elif key == 'heading':
                 hv = data['heading_vec'].unsqueeze(0).repeat((num_timesteps, 1, 1))
                 traj_in_list.append(hv)

@@ -27,14 +27,15 @@ class TBDPreprocess:
         self.split = split
         self.phase = phase
 
-        self.gt = np.genfromtxt(f'{data_root}/{seq_name}', delimiter=' ', dtype=float)
-        if np.any(['kp' in i for i in parser.input_type]):
-            self.kp_source = parser.get('kp_source', 'blazepose')
+        self.gt = np.genfromtxt(f'{data_root}/{seq_name}.txt', delimiter=' ', dtype=float)
+        if np.any(['kp' in i for i in parser.input_type]) or np.any(['ori' in i for i in parser.input_type]):
+            self.kp_source = parser.get('kp_source', 'hmr2')
             if self.kp_source == 'blazepose':
-                self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)['arr_0'].item()
-                self.kp_mask = np.arange(33)
+                # self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)['arr_0'].item()
+                # self.kp_mask = np.arange(33)
+                import ipdb; ipdb.set_trace()
             elif self.kp_source == 'hmr2':
-                self.all_kp_data = np.load(f"{Path(data_root).parent}/jrdb/jrdb_hmr2_raw_stitched/{seq_name}_kp_3d.npz", allow_pickle=True)['arr_0'].item()
+                self.all_kp_data = np.load(f"{Path(data_root).parent.parent.parent}/tbd_hmr2_raw/{seq_name}_kp3d.npz", allow_pickle=True)['arr_0'].item()
                 self.kp_mask = np.arange(44)
             else:
                 raise ValueError(f"kp_source {self.kp_source} not recognized")
@@ -147,7 +148,7 @@ class TBDPreprocess:
     def get_heading(self, cur_data, valid_id):
         headings = []
         for i, idx in enumerate(valid_id):
-            headings.append(cur_data['pos'][cur_data['pos'][:, 1] == idx].squeeze()[self.heading_ind])
+            headings.append(cur_data['kp'][cur_data['kp'][:, 1] == idx].squeeze()[self.heading_ind])
         assert len(headings) == len(valid_id)
         return headings
 

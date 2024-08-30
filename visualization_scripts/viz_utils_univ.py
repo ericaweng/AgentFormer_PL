@@ -7,18 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import matplotlib.gridspec as gridspec
 
+from visualisation.constants import COCO_CONNECTIVITIES, BLAZEPOSE_CONNECTIVITIES, OPENPOSE44_CONNECTIONS
 
-COCO_CONNECTIVITIES = [[1, 2], [0, 4], [3, 4], [8, 10], [5, 7], [10, 13], [14, 16], [4, 5], [7, 12],
-                       [4, 8], [3, 6], [13, 15], [11, 14], [6, 9], [8, 11]]
-H36M_FULL_CONNECTIVITIES = [(0, 1), (0, 2), (0, 3), (1, 4), (2, 5), (3, 6), (4, 7), (5, 8), (6, 9), (7, 10), (8, 11), (9, 12),
-                            (9, 13), (9, 14), (12, 15), (13, 16), (14, 17), (16, 18), (17, 19), (18, 20), (19, 21), (20, 22),
-                            (21, 23)]
-H36M_CONNECTIVITIES = [ (0, 1), (1, 2), (2, 3), (0, 6), (6, 7), (7, 8), (0, 9), (9, 10), (10, 11), (11, 12), (10, 13),
-                        (13, 14), (14, 15), (10, 16), (16, 17), (17, 18), ]
-BLAZEPOSE_CONNECTIVITIES = [(1, 2), (1, 5), (2, 3), (3, 7), (5, 6), (6, 7), (7, 9), (6, 8), (8, 10), (5, 4), (4, 11),
-                            (11, 13), (13, 15), (15, 17), (17, 19), (19, 21), (6, 12), (12, 14), (14, 16), (16, 18),
-                            (18, 20), (20, 22), (11, 23), (12, 24), (23, 24), (23, 25), (24, 26), (25, 27), (27, 29),
-                            (29, 31), (26, 28), (28, 30), (30, 32)]
 
 def is_nan_or_0(array):
     is_nan = np.isnan(np.array(array))

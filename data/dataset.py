@@ -4,21 +4,14 @@ import numpy as np
 from torch.utils.data import Dataset
 
 from data.nuscenes_pred_split import get_nuscenes_pred_split
-from data.tbd_split import get_tbd_split
-from .preprocessor import preprocess
-from .preprocessor_sdd import SDDPreprocess
+from data.tbd_split import get_tbd_split, get_tbd_split_small
 from .tbd import TBDPreprocess
-from .jrdb_kp import jrdb_preprocess
-from .jrdb_kp2 import jrdb_preprocess as jrdb_preprocess_new
-from .jrdb_kp3 import jrdb_preprocess as jrdb_preprocess_w_action_label
-from .jrdb_kp4 import jrdb_preprocess as jrdb_preprocess_full
-from .jrdb_kp5 import jrdb_preprocess as jrdb_preprocess_like_hst
-from .jrdb_kp6 import jrdb_preprocess as jrdb_preprocess_w_learned_action_label
+from .jrdb_kp import jrdb_preprocess as jrdb_preprocess_full
+from .jrdb_kp_missing_ts import jrdb_preprocess as jrdb_preprocess_like_hst
+from .jrdb_kp_action import jrdb_preprocess as jrdb_preprocess_w_learned_action_label
 from .jrdb import jrdb_preprocess as jrdb_vanilla
 from .pedx import PedXPreprocess
-from .stanford_drone_split import get_stanford_drone_split
 from .jrdb_split import *#get_jackrabbot_split, get_jackrabbot_split_easy, get_jackrabbot_split_sanity
-from .ethucy_split import get_ethucy_split
 
 
 class AgentFormerDataset(Dataset):
@@ -31,15 +24,29 @@ class AgentFormerDataset(Dataset):
             self.single_seq = self.args.seq_frame.split(" ")[0]
             self.single_frame = int(self.args.seq_frame.split(" ")[1])
         self.past_frames = parser.past_frames
+        self.future_frames = parser.future_frames
         self.exclude_kpless_data = parser.get('exclude_kpless_data', False)
         self.min_past_frames = parser.min_past_frames
         self.frame_skip = parser.get('frame_skip', 1)
         if split == 'train':
-            self.data_skip = parser.get('data_skip', 1)
-        elif parser.get('keep_subsamples', False):
-            self.data_skip = 1
+            self.data_skip = parser.get('data_skip_train', None)
         else:
-            self.data_skip = self.frame_skip
+            self.data_skip = parser.get('data_skip_val', None)
+        if parser.get('data_skip_train', None) is None or parser.get('data_skip_val', None) is None:
+            import ipdb; ipdb.set_trace()
+        # if split == 'train':
+        #     if parser.get('keep_subsamples_train', False):
+        #         self.data_skip = parser.get('data_skip', 1)
+        #     else:
+        #         self.data_skip = self.frame_skip
+        # else:
+        #     if parser.get('keep_subsamples', False):
+        #         self.data_skip = 1
+        #     else:
+        #         self.data_skip = self.frame_skip
+        #     if parser.get('sliding_window', False):
+        #         self.data_skip = self.frame_skip * (self.past_frames + self.future_frames)
+
         self.phase = phase
         self.split = split
         self.dataset = parser.dataset
@@ -60,18 +67,7 @@ class AgentFormerDataset(Dataset):
         assert split in ['train', 'val', 'test'], 'error'
 
         self.split_type = split_type = parser.get('split_type', 'full')
-        if parser.dataset == 'nuscenes_pred':
-            data_root = parser.data_root_nuscenes_pred
-            seq_train, seq_val, seq_test = get_nuscenes_pred_split(data_root)
-            self.init_frame = 0
-        elif parser.dataset in {'eth', 'hotel', 'univ', 'zara1', 'zara2'}:
-            data_root = parser.data_root_ethucy
-            seq_train, seq_val, seq_test = get_ethucy_split(parser.dataset)
-            self.init_frame = 0
-        elif parser.dataset == 'trajnet_sdd':
-            data_root = parser.data_root_trajnet_sdd
-            seq_train, seq_val, seq_test = get_stanford_drone_split()
-        elif parser.dataset == 'jrdb':
+        if parser.dataset == 'jrdb':
             data_root = parser.data_root_jrdb
             if split_type == 'no_egomotion':
                 seq_train, seq_val, seq_test = get_jrdb_split_no_egomotion()
@@ -97,47 +93,25 @@ class AgentFormerDataset(Dataset):
                 seq_train, seq_val, seq_test = get_tbd_split()
             elif split_type == 'sanity':
                 seq_train, seq_val, seq_test = get_tbd_split(sanity=True)
+            elif split_type == 'small':
+                seq_train, seq_val, seq_test = get_tbd_split_small()
             else:
                 raise ValueError('Unknown split type!')
             self.init_frame = 0
-        elif parser.dataset == 'pedx':
-            data_root = parser.data_root_pedx
-            # use capture date as sequences
-            # split 1
-            # seq_train, seq_val, seq_test = (['20171130T2000_2', '20171130T2000_3', '20171207T2024'],
-            #                                 ['20171130T2000_0'],
-            #                                 ['20171130T2000_1'])
-            # split 2
-            seq_train, seq_val, seq_test = (['20171130T2000_2', '20171130T2000_3', '20171130T2000_4', '20171207T2024_0', ],
-                                            ['20171130T2000_0', '20171207T2024_1'],
-                                            ['20171130T2000_1', '20171207T2024_2'])
         else:
             raise ValueError('Unknown dataset!')
 
-        if 'sdd' in parser.dataset:
-            process_func = SDDPreprocess
-        elif parser.dataset in {'eth', 'hotel', 'univ', 'zara1', 'zara2'}:
-            process_func = preprocess
-        elif parser.dataset == 'nuscenes_pred':
-            process_func = preprocess
-        elif parser.dataset == 'jrdb':# and np.any(['kp' in it for it in parser.input_type]):
+        if parser.dataset == 'jrdb':# and np.any(['kp' in it for it in parser.input_type]):
             dl_v = parser.get('dataloader_version', 6)
             print(f"dl_v: {dl_v}")
-            if dl_v == 1:
-                process_func = jrdb_preprocess
-            elif dl_v == 2:
-                process_func = jrdb_preprocess_new
-            elif dl_v == 3:
-                process_func = jrdb_preprocess_w_action_label
-            elif dl_v == 4:
+            if dl_v == 4:
                 process_func = jrdb_preprocess_full
             elif dl_v == 5:
                 process_func = jrdb_preprocess_like_hst
             elif dl_v == 6:
                 process_func = jrdb_preprocess_w_learned_action_label
             else:
-                assert dl_v == 0
-                process_func = jrdb_vanilla
+                raise ValueError('Unknown dataloader version!')
         elif parser.dataset == 'tbd':
             data_root = parser.data_root_tbd
             process_func = TBDPreprocess

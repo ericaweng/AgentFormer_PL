@@ -10,7 +10,7 @@ class ModelCheckpointCustom(ModelCheckpoint):
     def on_train_epoch_end(self, trainer, pl_module):
         super().on_train_epoch_end(trainer, pl_module)
         if self.log_train_this_time:
-            pl_module.args.save_num = 10
+            pl_module.args.save_num = 5
             pl_module.log_viz(pl_module.outputs, 'train')
             pl_module.outputs = None
             self.log_train_this_time = False
@@ -22,7 +22,7 @@ class ModelCheckpointCustom(ModelCheckpoint):
                                or pl_module.current_epoch == 0
                                and hasattr(pl_module, 'outputs') and len(pl_module.outputs) > 0):
             if pl_module.current_epoch == 0:
-                pl_module.args.save_num = 10
+                pl_module.args.save_num = 5
                 pl_module.log_viz(pl_module.outputs, 'val')
                 pl_module.outputs = None
                 self.log_train_this_time = True

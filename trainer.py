@@ -12,7 +12,7 @@ from eval import eval_one_seq
 from utils.utils import mkdir_if_missing
 from utils.torch import get_scheduler
 
-from viz_utils_plot import _save_catch_all
+from visualization_scripts.visualization_helpers import _save_catch_all
 from data.categorize_interactions import get_interaction_matrix_for_scene, INTERACTION_CAT_ABBRS
 from data.ped_interactions import INTERACTION_CAT_NAMES
 from data.preprocess_w_odometry import agents_to_robot_frame
@@ -306,11 +306,15 @@ class AgentFormerTrainer(pl.LightningModule):
         results_dict = {}
         all_metrics = agg_metrics(all_metrics)
         for metric_name, results in all_metrics.items():
-            value = np.mean(results)
-            results_dict[metric_name] = value
+            if metric_name not in ['ADE_marginal', 'FDE_marginal', 'ADE_joint', 'FDE_joint', 'FDE_marginal_2s_agent', 'CR_mean']:
+                continue
             if 'marginal' in metric_name or metric_name == "MR":
                 value = np.sum(results * num_agent_per_seq) / np.sum(num_agent_per_seq)
                 results_dict[f"{metric_name}_agent"] = value
+            else:
+                value = np.mean(results)
+                results_dict[metric_name] = value
+            
         # mask should be [num_samples, num_agents, 1]
 
         # get stats related to collision_rejection sampling
@@ -339,7 +343,9 @@ class AgentFormerTrainer(pl.LightningModule):
                 f.write(f"total_peds\t{total_num_agents}")
 
             # save results broken down by interaction categories
-            # self.save_interaction_cat_results(outputs, all_ped_vals, total_num_agents)
+            self.save_interaction_cat_results(outputs, all_ped_vals, total_num_agents)
+        else:
+            import ipdb; ipdb.set_trace()
 
         # print results to console for easy copy-and-paste
         if is_test_mode:
@@ -472,6 +478,8 @@ class AgentFormerTrainer(pl.LightningModule):
                         value += np.sum(sequence_results[metric_name] * int_matrix[..., int_idx])
                     results1[(metric_name, int_name, 'pose+no_pose')] = value / total_peds_this_cat
                 results2[(int_name, 'fraction of peds in this cat / total peds')] = total_peds_this_cat / total_num_agents
+        else:
+            import ipdb; ipdb.set_trace()
 
         # aggregate by trajectories which have poses
         # (see if trajectories with poses in the observation perform better than those without)
