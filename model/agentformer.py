@@ -1035,10 +1035,10 @@ class AgentFormer(nn.Module):
             # assert self.data['fut_body_ori'].shape == (12, self.data['agent_num'], 2)
 
         if False and True: # plot these to see if they are correct
-            from visualization_scripts.smpl_model_utils import draw_skeleton_plotly, up_layout
+            from visualisation.smpl_model_utils import draw_skeleton_plotly, up_layout
             from plotly.subplots import make_subplots
             import plotly.graph_objects as go
-            from jrdb_toolkit.visualisation.visualize_constants import OPENPOSE44_CONNECTIONS
+            from visualisation.constants import OPENPOSE44_CONNECTIONS
 
             ts_viz = -1
             num_peds_viz = 2

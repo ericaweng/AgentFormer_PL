@@ -15,7 +15,7 @@ from data.datamodule import AgentFormerDataModule
 from utils.config import Config
 from trainer import AgentFormerTrainer
 from callbacks import ModelCheckpointCustom
-from visualization_scripts.visualization_helpers import SCENE_FRAMES_TO_PLOT
+from visualization_scripts.visualization_helpers_af import SCENE_FRAMES_TO_PLOT
 
 
 def main(args):
@@ -136,7 +136,7 @@ def main(args):
             logger.experiment.save('metrics.py')
             logger.experiment.save('trainer.py')
             logger.experiment.save('viz_utils_plot.py')
-            logger.experiment.save('visualization_scripts/viz_utils_univ.py')
+            logger.experiment.save('../jrdb_toolkit/visualisation/viz_utils_univ.py')
             if 'jrdb' in cfg.dataset:
                 logger.experiment.save('data/jrdb_kp5.py')
                 logger.experiment.save('data/jrdb_split.py')
@@ -184,7 +184,7 @@ def main(args):
         trainer = pl.Trainer(devices=1, accelerator=accelerator, default_root_dir=default_root_dir, logger=None,)
         trainer.test(model, datamodule=dm, ckpt_path=resume_from_checkpoint)
     elif 'viz' in args.mode:
-        from visualization_scripts.visualization_helpers import _save_viz_gt
+        from visualization_scripts.visualization_helpers_af import _save_viz_gt
         args.test_certain_frames_only = True
         args.peds = {
                 ('clark-center-2019-02-28_0', 40),
@@ -214,7 +214,7 @@ def main(args):
 
     elif 'viz_gt' in args.mode:
         print("visualizing ground truth")
-        from visualization_scripts.visualization_helpers import _save_viz_gt
+        from visualization_scripts.visualization_helpers_af import _save_viz_gt
 
         num_cpus = args.num_workers
         to_save_data = []

@@ -1,7 +1,7 @@
 
 def get_tbd_split_small(sanity=False):
     train=['1_0','1_1','1_2','1_3','1_4']
-    test=['2_0']
+    test=['10_0']# '2_0']#
     return train, test, test
 
 

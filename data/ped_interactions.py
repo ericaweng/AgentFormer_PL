@@ -6,6 +6,7 @@ from data.interactions_helper import (check_int, compute_dist_rel, compute_speed
 
 INTERACTION_CAT_NAMES = {
         's': 'static',
+        'ns': 'not static',
         'stm': 'static to moving',
         'mts': 'moving to static',
         'l': 'linear',
@@ -24,8 +25,8 @@ N_CATEGORIES = len(INTERACTION_CAT_ABBRS)
 # Converting the provided configuration into a Python dictionary with comments
 INTERACTION_HPARAMS = {
     # Thresholds for classifying static pedestrians
-    "static_dist_max": 0.5,  # Max distance traveled threshold (in meters)
-    "static_speed_max": 0.05,  # Max speed threshold for static pedestrians
+    "static_dist_max": 1,#0.5,  # Max distance traveled threshold (in meters)
+    "static_speed_max": 1000,#0.05,  # Max speed threshold for static pedestrians
 
     # Thresholds for classifying between static and moving pedestrians
     "moving_speed_min": 0.15,  # Min speed threshold for moving pedestrians
@@ -65,6 +66,12 @@ def _function_name(path, **kwargs):
              category, and info is a dict info relevant for plotting and visualization
     """
     pass
+
+
+def is_not_static(path, static_dist_max=INTERACTION_HPARAMS['static_dist_max'], static_speed_max=INTERACTION_HPARAMS['static_speed_max']):
+    # return not is_static(path, static_dist_max, static_speed_max)
+    res = is_static(path, static_dist_max, static_speed_max)
+    return ~res[0], res[1]
 
 
 def is_static(path, static_dist_max=INTERACTION_HPARAMS['static_dist_max'], static_speed_max=INTERACTION_HPARAMS['static_speed_max']):

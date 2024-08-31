@@ -12,7 +12,7 @@ from eval import eval_one_seq
 from utils.utils import mkdir_if_missing
 from utils.torch import get_scheduler
 
-from visualization_scripts.visualization_helpers import _save_catch_all
+from visualization_scripts.visualization_helpers_af import _save_catch_all
 from data.categorize_interactions import get_interaction_matrix_for_scene, INTERACTION_CAT_ABBRS
 from data.ped_interactions import INTERACTION_CAT_NAMES
 from data.preprocess_w_odometry import agents_to_robot_frame
@@ -309,7 +309,7 @@ class AgentFormerTrainer(pl.LightningModule):
             if metric_name not in ['ADE_marginal', 'FDE_marginal', 'ADE_joint', 'FDE_joint', 'FDE_marginal_2s_agent', 'CR_mean']:
                 continue
             if 'marginal' in metric_name or metric_name == "MR":
-                value = np.sum(results * num_agent_per_seq) / np.sum(num_agent_per_seq)
+                value = np.sum(results * num_agent_per_seq) / total_num_agents
                 results_dict[f"{metric_name}_agent"] = value
             else:
                 value = np.mean(results)
@@ -344,8 +344,6 @@ class AgentFormerTrainer(pl.LightningModule):
 
             # save results broken down by interaction categories
             self.save_interaction_cat_results(outputs, all_ped_vals, total_num_agents)
-        else:
-            import ipdb; ipdb.set_trace()
 
         # print results to console for easy copy-and-paste
         if is_test_mode:
@@ -433,12 +431,25 @@ class AgentFormerTrainer(pl.LightningModule):
         return [optimizer], scheduler
 
     def save_interaction_cat_results(self, outputs, all_ped_vals, total_num_agents):
-        # aggregate by interaction category
+        """
+        Save the results of the interaction category breakdown analysis to two results files:
+        results1: contains the performance of each category for each metric
+        results2: contains the fraction of pedestrians in each category relative to the total number of pedestrians
+        Args:
+            outputs (list): List of output data.
+            all_ped_vals (list): List of pedestrian values.
+            total_num_agents (int): Total number of agents.
+        Returns:
+            None
+        """
         results1 = {}
         results2 = {}
+        save_dir = '../viz/af_tbd_int_cat_results'
+        os.makedirs(save_dir, exist_ok=True)
+        base = f'{self.cfg.dataset}_dataskip-{self.cfg.data_skip_train}-{self.cfg.data_skip_val}_frames-{self.cfg.past_frames}-{self.cfg.future_frames}_splittype-{self.cfg.split_type}'
         if self.args.interaction_category:
             if self.int_matrices is None:  # need to compute or load in
-                int_matrices_path = f'../viz/af/jrdb_int_matrices.npy'
+                int_matrices_path = f'{save_dir}/{base}.npy'
                 if os.path.exists(int_matrices_path):  # load
                     self.int_matrices = int_matrices = np.load(int_matrices_path, allow_pickle=True).tolist()
                     # self.int_matrices = int_matrices = np.load(int_matrices_path, allow_pickle=True)['arr_0'].item()
@@ -458,28 +469,37 @@ class AgentFormerTrainer(pl.LightningModule):
                                                                 get_interaction_matrix_for_scene(
                                                                         np.concatenate([output['obs_motion'],
                                                 output['gt_motion'].swapaxes(0,1)], axis=0))[0] for output in outputs}
+                        os.makedirs(os.path.dirname(int_matrices_path), exist_ok=True)
                         np.save(int_matrices_path, int_matrices)
             else: # already computed
                 int_matrices = self.int_matrices
             # print('int_matrices', len(int_matrices), 'first 10 frames of int matrices', list(int_matrices.keys())[:10])
             assert len(outputs) == len(int_matrices), f"{len(outputs)} != {len(int_matrices)}"
+            assert len(all_ped_vals) == len(int_matrices), f"{len(all_ped_vals)} != {len(int_matrices)}"
 
             # get performance for each category
+            total_num_peds = 0
             for int_idx, int_cat in enumerate(INTERACTION_CAT_ABBRS):
-                total_peds_this_cat = np.sum([mat[..., int_idx].sum() for mat in int_matrices[:len(all_ped_vals)]])
+                total_peds_this_cat = 0
+                for scene_frame, mat in int_matrices.items():
+                    total_peds_this_cat += mat[..., int_idx].sum()
                 if total_peds_this_cat == 0:
                     continue
                 int_name = INTERACTION_CAT_NAMES[int_cat]
-                # np.sum(num_agent_per_seq[int_matrix[..., int_idx]])
                 for metric_name in ['ADE_marginal', 'ADE_joint']:
-                    #['ADE_marginal', 'FDE_marginal', 'CR_mean', 'ADE_joint', 'FDE_joint', 'CR_mADE', 'CR_mADEjoint']:
                     value = 0
-                    for int_matrix, sequence_results in zip(int_matrices, all_ped_vals):
+                    for (scene_frame, int_matrix), sequence_results in zip(int_matrices.items(), all_ped_vals):
                         value += np.sum(sequence_results[metric_name] * int_matrix[..., int_idx])
                     results1[(metric_name, int_name, 'pose+no_pose')] = value / total_peds_this_cat
                 results2[(int_name, 'fraction of peds in this cat / total peds')] = total_peds_this_cat / total_num_agents
-        else:
-            import ipdb; ipdb.set_trace()
+                results2[(int_name, 'total num peds')] = total_peds_this_cat
+                total_peds_this_scene = np.sum([mat.shape[0] for mat in int_matrices.values()])
+                total_num_peds += total_peds_this_scene
+            results2[('agg', 'total num peds')] = total_num_peds
+            # for metric_name in ['ADE_marginal', 'ADE_joint']:
+                # results1[(metric_name, 'agg', 'pose+no_pose')] = np.sum(np.concatenate([results[metric_name] for results in all_ped_vals])) / total_num_peds
+            results1[('ADE_marginal', 'agg', 'pose+no_pose')] = np.sum(np.concatenate([results['ADE_marginal'] for results in all_ped_vals])) / total_num_peds
+            results1[('ADE_joint', 'agg', 'pose+no_pose')] = np.sum(np.concatenate([results['FDE_marginal'] for results in all_ped_vals])) / total_num_peds
 
         # aggregate by trajectories which have poses
         # (see if trajectories with poses in the observation perform better than those without)
@@ -527,30 +547,43 @@ class AgentFormerTrainer(pl.LightningModule):
                         results1[(metric_name,int_name,'no_pose')] = value / total_peds_this_cat_no_pose
                     results2[(int_name, 'fraction of pose peds / pose + no pose peds')] = total_peds_this_cat_pose / total_peds_this_cat
 
-        import pandas as pd
-        save_dir = '../viz/af'
-        test_results_filename = f'{save_dir}/all_results.tsv'
-
         if len(results1) > 0:
             df = pd.DataFrame.from_dict(results1, orient='index')
             df.index = pd.MultiIndex.from_tuples(df.index)  # Convert index to MultiIndex
-            df = df.unstack()  # Unstack the MultiIndex
-            if os.path.exists(test_results_filename):
-                df_old = pd.read_csv(test_results_filename, sep='\t', index_col=[0, 1, 2])
-                df = pd.concat([df_old, df])
-            mkdir_if_missing(save_dir)
-            df.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
+            df = pd.concat({self.cfg.id: df}).rename_axis(index=['method', 'metric', 'interaction_category', 'all'])
+            # swap 1st and 2nd levels of the index of a non-hierarchical DataFrame
+            df = df.swaplevel(0, 1, axis=0).unstack()
+            df = df.swaplevel(1, 2, axis=0).unstack()
+            # remove column level
+            df.columns = df.columns.droplevel([0,1])
+            # save each outer index to a separate file
+            for outer_index in df.index.levels[0]:
+                df_new = df.loc[outer_index]
+                test_results_filename = f'{save_dir}/{outer_index}_{base}.tsv'
+                if os.path.exists(test_results_filename):
+                    df_old = pd.read_csv(test_results_filename, sep='\t', index_col=0)
+                    # if column is in old df, replace
+                    df_old = df_old.loc[:, ~df_old.columns.isin(df_new.columns)]
+                    df_new = pd.concat([df_old, df_new], axis=1)
+                df_new.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
 
         if len(results2) > 0:
             df2 = pd.DataFrame.from_dict(results2, orient='index')
             df2.index = pd.MultiIndex.from_tuples(df2.index)  # Convert index to MultiIndex
             df2 = df2.unstack()  # Unstack the MultiIndex
-            mkdir_if_missing(save_dir)
-            test_results_filename = f'{save_dir}/{self.cfg.get("split_type", "normal")}{"-trial" if self.args.trial else ""}_breakdowns.tsv'
-            if os.path.exists(test_results_filename):
-                df_old = pd.read_csv(test_results_filename, sep='\t', index_col=[0, 1, 2])
-                if not (df_old.shape == df2.shape and np.allclose(df_old.to_numpy(), df2.to_numpy())):
-                    import ipdb; ipdb.set_trace()
+            test_results_filename = f'{save_dir}/{base}_breakdowns.tsv'
+            df2.columns = df2.columns.droplevel(0)
+            # if os.path.exists(test_results_filename):
+            #     df_old = pd.read_csv(test_results_filename, sep='\t', index_col=[0, 1, 2])
+            #     if not (df_old.shape == df2.shape and np.allclose(df_old.to_numpy(), df2.to_numpy())):
+            #         import ipdb; ipdb.set_trace()
+            #     if (df_old.shape == df2.shape and np.allclose(df_old.to_numpy(), df2.to_numpy())):
+            #         df2 = pd.concat([df_old, df2])
             # test_results_filename = f'{save_dir}/{self.cfg.id}_interaction_category_totals.tsv'
-            df2.to_csv(test_results_filename, sep='\t', float_format='%.3f', header=True)
+            # save in float format for the first column, but not the rest
+            df2[df2.columns[0]] = df2[df2.columns[0]].apply(lambda x: '{:.3f}'.format(x) if not pd.isna(x) else "")
+            for col in df2.columns[1:]:
+                df2[col] = df2[col].apply(lambda x: '{:.0f}'.format(x) if not pd.isna(x) else "")
+
+            df2.to_csv(test_results_filename, sep='\t', header=True, index=True)
             print(f"wrote test results to {test_results_filename}")
