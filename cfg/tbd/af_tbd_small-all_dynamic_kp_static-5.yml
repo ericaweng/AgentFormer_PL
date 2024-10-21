@@ -1,0 +1,86 @@
+  # ------------------- General Options -------------------------
+
+seed: 0
+dataset: tbd
+frame_skip: 4
+data_skip_train: 28
+data_skip_val: 28
+data_root_tbd: datasets/tbd/2/Pedestrian_labels/3d_traj
+
+# ------------------- Feature Extractor -------------------------
+
+past_frames: 7
+future_frames: 12
+min_past_frames: 7 # jic
+min_future_frames: 12 # #2 # jic
+
+traj_scale: 1
+motion_dim: 2
+forecast_dim: 2
+
+# ------------------- Model -------------------------
+
+model_id: agentformer
+tf_version: v2
+tf_model_dim: 256
+tf_ff_dim: 512
+tf_nhead: 8
+tf_dropout: 0.1
+# dataloader_version: 4
+split_type: allan
+train_on_dynamic_only: True
+keep_static_prob: 0.5
+test_on_dynamic_only: true
+#exclude_kpless_data: true
+preprocess_data: true
+#include_robot_data: true
+#zero_kpless_data: true  # zero out kpless data during train and val
+input_type: ["scene_norm", "vel", "kp_norm", "kp_vel"]
+ckpt_monitor: "val/ADE_marginal_agent"
+pred_type: "scene_norm"
+sn_out_type: "norm"
+concat_all_inputs: false # if true, then concatenate all inputs as feature. else, kp features go in separate encoder as pos, vel, heading
+embedding_dim_sizes: 32,224 # should add to 256 given current implementation  # only if concat_all_inputs is false and add_kp is false
+add_kp: false
+max_train_agent: 32
+pos_concat: true
+rand_rot_scene: true
+scene_orig_all_past: true
+
+context_encoder:
+  nlayer: 2
+
+future_decoder:
+  nlayer: 2
+  out_mlp_dim: [512, 256]
+
+future_encoder:
+  nlayer: 2
+#  out_mlp_dim: [512, 256]
+
+# ------------------- VAE-------------------------
+
+nz: 32
+sample_k: 6
+learn_prior: true
+
+# ------------------- Training Parameters -------------------------
+
+lr: 1.e-4
+loss_cfg:
+  mse:
+    weight: 1.0
+  kld:
+    weight: 1.0
+    min_clip: 2.0
+  sample:
+    weight: 1.0
+    k: 6
+
+num_epochs: 100
+lr_fix_epochs: 3 # how many epochs to ramp_up, for ramp_up lr policy
+lr_scheduler: "step"
+decay_step: 10
+decay_gamma: 0.4
+print_freq: 20
+model_save_freq: 10
