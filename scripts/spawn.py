@@ -7,61 +7,19 @@ import glob
 from pathlib import Path
 import torch
 import argparse
-import subprocess
+
+from traj_toolkit.experiment_utils.spawn import spawn
 
 
-def get_cmds_wandb(args):
-    cmds = []
-    for i in range(args.max_cmds):
-        cmd = f"python pl_train.py --cfg zara2_agentformer_dlow_sfm_jr_laplacian  -ws"
-        cmds.append(cmd)
-    return cmds
 
-
-def get_cmds(args):
+def get_cmds_af(args):
     cmds = []
     cmd_i = 0  # index of cmd to-run (but not necessarily launched)
     no_model = 0
     already_computed = 0
-
+    results_dir = args.results_dir#'results_jrdb1'
     cfgs = args.cfgs
-    if cfgs is None:
-        cfgs = []
-        assert args.glob_str is not None, "must specify --cfgs or --glob_str"
-        for gs in args.glob_str:
-            cfgs.extend([str(file).split('.yml')[0].split('/')[-1]
-                         for file in chain(Path('cfg').rglob(f'*{gs}*/*.yml'), (Path('cfg').rglob(f'*{gs}*.yml')))])
-    cfgs = set(cfgs)
     print(f"{cfgs=}")
-
-    for cfg in cfgs:
-        cmd_i += 1
-        if cmd_i <= args.start_from:
-            continue
-        if len(cmds) >= args.max_cmds:
-            break
-        cmd = f"python pl_train.py {cfg} -wb jrdb_hist"
-        if 'hst_split' in cfg:
-            cmd += ' -tg "not controlled"'
-        cmds.append(cmd)
-
-    print("launching all cmds until cmd_i:", cmd_i)
-    assert len(cmds) <= args.max_cmds, f"{len(cmds)} !< {args.max_cmds}"
-    print("num no_model:", no_model)
-    print("num already_computed:", already_computed)
-    # print("num config_files:", len(config_files))
-    print("num yet to compute:", len(cmds))
-    # assert len(cmds) == len(cmd) - no_model - already_computed, f"{len(cmds)} != {len(config_files)} - {no_model} - {already_computed}"
-    return cmds
-
-
-def get_cmds_old(args):
-    cmds = []
-    cmd_i = 0  # index of cmd to-run (but not necessarily launched)
-    no_model = 0
-    already_computed = 0
-    results_dir = 'results_jrdb1'
-    cfgs = args.cfgs
 
     if cfgs is None:
         cfgs = []
@@ -93,16 +51,13 @@ def get_cmds_old(args):
             continue
 
         # specify command flags
-        if args.train:
-            tail = ''
+        if args.train and args.extra_flags is None:
+            tail = ' -wb af_jrdb_geom_feats'
+        elif args.train and args.extra_flags is not None:
+            print("extra_flags:", args.extra_flags)
+            tail = " "+args.extra_flags.strip()
         else:
             tail = ' -m test --save_traj'
-
-        if args.extra_flags is not None:
-            print("extra_flags:", args.extra_flags)
-            for flag in args.extra_flags:
-                flag = flag.strip()
-                tail += f" -{flag}"
 
         cmd = f"python pl_train.py {cfg}{tail}"
 
@@ -114,50 +69,8 @@ def get_cmds_old(args):
     assert len(cmds) <= args.max_cmds, f"{len(cmds)} !< {args.max_cmds}"
     print("num no_model:", no_model)
     print("num already_computed:", already_computed)
-    # print("num config_files:", len(config_files))
     print("num yet to compute:", len(cmds))
-    # assert len(cmds) == len(cmd) - no_model - already_computed, f"{len(cmds)} != {len(config_files)} - {no_model} - {already_computed}"
     return cmds
-
-
-def spawn(cmds, args):
-    """launch cmds in separate threads, max_cmds_at_a_time at a time, until no more cmds to launch"""
-    print(f"launching at most {args.max_cmds_at_a_time} cmds at a time:")
-
-    sps = []
-    num_gpus = len(args.gpus_available)
-    total_cmds_launched = 0  # total cmds launched so far
-    gpu_i = 0
-
-    while total_cmds_launched < len(cmds):
-        cmd = cmds[total_cmds_launched]
-        # assign gpu and launch on separate thread
-        # gpu_i = args.gpus_available[total_cmds_launched % num_gpus]
-        ngpn = args.num_gpus_per_node
-        gpu_str = []
-        for _ in range(ngpn):
-            gpu_str.append(str(args.gpus_available[gpu_i % num_gpus]))
-            gpu_i += 1
-        gpu_str = ','.join(gpu_str)
-        print(gpu_str, cmd)
-        env = {**os.environ, 'CUDA_VISIBLE_DEVICES': gpu_str}
-        if not args.trial:
-            if args.redirect_output:
-                output_filename = 'logs_output'
-                # output_filename = cmd.replace(' ', '_').replace('/', '_').replace('=', '_').replace('-', '_').replace('.', '_')
-                cmd = f"sudo {cmd} >> {output_filename}.txt 2>&1"
-            sp = subprocess.Popen(cmd, env=env, shell=True)
-            sps.append(sp)
-            if len(sps) >= args.max_cmds_at_a_time:
-                # this should work if all subprocesses take the same amount of time;
-                # otherwise we might be waiting longer than necessary
-                sps[0].wait()
-                sps = sps[1:]
-        total_cmds_launched += 1
-
-    print("total cmds launched:", total_cmds_launched)
-    [sp.wait() for sp in sps]
-    print(f"finished all {total_cmds_launched} processes")
 
 
 def get_cmds_vis():
@@ -198,14 +111,10 @@ def main(args):
         cmds = get_cmds_vis_compare()
     elif args.viz:
         cmds = get_cmds_vis()
-    elif args.wandb:
-        cmds = get_cmds_wandb(args)
-    # elif:
-    #     cmds = get_cmds(args)
     else:
-        cmds = get_cmds_old(args)
+        cmds = get_cmds_af(args)
 
-    spawn(cmds, args)
+    spawn(cmds, **vars(args))
 
 
 if __name__ == "__main__":
@@ -217,7 +126,6 @@ if __name__ == "__main__":
     argparser.add_argument('--num_gpus_per_node', '-ng', type=int, default=1)
     argparser.add_argument('--cfgs', '-cf', nargs='+', default=None)
     argparser.add_argument('--glob_str', '-g', nargs='+', default=None)
-    argparser.add_argument('--wandb', '-w', action='store_true')
     argparser.add_argument('--viz', '-v', action='store_true')
     argparser.add_argument('--viz_compare', '-vc', action='store_true')
     try:
@@ -228,6 +136,7 @@ if __name__ == "__main__":
     argparser.add_argument('--no_trial', '-nt', dest='trial', action='store_false', help='if not trial, then actually run the commands')
     argparser.add_argument('--redirect_output', '-ro', action='store_true')
     argparser.add_argument('--recompute_test', '-rt', action='store_true')
-    argparser.add_argument('--extra_flags', '-xf', nargs='+', default=None)
+    argparser.add_argument('--results_dir', '-rd', type=str, default='results_tbd')
+    argparser.add_argument('--extra_flags', '-xf', type=str, default=None)
 
     main(argparser.parse_args())

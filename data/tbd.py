@@ -1,7 +1,24 @@
+import os
 import torch
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from traj_toolkit.interaction_utils.categorize_interactions import get_interaction_matrix_for_scene, INTERACTION_CAT_ABBRS
+
+
+def process_pedestrians(arr, same_pedestrian_groups, remove_pedestrians):
+    # Remove rows where the second column has values in remove_pedestrians
+    arr = arr[~np.isin(arr[:, 1], remove_pedestrians)]
+    
+    # For each group in same_pedestrian_groups, set all second column values to the first element in the group
+    for group in same_pedestrian_groups:
+        first_value = min(group)
+        mask = np.isin(arr[:, 1], group)  # Create a mask for rows where the second column is in the group
+        arr[mask, 1] = first_value  # Set the second column value to the first element of the group
+
+    # ensure there is only one row per frame and pedestrian, otherwise delete the duplicates
+   
+    return arr
 
 
 class TBDPreprocess:
@@ -26,8 +43,14 @@ class TBDPreprocess:
         self.seq_name = seq_name
         self.split = split
         self.phase = phase
+        self.train_on_dynamic_only = parser.get('train_on_dynamic_only', False)
+        self.test_on_dynamic_only = parser.get('test_on_dynamic_only', False)
+        self.keep_static_prob = parser.get('keep_static_prob', 0)
 
-        self.gt = np.genfromtxt(f'{data_root}/{seq_name}.txt', delimiter=' ', dtype=float)
+        if "fixed" in parser.get("split_type", 'full'):
+            self.gt = np.genfromtxt(f'{data_root}/{seq_name}.txt.temp', delimiter=' ', dtype=float)
+        else:
+            self.gt = np.genfromtxt(f'{data_root}/{seq_name}.txt', delimiter=' ', dtype=float)
         if np.any(['kp' in i for i in parser.input_type]) or np.any(['ori' in i for i in parser.input_type]):
             self.kp_source = parser.get('kp_source', 'hmr2')
             if self.kp_source == 'blazepose':
@@ -35,7 +58,10 @@ class TBDPreprocess:
                 # self.kp_mask = np.arange(33)
                 import ipdb; ipdb.set_trace()
             elif self.kp_source == 'hmr2':
-                self.all_kp_data = np.load(f"{Path(data_root).parent.parent.parent}/tbd_hmr2_raw/{seq_name}_kp3d.npz", allow_pickle=True)['arr_0'].item()
+                try:
+                    self.all_kp_data = np.load(f"{Path(data_root).parent.parent.parent}/tbd_hmr2_raw/{seq_name}_kp3d.npz", allow_pickle=True)['arr_0'].item()
+                except FileNotFoundError:
+                    self.all_kp_data = np.load(f"{Path(data_root).parent.parent.parent}/tbd_hmr2_raw/{seq_name}_kp_3d.npz", allow_pickle=True)['arr_0'].item()
                 self.kp_mask = np.arange(44)
             else:
                 raise ValueError(f"kp_source {self.kp_source} not recognized")
@@ -107,40 +133,30 @@ class TBDPreprocess:
 
     def get_valid_id_pos_and_kp(self, pre_data, fut_data):
         valid_id = []
+        
+        def is_excluded(frame, idx):
+            return (self.exclude_kpless_data and (
+                idx not in frame['kp'] or
+                frame['kp'][idx] is None or
+                np.all(frame['kp'][idx] == 0) or
+                np.all(np.isnan(frame['kp'][idx]))
+            )) or (isinstance(frame['pos'], list) or idx not in frame['pos'][:, 1])
+
         for idx in np.unique(self.get_id(pre_data[0]['pos'])):
-            is_invalid = False
-            for frame in pre_data[:self.min_past_frames]:
-                exclude_kp = self.exclude_kpless_data and (
-                    idx not in frame['kp']
-                    or frame['kp'][idx] is None
-                    or np.all(frame['kp'][idx] == 0)
-                    or np.all(np.isnan(frame['kp'][idx]))
-                )
-                if isinstance(frame['pos'], list) or idx not in frame['pos'][:, 1] or exclude_kp:
-                    is_invalid = True
-                    break
-            if is_invalid:
+            if any(is_excluded(frame, idx) for frame in pre_data[:self.min_past_frames]):
                 continue
-            for frame_i, frame in enumerate(fut_data[:self.min_future_frames]):
-                exclude_kp = self.exclude_kpless_data and (
-                    idx not in frame['kp']
-                    or frame['kp'][idx] is None
-                    or np.all(frame['kp'][idx] == 0)
-                    or np.all(np.isnan(frame['kp'][idx]))
-                )
-                if isinstance(frame['pos'], list) or idx not in frame['pos'][:, 1] or exclude_kp:
-                    is_invalid = True
-                    break
-            if is_invalid:
+            
+            if any(is_excluded(frame, idx) for frame in fut_data[:self.min_future_frames]):
                 continue
-            if len(self.include_cats) > 0:
-                history_positions = np.array([p['pos'][p['pos'][:, 1] == idx][0][2:4] for p in pre_data])
+            
+            if (self.train_on_dynamic_only and self.split == 'train') or (self.test_on_dynamic_only and self.split in ['val', 'test']):
+                history_positions = np.array([p['pos'][p['pos'][:, 1] == idx][0][2:4] for p in pre_data[::-1]])
                 future_positions = np.array([p['pos'][p['pos'][:, 1] == idx][0][2:4] for p in fut_data])
-                pos = np.concatenate([history_positions, future_positions], axis=0)
-                if ped_interactions.is_moving_to_static(pos)[0] \
-                    or ped_interactions.is_static_to_moving(pos)[0] \
-                    or ped_interactions.is_non_linear(pos)[0]:
+                pos = np.concatenate([history_positions, future_positions], axis=0)[:, None]
+                
+                if get_interaction_matrix_for_scene(pos)[0][0, INTERACTION_CAT_ABBRS.index('s')] and (np.random.random() > self.keep_static_prob or self.split in ['val', 'test']):
                     continue
+            
             valid_id.append(idx)
 
         return valid_id
@@ -205,16 +221,6 @@ class TBDPreprocess:
     def get_formatted_fut_data(self, data_future, valid_id):
         return self.format_data(data_future, self.future_frames, valid_id)
 
-    def get_interaction_mask(self, pre_data, fut_data, valid_id):
-        mask = np.zeros(len(valid_id))
-        for idx, ped_idx in valid_id:
-            history_positions = np.array([p['pos'][p['pos'][:, 1] == ped_idx][0][2:4] for p in pre_data])
-            future_positions = np.array([p['pos'][p['pos'][:, 1] == ped_idx][0][2:4] for p in fut_data])
-            pos = np.concatenate([history_positions, future_positions], axis=0)
-            if ped_interactions.is_static(pos)[0]:
-                mask[idx] = 1
-        return mask
-
     def get_relevant_robot_data(self, frame):
         start_frame = frame - self.past_frames * self.frame_skip
         end_frame = frame + (1 + self.future_frames) * self.frame_skip
@@ -235,7 +241,6 @@ class TBDPreprocess:
 
         pre_motion, pre_motion_kp, pre_motion_mask = self.get_formatted_pre_data(pre_data, valid_id)
         fut_motion, fut_motion_kp, fut_motion_mask = self.get_formatted_fut_data(fut_data, valid_id)
-
         # curr_robot_data = self.get_relevant_robot_data(frame)
 
         data = {

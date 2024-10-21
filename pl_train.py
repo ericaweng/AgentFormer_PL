@@ -8,7 +8,7 @@ torch.set_float32_matmul_precision('medium')
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
+from pytorch_lightning.callbacks import EarlyStopping, TQDMProgressBar
 from pytorch_lightning.strategies import DDPStrategy
 
 from data.datamodule import AgentFormerDataModule
@@ -27,7 +27,15 @@ def main(args):
     if args.split_type is not None:
         cfg.split_type = args.split_type
         print(f"{cfg.split_type=}")
-
+    if args.test_on_dynamic_only is not None:
+        cfg.test_on_dynamic_only = args.test_on_dynamic_only
+        print(f"{cfg.test_on_dynamic_only=}")
+    if args.test_split is not None:
+        cfg.test_split = args.test_split
+        print(f"{cfg.test_split=}")
+    if args.keep_static_prob is not None:
+        cfg.keep_static_prob = args.keep_static_prob
+        print(f"{cfg.keep_static_prob=}")
     # Set global random seed
     pl.seed_everything(args.seed)
     print("Setting global seed:", args.seed)
@@ -136,7 +144,7 @@ def main(args):
             logger.experiment.save('metrics.py')
             logger.experiment.save('trainer.py')
             logger.experiment.save('viz_utils_plot.py')
-            logger.experiment.save('../jrdb_toolkit/visualisation/viz_utils_univ.py')
+            # logger.experiment.save('../jrdb_toolkit/visualisation/viz_utils_univ.py')
             if 'jrdb' in cfg.dataset:
                 logger.experiment.save('data/jrdb_kp5.py')
                 logger.experiment.save('data/jrdb_split.py')
@@ -286,7 +294,9 @@ if __name__ == '__main__':
     parser.add_argument('--frames', '-ff', default=SCENE_FRAMES_TO_PLOT)
     parser.add_argument('--exclude_kpless_data', '-ekd', action='store_true', default=None)
     parser.add_argument('--split_type', default=None)
-
+    parser.add_argument('--test_on_dynamic_only', '-tod', action='store_true', default=False)
+    parser.add_argument('--test_split', '-ts', default=None)
+    parser.add_argument('--keep_static_prob', '-ksp', type=float, default=None)
     args = parser.parse_args()
 
     main(args)

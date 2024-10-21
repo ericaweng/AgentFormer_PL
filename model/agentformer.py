@@ -25,8 +25,8 @@ def get_dims_from_input_type(cfg, key):
          'last_head_ori': 3, 'last_body_ori': 3,
          'last_left_leg_dir': 3, 'last_right_leg_dir': 3, 'last_mid_leg_dir': 3,
          'avg_left_leg_dir': 3, 'avg_right_leg_dir': 3, 'avg_mid_leg_dir': 3,
-         'kp_norm': 99 if cfg.get('kp_source', 'blazepose') == 'blazepose' else 44*3,  # 34,
-          'kp_vel': 99 if cfg.get('kp_source', 'blazepose') == 'blazepose' else 44*3,  # 34,  # 99 for hst blazepose kp, 34 for jrdb labelled 2d keypoints
+         'kp_norm': 99 if cfg.get('kp_source', 'hmr') == 'blazepose' else 44*3,  # 34,
+          'kp_vel': 99 if cfg.get('kp_source', 'hmr') == 'blazepose' else 44*3,  # 34,  # 99 for hst blazepose kp, 34 for jrdb labelled 2d keypoints
                     # 'kp_vel_3dhst': 34,
           'kp_scores': 17,
           'cam_intrinsics': 9, 'cam_extrinsics': 7, 'cam_id': 1,
@@ -801,7 +801,7 @@ class AgentFormer(nn.Module):
             'input_type_to_dims': cfg.get('input_type_to_dims', get_dims_from_input_type),
             'kp_dim': cfg.get('kp_dim', 3),
             'num_kp': cfg.get('num_kp', 24),
-                'kp_source': cfg.get('kp_source', 'blazepose'),
+                'kp_source': cfg.get('kp_source', 'hmr'),
             'n_projection_layer': cfg.get('n_projection_layer', 1),
             'use_learned_nan': cfg.get('use_learned_nan', False),
                 'mask_nan_after_embedding': cfg.get('mask_nan_after_embedding', False),
@@ -971,9 +971,9 @@ class AgentFormer(nn.Module):
             # avg_head_ori = avg_head_ori[..., :2]
             # fut_head_ori = fut_head_ori[..., :2]
 
-            self.data['last_head_ori'] = last_head_ori / (torch.norm(last_head_ori, dim=-1, keepdim=True) + 1e8)
+            # self.data['last_head_ori'] = last_head_ori / (torch.norm(last_head_ori, dim=-1, keepdim=True) + 1e8)
             self.data['pre_head_ori'] = pre_head_ori / (torch.norm(pre_head_ori, dim=-1, keepdim=True) + 1e8)
-            self.data['avg_head_ori'] = avg_head_ori / (torch.norm(avg_head_ori, dim=-1, keepdim=True) + 1e8)
+            # self.data['avg_head_ori'] = avg_head_ori / (torch.norm(avg_head_ori, dim=-1, keepdim=True) + 1e8)
             self.data['fut_head_ori'] = fut_head_ori / (torch.norm(fut_head_ori, dim=-1, keepdim=True) + 1e8)
 
             # assert self.data['last_head_ori'].shape == (self.data['agent_num'], 2)
@@ -1035,10 +1035,10 @@ class AgentFormer(nn.Module):
             # assert self.data['fut_body_ori'].shape == (12, self.data['agent_num'], 2)
 
         if False and True: # plot these to see if they are correct
-            from visualisation.smpl_model_utils import draw_skeleton_plotly, up_layout
+            from traj_toolkit.visualisation.smpl_model_utils import draw_skeleton_plotly, up_layout
             from plotly.subplots import make_subplots
             import plotly.graph_objects as go
-            from visualisation.constants import OPENPOSE44_CONNECTIONS
+            from traj_toolkit.visualisation.constants import OPENPOSE44_CONNECTIONS
 
             ts_viz = -1
             num_peds_viz = 2

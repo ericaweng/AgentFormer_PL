@@ -3,7 +3,7 @@
 import torch
 import numpy as np
 import pandas as pd
-from data import ped_interactions
+import traj_toolkit.interaction_utils.ped_interactions
 
 
 class jrdb_preprocess(object):
@@ -44,10 +44,11 @@ class jrdb_preprocess(object):
 
         trajectories_path = f'{data_root}/{seq_name}.txt'
         self.gt = np.genfromtxt(trajectories_path, delimiter=' ', dtype=float)
-        self.kp_source = parser.get('kp_source', 'blazepose')
+        self.kp_source = parser.get('kp_source', 'hmr2')
         if self.kp_source == 'blazepose':
             self.all_kp_data = np.load(f'{data_root}/agent_keypoints/{seq_name}_kp.npz', allow_pickle=True)[
                 'arr_0'].item()
+            # f'{Path(data_root).parent}/jrdb_og_odo_mdr-1000_ss3d_mot/'
             self.kp_mask = np.arange(33)
         elif self.kp_source == 'hmr2':
             from pathlib import Path
@@ -157,17 +158,35 @@ class jrdb_preprocess(object):
                     break
             if is_invalid:
                 continue
-            if len(self.include_cats) > 0:
-                history_positions = np.array([p['pos'][p['pos'][:, 1] == idx][0][2:4] for p in pre_data])
-                future_positions = np.array([p['pos'][p['pos'][:, 1] == idx][0][2:4] for p in fut_data])
-                pos = np.concatenate([history_positions, future_positions], axis=0)
-                if ped_interactions.is_moving_to_static(pos)[0] \
-                    or ped_interactions.is_static_to_moving(pos)[0] \
-                    or ped_interactions.is_non_linear(pos)[0]:
-                        continue
+           
             valid_id.append(idx)
 
         return valid_id
+    
+    def get_valid_ids(self, ids, pre_data, fut_data):
+        # combine pre_data and fut_data and stack
+        all_data = np.concatenate([d['pos'] for d in pre_data + fut_data])
+
+        min_dist_to_robot = self.parser.get('min_dist_to_robot', 1000.0)
+        # remove agents when their min distance from robot > min_dist_to_robot
+        # group by timestep (col 0) and then find distance to the robot at the same timestep
+
+        robot_data_df = pd.DataFrame(self.robot_data, columns=['frames', 'x', 'y', 'theta'])
+        gt_df = pd.DataFrame(all_data, columns=['frame', 'id', 'x', 'y', 'theta'])
+
+        # Merge and calculate the difference
+        merged_df = pd.merge(gt_df, robot_data_df, left_on='frame', right_on='frames', suffixes=('_gt', '_robot'), how='inner')
+        merged_df['x_diff'] = merged_df['x_gt'] - merged_df['x_robot']
+        merged_df['y_diff'] = merged_df['y_gt'] - merged_df['y_robot']
+
+        # group by timestep; find min dist to robot across timesteps; if min dist < min_dist_to_robot, keep agent; o/w remove agent and all associated timesteps for that agent.
+        merged_df['dist_to_robot'] = np.linalg.norm(merged_df[['x_diff', 'y_diff']].values, axis=1)
+        condition_by_ped = merged_df.groupby('id')['dist_to_robot'].min() < min_dist_to_robot
+
+        filtered_ids = [ped_id for ped_id in ids if ped_id in condition_by_ped[condition_by_ped].index]
+
+        return filtered_ids
+
 
     def get_heading(self, cur_data, valid_id):
         headings = []

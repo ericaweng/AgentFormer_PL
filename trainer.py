@@ -13,9 +13,9 @@ from utils.utils import mkdir_if_missing
 from utils.torch import get_scheduler
 
 from visualization_scripts.visualization_helpers_af import _save_catch_all
-from data.categorize_interactions import get_interaction_matrix_for_scene, INTERACTION_CAT_ABBRS
-from data.ped_interactions import INTERACTION_CAT_NAMES
-from data.preprocess_w_odometry import agents_to_robot_frame
+from traj_toolkit.interaction_utils.categorize_interactions import get_interaction_matrix_for_scene, INTERACTION_CAT_ABBRS
+from traj_toolkit.interaction_utils.ped_interactions import INTERACTION_CAT_NAMES
+from traj_toolkit.data_scripts.preprocess_w_odometry import agents_to_robot_frame
 
 
 def agg_metrics(all_metrics):
@@ -27,24 +27,6 @@ def agg_metrics(all_metrics):
                 d[k] = []
             d[k].append(v)
     return d
-
-def save_trajectories(trajectory, save_dir, seq_name, frame, suffix=''):
-    """Save trajectories in a text file.
-    Input:
-        trajectory: (np.array/torch.Tensor) Predcited trajectories with shape
-                    of (n_pedestrian, future_timesteps, 4). The last elemen is
-                    [frame_id, track_id, x, y] where each element is float.
-        save_dir: (str) Directory to save into.
-        seq_name: (str) Sequence name (e.g., eth_biwi, coupa_0)
-        frame: (num) Frame ID.
-        suffix: (str) Additional suffix to put into file name.
-    """
-    fname = f"{save_dir}/{seq_name}/frame_{int(frame):06d}{suffix}.txt"
-    mkdir_if_missing(fname)
-
-    if isinstance(trajectory, torch.Tensor):
-        trajectory = trajectory.cpu().numpy()
-    np.savetxt(fname, trajectory, fmt="%.3f")
 
 
 def df_to_array(df):
@@ -81,7 +63,7 @@ def df_to_array(df):
     return result_array
 
 
-def format_and_save_trajs(trajectory, data, future=True, save_name=None):
+def format_and_save_trajs(trajectory, data, future=True, save_name=None, convert_to_robot_frame=False):
     """trajectory: (num_peds, timesteps, 2)"""
     num_agents, num_timesteps, _ = trajectory.shape
     formatted_trajectories = []
@@ -114,7 +96,8 @@ def format_and_save_trajs(trajectory, data, future=True, save_name=None):
 
     agents_dict['yaw'] = np.zeros_like(agents_dict['id'])
     agents_df = pd.DataFrame(agents_dict).set_index(['timestep', 'id'])
-    agents_df = agents_to_robot_frame(agents_df, data['robot_data'])
+    if convert_to_robot_frame:
+        agents_df = agents_to_robot_frame(agents_df, data['robot_data'])
     agents_df['x'] = agents_df['p'].apply(lambda x: x[0])
     agents_df['y'] = agents_df['p'].apply(lambda x: x[1])
     agents_df2 = agents_df[['x', 'y']]
@@ -122,8 +105,6 @@ def format_and_save_trajs(trajectory, data, future=True, save_name=None):
     if save_name is not None:
         os.makedirs(os.path.dirname(save_name), exist_ok=True)
         agents_df2.to_csv(save_name, sep=' ', header=False)
-
-    return agents_df[['p', 'q']], agents_df2
 
 
 def format_agentformer_trajectories(trajectory, data, cfg, timesteps=12, frame_scale=10, future=True):
@@ -259,6 +240,9 @@ class AgentFormerTrainer(pl.LightningModule):
             elif self.dataset_name == 'jrdb':
                 save_dir = f'../results_traj_preds/af_traj_preds/{self.model_name}/{batch["seq"]}'
                 frame = batch['frame']
+            elif self.dataset_name == 'tbd':
+                save_dir = f'../results_traj_preds/af_traj_preds/{self.model_name}/{batch["seq"]}'
+                frame = batch['frame']
             else:
                 raise NotImplementedError
             for idx, sample in enumerate(pred_motion.transpose(0, 1)):
@@ -299,6 +283,14 @@ class AgentFormerTrainer(pl.LightningModule):
                                           collision_rad=self.collision_rad,
                                           return_sample_vals=self.args.save_viz), args_list)
         all_metrics, all_ped_vals, all_sample_vals, argmins, collision_mats = zip(*all_metrics)
+
+        # dict maping seq, frame to ped vals
+        seq_frame_to_ped_vals = {}
+        for output, ped_vals in zip(outputs, all_ped_vals):
+            seq_frame_to_ped_vals[(output['seq'], output['frame'])] = ped_vals
+        # print(f"{seq_frame_to_ped_vals.keys()=}")
+        # print(f"{list(seq_frame_to_ped_vals.keys())[:1]=}")
+        # import ipdb; ipdb.set_trace()
 
         # aggregate metrics across sequences
         num_agent_per_seq = np.array([output['gt_motion'].shape[0] for output in outputs])
@@ -341,21 +333,23 @@ class AgentFormerTrainer(pl.LightningModule):
                         continue
                     f.write(f"{value:.4f}\n")
                 f.write(f"total_peds\t{total_num_agents}")
-
-            # save results broken down by interaction categories
-            self.save_interaction_cat_results(outputs, all_ped_vals, total_num_agents)
-
         # print results to console for easy copy-and-paste
+        
         if is_test_mode:
             print(f"\n\n\n{self.current_epoch}")
             for metric_name, value in results_dict.items():
                 print(f"{metric_name}\t{value:.4f}")
             print(total_num_agents)
 
+            # save results broken down by interaction categories
+            self.save_interaction_cat_results(outputs, all_ped_vals, total_num_agents)
+
+
+
         # log metrics to tensorboard
         if not is_test_mode:
             # for metric_name, value in results_dict.items():
-            for metric_name in ['ADE_marginal_agent', 'FDE_marginal_agent', 'ADE_joint', 'FDE_joint', 'FDE_marginal_2s_agent', 'CR_mean']:
+            for metric_name in ['ADE_marginal_agent', 'FDE_marginal_agent', 'ADE_joint', 'FDE_joint', ]:#'FDE_marginal_2s_agent', 'CR_mean']:
                 value = results_dict[metric_name]
                 self.log(f'{mode}/{metric_name}', value, sync_dist=True, on_epoch=True, prog_bar=True, logger=True)
             # self.log(f'{mode}/total_num_agents', float(total_num_agents), sync_dist=True, logger=True)
@@ -406,6 +400,10 @@ class AgentFormerTrainer(pl.LightningModule):
             self.log_viz(outputs_processed, 'test')
 
     def on_load_checkpoint(self, checkpoint):
+        if 'pytorch-lightning_version' in checkpoint:
+            self.current_epoch_model = checkpoint['epoch']
+        else:
+            import ipdb; ipdb.set_trace()
         if 'model_dict' in checkpoint and 'epoch' in checkpoint:
             checkpoint['state_dict'] = {f'model.{k}': v for k, v in checkpoint['model_dict'].items()}
             checkpoint['global_step'] = None  # checkpoint['epoch'] * jb
@@ -430,6 +428,31 @@ class AgentFormerTrainer(pl.LightningModule):
 
         return [optimizer], scheduler
 
+    def get_interaction_matrices(self, outputs, int_matrices_path):
+        if self.int_matrices is None:  # need to compute or load in
+            if os.path.exists(int_matrices_path):  # load
+                self.int_matrices = int_matrices = np.load(int_matrices_path, allow_pickle=True).tolist()
+            else: # compute
+                if self.args.mp: # compute in parallel
+                    with multiprocessing.Pool(self.num_workers) as pool:
+                        int_matrices = pool.map(get_interaction_matrix_for_scene,
+                                                [np.concatenate([output['obs_motion'],
+                                                                    output['gt_motion'].swapaxes(0,1)], axis=0)[0]
+                                                    for output in outputs])
+                        self.int_matrices = int_matrices = {(output['seq'], output['frame']): mat
+                                                            for output, mat in zip(outputs, int_matrices)}
+                        np.save(int_matrices_path, int_matrices)
+                else:  # compute in serial
+                    self.int_matrices = int_matrices = {(output['seq'], output['frame']):
+                                                            get_interaction_matrix_for_scene(
+                                                                    np.concatenate([output['obs_motion'],
+                                            output['gt_motion'].swapaxes(0,1)], axis=0))[0] for output in outputs}
+                    os.makedirs(os.path.dirname(int_matrices_path), exist_ok=True)
+                    np.save(int_matrices_path, int_matrices)
+        else: # already computed
+            int_matrices = self.int_matrices
+        return int_matrices
+
     def save_interaction_cat_results(self, outputs, all_ped_vals, total_num_agents):
         """
         Save the results of the interaction category breakdown analysis to two results files:
@@ -446,39 +469,16 @@ class AgentFormerTrainer(pl.LightningModule):
         results2 = {}
         save_dir = '../viz/af_tbd_int_cat_results'
         os.makedirs(save_dir, exist_ok=True)
-        base = f'{self.cfg.dataset}_dataskip-{self.cfg.data_skip_train}-{self.cfg.data_skip_val}_frames-{self.cfg.past_frames}-{self.cfg.future_frames}_splittype-{self.cfg.split_type}'
-        if self.args.interaction_category:
-            if self.int_matrices is None:  # need to compute or load in
-                int_matrices_path = f'{save_dir}/{base}.npy'
-                if os.path.exists(int_matrices_path):  # load
-                    self.int_matrices = int_matrices = np.load(int_matrices_path, allow_pickle=True).tolist()
-                    # self.int_matrices = int_matrices = np.load(int_matrices_path, allow_pickle=True)['arr_0'].item()
-                    # self.int_matrices = int_matrices = np.load(int_matrices_path, allow_pickle=True)['arr_0'].item()
-                else: # compute
-                    if self.args.mp: # compute in parallel
-                        with multiprocessing.Pool(self.num_workers) as pool:
-                            int_matrices = pool.map(get_interaction_matrix_for_scene,
-                                                    [np.concatenate([output['obs_motion'],
-                                                                     output['gt_motion'].swapaxes(0,1)], axis=0)[0]
-                                                     for output in outputs])
-                            self.int_matrices = int_matrices = {(output['seq'], output['frame']): mat
-                                                                for output, mat in zip(outputs, int_matrices)}
-                            np.save(int_matrices_path, int_matrices)
-                    else:  # compute in serial
-                        self.int_matrices = int_matrices = {(output['seq'], output['frame']):
-                                                                get_interaction_matrix_for_scene(
-                                                                        np.concatenate([output['obs_motion'],
-                                                output['gt_motion'].swapaxes(0,1)], axis=0))[0] for output in outputs}
-                        os.makedirs(os.path.dirname(int_matrices_path), exist_ok=True)
-                        np.save(int_matrices_path, int_matrices)
-            else: # already computed
-                int_matrices = self.int_matrices
-            # print('int_matrices', len(int_matrices), 'first 10 frames of int matrices', list(int_matrices.keys())[:10])
-            assert len(outputs) == len(int_matrices), f"{len(outputs)} != {len(int_matrices)}"
-            assert len(all_ped_vals) == len(int_matrices), f"{len(all_ped_vals)} != {len(int_matrices)}"
+        base = f'{self.cfg.dataset}_dataskip-{self.cfg.data_skip_train}-{self.cfg.data_skip_val}_frames-{self.cfg.past_frames}-{self.cfg.future_frames}_splittype-{self.cfg.split_type}_{"testondyn" if self.cfg.test_on_dynamic_only else ""}'
 
+        if self.args.interaction_category:
+            int_matrices_path = f'{save_dir}/{base}.npy'
+            int_matrices = self.get_interaction_matrices(outputs, int_matrices_path)
+           # print('int_matrices', len(int_matrices), 'first 10 frames of int matrices', list(int_matrices.keys())[:10])
+            if len(outputs) != len(int_matrices) or len(all_ped_vals) != len(int_matrices):
+                import ipdb; ipdb.set_trace()
+                print(f"Mismatch in lengths: outputs={len(outputs)}, all_ped_vals={len(all_ped_vals)}, int_matrices={len(int_matrices)}")
             # get performance for each category
-            total_num_peds = 0
             for int_idx, int_cat in enumerate(INTERACTION_CAT_ABBRS):
                 total_peds_this_cat = 0
                 for scene_frame, mat in int_matrices.items():
@@ -493,20 +493,18 @@ class AgentFormerTrainer(pl.LightningModule):
                     results1[(metric_name, int_name, 'pose+no_pose')] = value / total_peds_this_cat
                 results2[(int_name, 'fraction of peds in this cat / total peds')] = total_peds_this_cat / total_num_agents
                 results2[(int_name, 'total num peds')] = total_peds_this_cat
-                total_peds_this_scene = np.sum([mat.shape[0] for mat in int_matrices.values()])
-                total_num_peds += total_peds_this_scene
+            total_num_peds = np.sum([mat.shape[0] for mat in int_matrices.values()])
+            assert total_num_peds == total_num_agents, f'total_num_peds={total_num_peds}, total_num_agents={total_num_agents}'
             results2[('agg', 'total num peds')] = total_num_peds
-            # for metric_name in ['ADE_marginal', 'ADE_joint']:
-                # results1[(metric_name, 'agg', 'pose+no_pose')] = np.sum(np.concatenate([results[metric_name] for results in all_ped_vals])) / total_num_peds
             results1[('ADE_marginal', 'agg', 'pose+no_pose')] = np.sum(np.concatenate([results['ADE_marginal'] for results in all_ped_vals])) / total_num_peds
             results1[('ADE_joint', 'agg', 'pose+no_pose')] = np.sum(np.concatenate([results['FDE_marginal'] for results in all_ped_vals])) / total_num_peds
 
         # aggregate by trajectories which have poses
         # (see if trajectories with poses in the observation perform better than those without)
-        if 'joints' in self.cfg.id or 'kp' in self.cfg.id:
+        if False:# and 'joints' in self.cfg.id or 'kp' in self.cfg.id or 'ori' in self.cfg.id:
             # num_keypoints * obs_steps
             thresh = 10 * 8
-            pose_masks = [torch.cat([output['data']['pre_kp_scores']]).sum(0).sum(-1).cpu().numpy() > thresh for output in outputs]
+            pose_masks = [torch.all(torch.cat([output['data']['pre_kp_norm']])!=0, dim=-1).sum(0).sum(-1).cpu().numpy() > thresh for output in outputs]
             # num_seq, (num_timesteps, num_peds, num_kp)
             total_pose_peds = np.sum([np.sum(mask) for mask in pose_masks])
             total_no_pose_peds = total_num_agents - total_pose_peds
@@ -523,6 +521,7 @@ class AgentFormerTrainer(pl.LightningModule):
                 results1[(metric_name,'agg','no_pose')] = value / total_no_pose_peds
             assert np.sum([len(m) for m in pose_masks]) == total_num_agents
             results2[('agg','fraction of pose peds / pose + no pose peds')] = total_pose_peds / total_num_agents
+            import ipdb; ipdb.set_trace()
 
             if self.args.interaction_category:
                 # get performance for each category
@@ -573,14 +572,6 @@ class AgentFormerTrainer(pl.LightningModule):
             df2 = df2.unstack()  # Unstack the MultiIndex
             test_results_filename = f'{save_dir}/{base}_breakdowns.tsv'
             df2.columns = df2.columns.droplevel(0)
-            # if os.path.exists(test_results_filename):
-            #     df_old = pd.read_csv(test_results_filename, sep='\t', index_col=[0, 1, 2])
-            #     if not (df_old.shape == df2.shape and np.allclose(df_old.to_numpy(), df2.to_numpy())):
-            #         import ipdb; ipdb.set_trace()
-            #     if (df_old.shape == df2.shape and np.allclose(df_old.to_numpy(), df2.to_numpy())):
-            #         df2 = pd.concat([df_old, df2])
-            # test_results_filename = f'{save_dir}/{self.cfg.id}_interaction_category_totals.tsv'
-            # save in float format for the first column, but not the rest
             df2[df2.columns[0]] = df2[df2.columns[0]].apply(lambda x: '{:.3f}'.format(x) if not pd.isna(x) else "")
             for col in df2.columns[1:]:
                 df2[col] = df2[col].apply(lambda x: '{:.0f}'.format(x) if not pd.isna(x) else "")

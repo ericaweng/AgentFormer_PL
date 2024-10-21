@@ -121,9 +121,9 @@ class DLow(nn.Module):
         #     model_cp = torch.load(cp_path, map_location='cpu')
         #     pred_model.load_state_dict(model_cp['model_dict'])
         else:
-            glob_str = f'{cfg.results_root_dir}/{pred_cfg.id}/*.ckpt'
+            # glob_str = f'{cfg.results_root_dir}/{pred_cfg.id}/*.ckpt'
+            glob_str = f'results_jmm/{pred_cfg.id}/*.ckpt'
             cp_path = glob.glob(glob_str)
-            print("models:", cp_path)
             cp_path = cp_path[-1]
             model_cp = torch.load(cp_path, map_location='cpu')
             try:

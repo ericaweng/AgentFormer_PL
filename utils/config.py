@@ -7,7 +7,7 @@ from easydict import EasyDict
 
 class Config:
 
-    def __init__(self, cfg_id):
+    def __init__(self, cfg_id,tmp=None,create_dirs=False):
         self.id = cfg_id
         cfg_path = 'cfg/**/%s.yml' % cfg_id
         files = glob.glob(cfg_path, recursive=True)

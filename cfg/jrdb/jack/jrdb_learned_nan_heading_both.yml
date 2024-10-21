@@ -31,7 +31,6 @@ preprocess_data: true
 include_robot_data: true
 use_learned_nan: true  # o/w, use 0 for values where position is unavailable
 min_dist_to_robot: 7  #1000.0
-keep_subsamples: false
 #mask: true  # for calculating loss
 #exclude_kpless_data: true
 #zero_kpless_data: true  # zero out kpless data during train and val
