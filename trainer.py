@@ -15,7 +15,7 @@ from utils.torch import get_scheduler
 from visualization_scripts.visualization_helpers_af import _save_catch_all
 from traj_toolkit.interaction_utils.categorize_interactions import get_interaction_matrix_for_scene, INTERACTION_CAT_ABBRS
 from traj_toolkit.interaction_utils.ped_interactions import INTERACTION_CAT_NAMES
-from traj_toolkit.data_scripts.preprocess_w_odometry import agents_to_robot_frame
+from traj_toolkit.data_utils.preprocess_w_odometry import agents_to_robot_frame
 
 
 def agg_metrics(all_metrics):

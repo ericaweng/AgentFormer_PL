@@ -2,7 +2,7 @@
 
 import glob
 import numpy as np
-from traj_toolkit.data_scripts.tbd_interesting_scenes import SAME_PEDESTRIAN_GROUPS, REMOVE_PEDESTRIANS
+from traj_toolkit.data_utils.tbd_interesting_scenes import SAME_PEDESTRIAN_GROUPS, REMOVE_PEDESTRIANS
 
 
 def process_pedestrians(arr, same_pedestrian_groups, remove_pedestrians):

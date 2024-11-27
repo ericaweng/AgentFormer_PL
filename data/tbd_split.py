@@ -50,7 +50,7 @@ def get_tbd_split_allan():
 
 
 def get_tbd_interesting_scenes_and_frames():
-    from traj_toolkit.data_scripts.tbd_interesting_scenes import INTERESTING_SCENES
+    from traj_toolkit.data_utils.tbd_interesting_scenes import INTERESTING_SCENES
     sorted_scenes = dict(sorted(INTERESTING_SCENES.items(), key=lambda x: x[0]))
     return sorted_scenes
 
@@ -72,7 +72,7 @@ def get_frame_ids_with_margin(scenes_dict, frame_skip=4, margin=2):
     return new_dict
 
 def get_test_tbd_interesting_scenes():
-    from traj_toolkit.data_scripts.tbd_interesting_scenes import INTERESTING_SCENES
+    from traj_toolkit.data_utils.tbd_interesting_scenes import INTERESTING_SCENES
     sorted_scenes = INTERESTING_SCENES
     scenes = [k for k, v in sorted_scenes.items() if len(v) > 0]
     lenn = int(len(scenes)*3/4)
@@ -80,7 +80,7 @@ def get_test_tbd_interesting_scenes():
 
 
 def get_tbd_interesting_scenes():
-    from traj_toolkit.data_scripts.tbd_interesting_scenes import INTERESTING_SCENES
+    from traj_toolkit.data_utils.tbd_interesting_scenes import INTERESTING_SCENES
     sorted_scenes = INTERESTING_SCENES#get_tbd_interesting_scenes_and_frames()
     scenes = [k for k, v in sorted_scenes.items() if len(v) > 0]
     lenn = int(len(scenes)*3/4)

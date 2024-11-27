@@ -10,7 +10,7 @@ from .jrdb_kp import jrdb_preprocess as jrdb_preprocess_full
 from .jrdb_kp_missing_ts import jrdb_preprocess as jrdb_preprocess_like_hst
 from .jrdb_kp_action import jrdb_preprocess as jrdb_preprocess_w_learned_action_label
 from .pedx import PedXPreprocess
-from traj_toolkit.data_scripts.tbd_interesting_scenes import INTERESTING_SCENES
+from traj_toolkit.data_utils.tbd_interesting_scenes import INTERESTING_SCENES
 
 
 class AgentFormerDataset(Dataset):

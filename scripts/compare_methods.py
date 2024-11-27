@@ -8,8 +8,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from eval import eval_one_seq
 from jrdb_toolkit.traj_toolkit.visualisation.visualize_utils import *
 from jrdb_toolkit.traj_toolkit.visualisation.visualize_constants import *
-from traj_toolkit.data_scripts.preprocess_w_odometry import get_agents_dict_from_detections, get_agents_features_with_box
-from traj_toolkit.data_scripts.preprocess_test_w_odometry import get_agents_features_df_with_box
+from traj_toolkit.data_utils.preprocess_w_odometry import get_agents_dict_from_detections, get_agents_features_with_box
+from traj_toolkit.data_utils.preprocess_test_w_odometry import get_agents_features_df_with_box
 
 
 def get_agents_df(scene):

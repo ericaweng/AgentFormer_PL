@@ -9,9 +9,9 @@ from matplotlib.animation import FuncAnimation
 
 from traj_toolkit.visualisation.calculate_geometric_features_from_hmr_kp import calculate_geometric_features_from_hmr_kp
 from traj_toolkit.visualisation.constants import MAX_DISTANCE_TO_ROBOT, TRAIN, TEST_LOCATION_TO_ID, TRACKING_METHOD, TEST, HMR_KEYPOINT_DIM, OPENPOSE44_CONNECTIONS, ALL_SESSIONS_TBD
-from traj_toolkit.data_scripts.preprocess_w_odometry import get_agents_dict_from_detections, get_agents_features_with_box, get_agents_keypoints, get_robot, get_robot_kiss_icp, robot_to_odometry_frame
-from data_scripts.load_utils import get_agents_keypoints_hmr, get_agents_df_from_txt
-from traj_toolkit.data_scripts.preprocess_test_w_odometry import get_agents_features_df_with_box
+from traj_toolkit.data_utils.preprocess_w_odometry import get_agents_dict_from_detections, get_agents_features_with_box, get_agents_keypoints, get_robot, get_robot_kiss_icp, robot_to_odometry_frame
+from data_utils.load_utils import get_agents_keypoints_hmr, get_agents_df_from_txt
+from traj_toolkit.data_utils.preprocess_test_w_odometry import get_agents_features_df_with_box
 from traj_toolkit.visualisation.viz_utils_univ import draw_pose_3d_single_frame
 
 import plotly.graph_objects as go
@@ -168,7 +168,7 @@ def load_robot_df(location, use_old_robot_odo=False):
     if use_old_robot_odo:
         robot_path = f"{root_location}/processed/odometry/{'train' if location in TRAIN else 'test'}"
     else:
-        robot_path = "datasets/jrdb_egomotion_kiss-icp_3d"
+        robot_path = f"{root_location}/jrdb_egomotion_kiss-icp_3d"
 
     if use_old_robot_odo:
         robot_odom = get_robot(robot_path, location)
